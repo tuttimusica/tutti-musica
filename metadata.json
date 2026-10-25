@@ -1,0 +1,6 @@
+{
+  "name": "Tutti ♪ - Escola de Música Online & Maestro IA",
+  "description": "Plataforma brasileira inovadora de educação musical com aulas interativas, biblioteca de partituras com transposição, estúdio virtual com sintetizador e metrônomo, e o Maestro IA para acelerar seu aprendizado musical.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

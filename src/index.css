@@ -1,0 +1,342 @@
+@import "tailwindcss";
+
+:root {
+  --background: #0f0b08;
+  --foreground: #fcf8f2;
+  --card: #18130e;
+  --card-hover: #231b14;
+  --card-foreground: #fcf8f2;
+  --primary: #d4af37;
+  --primary-gold: #d4af37;
+  --primary-wood: #4a2e1f;
+  --primary-gradient: linear-gradient(135deg, #10b981 0%, #06b6d4 45%, #8b5cf6 100%);
+  --accent-gold: #e5c158;
+  --accent-purple: #8b5cf6;
+  --accent-emerald: #10b981;
+  --muted: #241c15;
+  --muted-foreground: #a89485;
+  --border: rgba(212, 175, 55, 0.16);
+  --border-focus: rgba(212, 175, 55, 0.5);
+  --radius: 1rem;
+}
+
+/* White / Light Theme - Warm Linen & Fine Wood from School Logo */
+.theme-light {
+  --background: #faf6f0;
+  --foreground: #2b1a11;
+  --card: #ffffff;
+  --card-hover: #f5ede1;
+  --card-foreground: #2b1a11;
+  --muted: #f2e8dc;
+  --muted-foreground: #705544;
+  --border: #e6dbcb;
+  --border-focus: rgba(184, 134, 11, 0.6);
+  background-color: #faf6f0 !important;
+  color: #2b1a11 !important;
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  overflow-x: hidden;
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+h1, h2, h3, h4, h5, h6, .font-syne, .font-heading {
+  font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  letter-spacing: -0.025em;
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Header & Mobile Navigation in Light Mode */
+.theme-light header {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-bottom: 1px solid #e6dbcb !important;
+  box-shadow: 0 4px 20px -4px rgba(43, 26, 17, 0.08) !important;
+}
+.theme-light header .text-white {
+  color: #2b1a11 !important;
+}
+.theme-light header .bg-\[\#131722\],
+.theme-light header .bg-\[\#18130e\] {
+  background-color: #f5ede1 !important;
+  border-color: #e6dbcb !important;
+}
+.theme-light header .text-slate-300 {
+  color: #4a3424 !important;
+}
+.theme-light header .text-slate-400 {
+  color: #705544 !important;
+}
+.theme-light nav.xl\:hidden {
+  background-color: rgba(255, 255, 255, 0.96) !important;
+  border-top-color: #e6dbcb !important;
+  box-shadow: 0 -4px 20px -4px rgba(43, 26, 17, 0.08) !important;
+}
+
+/* Primary Card Surfaces */
+.theme-light .bg-\[\#131722\],
+.theme-light .bg-\[\#18130e\],
+.theme-light .bg-\[\#1f1813\],
+.theme-light .bg-\[\#151a27\],
+.theme-light .bg-\[\#161c2b\],
+.theme-light .bg-\[\#192030\],
+.theme-light .bg-\[\#1a2133\] {
+  background-color: #ffffff !important;
+  border-color: #e6dbcb !important;
+  box-shadow: 0 4px 20px -2px rgba(43, 26, 17, 0.06), 0 1px 4px -1px rgba(43, 26, 17, 0.04) !important;
+}
+
+/* Secondary Panels & Inner Groupings */
+.theme-light .bg-\[\#0b0d14\],
+.theme-light .bg-\[\#0f0b08\],
+.theme-light .bg-\[\#120e0b\],
+.theme-light .bg-\[\#08090e\],
+.theme-light .bg-\[\#07080c\],
+.theme-light .bg-\[\#101420\],
+.theme-light .bg-\[\#181d2a\] {
+  background-color: #f7f1e7 !important;
+  border-color: #e6dbcb !important;
+}
+
+/* Subtle Interactive Hovers */
+.theme-light .hover\:bg-\[\#191f2e\]:hover,
+.theme-light .hover\:bg-\[\#231b14\]:hover,
+.theme-light .hover\:bg-white\/5:hover {
+  background-color: #f5ede1 !important;
+}
+.theme-light .hover\:bg-white\/10:hover {
+  background-color: #ede2d3 !important;
+}
+.theme-light .bg-white\/5 {
+  background-color: #f5ede1 !important;
+  border-color: #e6dbcb !important;
+}
+.theme-light .bg-white\/10 {
+  background-color: #ede2d3 !important;
+  border-color: #dbcebc !important;
+}
+
+/* Typography Hierarchy in Light Mode */
+.theme-light h1,
+.theme-light h2,
+.theme-light h3,
+.theme-light h4,
+.theme-light h5,
+.theme-light h6 {
+  color: #2b1a11 !important;
+}
+.theme-light .text-white {
+  color: #2b1a11;
+}
+.theme-light .text-slate-100 {
+  color: #2b1a11 !important;
+}
+.theme-light .text-slate-200 {
+  color: #3d2719 !important;
+}
+.theme-light .text-slate-300 {
+  color: #543928 !important;
+}
+.theme-light .text-slate-400 {
+  color: #705544 !important;
+}
+
+/* CRITICAL: Preserve high-contrast text on dark, vibrant, or gradient buttons & pills */
+.theme-light .btn-dark,
+.theme-light [class*="bg-slate-900"],
+.theme-light [class*="bg-slate-800"],
+.theme-light [class*="bg-slate-950"],
+.theme-light [class*="bg-black"],
+.theme-light [class*="bg-rose-500"],
+.theme-light [class*="bg-rose-600"],
+.theme-light [class*="bg-red-500"],
+.theme-light [class*="bg-red-600"],
+.theme-light [class*="bg-violet-600"],
+.theme-light [class*="bg-purple-600"],
+.theme-light [class*="bg-emerald-600"] {
+  color: #ffffff !important;
+}
+.theme-light [class*="bg-slate-900"] *,
+.theme-light [class*="bg-slate-800"] *,
+.theme-light [class*="bg-slate-950"] *,
+.theme-light [class*="bg-black"] *,
+.theme-light [class*="bg-rose-500"] *,
+.theme-light [class*="bg-rose-600"] *,
+.theme-light [class*="bg-red-500"] *,
+.theme-light [class*="bg-red-600"] *,
+.theme-light [class*="bg-violet-600"] *,
+.theme-light [class*="bg-purple-600"] *,
+.theme-light [class*="bg-emerald-600"] * {
+  color: inherit !important;
+}
+
+/* Video badge overlays & dark pills */
+.theme-light [class*="bg-black/"],
+.theme-light [class*="bg-black/"] * {
+  color: #ffffff !important;
+}
+
+/* Gradient CTAs with dark text */
+.theme-light [class*="bg-gradient-to"][class*="text-black"],
+.theme-light [class*="bg-cyan-500"][class*="text-black"],
+.theme-light [class*="bg-cyan-400"][class*="text-black"],
+.theme-light [class*="bg-emerald-400"][class*="text-black"],
+.theme-light [class*="bg-amber-400"][class*="text-black"] {
+  color: #000000 !important;
+}
+
+/* Form Inputs, Textareas & Selects */
+.theme-light input:not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+.theme-light textarea,
+.theme-light select {
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+  border: 1px solid #cbd5e1 !important;
+}
+.theme-light input::placeholder,
+.theme-light textarea::placeholder {
+  color: #64748b !important;
+  opacity: 1 !important;
+}
+.theme-light input:focus,
+.theme-light textarea:focus,
+.theme-light select:focus {
+  border-color: #06b6d4 !important;
+  box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15) !important;
+}
+
+/* Border utilities in light mode */
+.theme-light .border-white\/5,
+.theme-light .border-white\/10,
+.theme-light .border-white\/15,
+.theme-light .border-white\/20,
+.theme-light .border-white\/30 {
+  border-color: #e2e8f0 !important;
+}
+
+/* Range input track */
+.theme-light input[type="range"] {
+  background-color: #cbd5e1 !important;
+}
+
+/* Musical Staff in Saxophone Studio (High-contrast notes in light mode) */
+.theme-light .staff-line {
+  stroke: #64748b !important;
+}
+.theme-light .staff-clef {
+  fill: #1e293b !important;
+}
+.theme-light .staff-ledger:not(.selected) {
+  stroke: #475569 !important;
+}
+.theme-light .staff-accidental:not(.selected) {
+  fill: #0f172a !important;
+}
+.theme-light .staff-note-head:not(.selected):not(.altissimo) {
+  fill: #0f172a !important;
+  stroke: #000000 !important;
+}
+.theme-light .staff-note-label:not(.selected):not(.altissimo) {
+  fill: #475569 !important;
+}
+.theme-light .staff-note-label:hover {
+  fill: #000000 !important;
+}
+
+/* Guitar Fretboard in Studio */
+.theme-light .guitar-nut {
+  fill: #0f172a !important;
+}
+.theme-light .guitar-string {
+  stroke: #475569 !important;
+  opacity: 1 !important;
+}
+.theme-light .guitar-fret-line {
+  stroke: #94a3b8 !important;
+}
+
+/* Virtual Keyboard Piano Black Keys text */
+.theme-light .piano-black-key-text {
+  color: #ffffff !important;
+}
+
+.text-brand {
+  background: var(--primary-gradient);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  color: transparent;
+}
+
+.bg-brand {
+  background: var(--primary-gradient);
+}
+
+.glow {
+  box-shadow: 0 0 25px -4px rgba(6, 182, 212, 0.35), 0 0 15px -2px rgba(139, 92, 246, 0.25);
+}
+
+.glow-lg {
+  box-shadow: 0 0 40px -5px rgba(6, 182, 212, 0.45), 0 0 30px -4px rgba(139, 92, 246, 0.35);
+}
+
+.glow-gold {
+  box-shadow: 0 0 25px -4px rgba(212, 175, 55, 0.45), 0 0 15px -2px rgba(184, 134, 11, 0.35);
+}
+
+.glow-purple {
+  box-shadow: 0 0 25px -4px rgba(139, 92, 246, 0.4);
+}
+
+.glow-emerald {
+  box-shadow: 0 0 25px -4px rgba(16, 185, 129, 0.4);
+}
+
+@keyframes float {
+  0% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-12px) rotate(3deg); }
+  100% { transform: translateY(0px) rotate(0deg); }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50% { opacity: 0.8; transform: scale(1.05); }
+}
+
+.animate-float {
+  animation: float 4s ease-in-out infinite;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 3s ease-in-out infinite;
+}
+
+/* Custom Scrollbar - Warm Polished Wood */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #0f0b08;
+}
+.theme-light ::-webkit-scrollbar-track {
+  background: #faf6f0;
+}
+::-webkit-scrollbar-thumb {
+  background: #3d281a;
+  border-radius: 4px;
+}
+.theme-light ::-webkit-scrollbar-thumb {
+  background: #d4c5b3;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #543926;
+}

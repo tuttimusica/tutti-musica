@@ -1,0 +1,166 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil do estudante na plataforma Tutti, contendo pontuação XP, ofensiva de estudos, horas e instrumento.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID do usuário igual ao uid do Firebase Auth" },
+        "email": { "type": "string", "format": "email", "description": "Email do estudante" },
+        "displayName": { "type": "string", "maxLength": 100, "description": "Nome de exibição" },
+        "photoURL": { "type": "string", "description": "URL do avatar do usuário" },
+        "role": { "type": "string", "enum": ["student", "teacher", "admin"], "description": "Papel do usuário na plataforma" },
+        "currentInstrument": { "type": "string", "maxLength": 50, "description": "Instrumento principal estudado" },
+        "level": { "type": "string", "enum": ["Iniciante", "Intermediário", "Avançado"], "description": "Nível técnico do aluno" },
+        "streakDays": { "type": "number", "description": "Dias consecutivos de prática (ofensiva)" },
+        "xp": { "type": "number", "description": "Pontos de experiência acumulados" },
+        "practiceHours": { "type": "number", "description": "Horas totais de estudo acumuladas" },
+        "completedLessons": { "type": "number", "description": "Quantidade total de aulas concluídas" },
+        "bio": { "type": "string", "maxLength": 300, "description": "Mini biografia musical do aluno" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação da conta" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Data da última atualização" }
+      },
+      "required": ["id", "email", "displayName", "currentInstrument", "level", "streakDays", "xp"]
+    },
+    "LessonProgress": {
+      "title": "LessonProgress",
+      "description": "Progresso e exercícios concluídos pelo aluno em uma aula específica.",
+      "type": "object",
+      "properties": {
+        "lessonId": { "type": "string", "description": "Identificador da aula" },
+        "instrumentId": { "type": "string", "description": "Identificador do instrumento da aula" },
+        "completed": { "type": "boolean", "description": "Indica se a aula foi concluída" },
+        "completedTasks": { "type": "array", "description": "Lista de IDs das tarefas concluídas nesta aula" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Data da última modificação" }
+      },
+      "required": ["lessonId", "completed"]
+    },
+    "PracticeLog": {
+      "title": "PracticeLog",
+      "description": "Registro de áudio ou anotação de prática do estudante para autoavaliação.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID do registro" },
+        "userId": { "type": "string", "description": "ID do estudante autor" },
+        "instrument": { "type": "string", "maxLength": 50, "description": "Instrumento praticado" },
+        "durationSeconds": { "type": "number", "description": "Duração da prática em segundos" },
+        "notes": { "type": "string", "maxLength": 500, "description": "Observações sobre afinação, ritmo e percepção" },
+        "audioDataUrl": { "type": "string", "description": "Áudio gravado em base64/url" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data da gravação" }
+      },
+      "required": ["id", "userId", "instrument", "createdAt"]
+    },
+    "CommunityPost": {
+      "title": "CommunityPost",
+      "description": "Postagem pública na comunidade do Tutti para dúvidas, dicas e evolução musical.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID da postagem" },
+        "authorId": { "type": "string", "description": "UID do autor da postagem" },
+        "authorName": { "type": "string", "maxLength": 100, "description": "Nome do autor" },
+        "authorAvatar": { "type": "string", "description": "Emoji ou URL do avatar" },
+        "instrument": { "type": "string", "maxLength": 50, "description": "Instrumento do autor" },
+        "content": { "type": "string", "maxLength": 1000, "description": "Texto da postagem" },
+        "likes": { "type": "number", "description": "Contagem de curtidas" },
+        "likedBy": { "type": "array", "description": "Lista de UIDs que curtiram" },
+        "comments": { "type": "number", "description": "Contagem de comentários" },
+        "tag": { "type": "string", "maxLength": 50, "description": "Hashtag da postagem" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de publicação" }
+      },
+      "required": ["id", "authorId", "authorName", "content", "likes", "tag"]
+    },
+    "CommunityComment": {
+      "title": "CommunityComment",
+      "description": "Comentário em uma postagem da comunidade.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID do comentário" },
+        "postId": { "type": "string", "description": "ID da postagem pai" },
+        "authorId": { "type": "string", "description": "UID do autor" },
+        "authorName": { "type": "string", "maxLength": 100, "description": "Nome do autor" },
+        "authorAvatar": { "type": "string", "description": "Emoji ou URL do avatar" },
+        "content": { "type": "string", "maxLength": 500, "description": "Texto do comentário" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data de criação" }
+      },
+      "required": ["id", "postId", "authorId", "authorName", "content"]
+    },
+    "Order": {
+      "title": "Order",
+      "description": "Pedido de compra de acessórios ou produtos da loja Tutti.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "description": "ID do pedido (#TT-XXXXX)" },
+        "userId": { "type": "string", "description": "UID do comprador" },
+        "userEmail": { "type": "string", "format": "email", "description": "Email do comprador" },
+        "items": { "type": "array", "description": "Lista de itens comprados" },
+        "subtotal": { "type": "number", "description": "Valor subtotal dos produtos" },
+        "discount": { "type": "number", "description": "Valor do desconto aplicado" },
+        "total": { "type": "number", "description": "Valor total pago" },
+        "coupon": { "type": "string", "maxLength": 30, "description": "Código do cupom utilizado" },
+        "paymentMethod": { "type": "string", "enum": ["pix", "card"], "description": "Método de pagamento escolhido" },
+        "status": { "type": "string", "enum": ["confirmed", "processing", "shipped"], "description": "Status do pedido" },
+        "shippingAddress": { "type": "string", "maxLength": 300, "description": "Endereço de entrega" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Data do pedido" }
+      },
+      "required": ["id", "userId", "userEmail", "items", "total", "paymentMethod", "status"]
+    },
+    "MasterclassRsvp": {
+      "title": "MasterclassRsvp",
+      "description": "Inscrição do aluno para uma masterclass ao vivo.",
+      "type": "object",
+      "properties": {
+        "masterclassId": { "type": "number", "description": "ID da masterclass" },
+        "title": { "type": "string", "maxLength": 150, "description": "Título da masterclass" },
+        "registeredAt": { "type": "string", "format": "date-time", "description": "Data da confirmação" }
+      },
+      "required": ["masterclassId", "title"]
+    },
+    "SavedSheet": {
+      "title": "SavedSheet",
+      "description": "Partituras favoritas e transposição customizada do aluno.",
+      "type": "object",
+      "properties": {
+        "sheetId": { "type": "number", "description": "ID da partitura no catálogo" },
+        "sheetTitle": { "type": "string", "maxLength": 100, "description": "Título da música" },
+        "customTransposition": { "type": "number", "description": "Semitons de transposição escolhidos (-6 a +6)" },
+        "isFavorite": { "type": "boolean", "description": "Se está marcada como favorita" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Data da alteração" }
+      },
+      "required": ["sheetId", "sheetTitle", "customTransposition"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "UserProfile",
+      "description": "Perfis dos estudantes e professores da plataforma Tutti"
+    },
+    "/users/{userId}/lesson_progress/{lessonId}": {
+      "schema": "LessonProgress",
+      "description": "Progresso e tarefas concluídas em cada aula por aluno"
+    },
+    "/users/{userId}/practice_logs/{logId}": {
+      "schema": "PracticeLog",
+      "description": "Gravações e registros de prática do estudante"
+    },
+    "/users/{userId}/masterclass_rsvps/{masterclassId}": {
+      "schema": "MasterclassRsvp",
+      "description": "Inscrições do estudante nas transmissões e oficinas ao vivo"
+    },
+    "/users/{userId}/saved_sheets/{sheetId}": {
+      "schema": "SavedSheet",
+      "description": "Partituras marcadas como favoritas e transposições salvas"
+    },
+    "/community_posts/{postId}": {
+      "schema": "CommunityPost",
+      "description": "Postagens públicas na comunidade da escola Tutti"
+    },
+    "/community_posts/{postId}/comments/{commentId}": {
+      "schema": "CommunityComment",
+      "description": "Comentários em cada postagem da comunidade"
+    },
+    "/orders/{orderId}": {
+      "schema": "Order",
+      "description": "Histórico de compras de instrumentos e acessórios na loja"
+    }
+  }
+}

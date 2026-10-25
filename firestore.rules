@@ -1,0 +1,79 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'eliandrolucas.EL@gmail.com' ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // User profiles
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && request.resource.data.id == userId;
+      allow update: if isOwner(userId) || isAdmin();
+      allow delete: if isAdmin();
+
+      // User subcollections
+      match /lesson_progress/{lessonId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /practice_logs/{logId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /masterclass_rsvps/{masterclassId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+
+      match /saved_sheets/{sheetId} {
+        allow read, write: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Community posts
+    match /community_posts/{postId} {
+      allow read: if true;
+      allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+      // Allow author to update content, or any signed-in user to like
+      allow update: if isSignedIn() && (
+        request.auth.uid == resource.data.authorId ||
+        isAdmin() ||
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['likes', 'likedBy'])
+      );
+      allow delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isAdmin());
+
+      match /comments/{commentId} {
+        allow read: if true;
+        allow create: if isSignedIn() && request.resource.data.authorId == request.auth.uid;
+        allow update, delete: if isSignedIn() && (request.auth.uid == resource.data.authorId || isAdmin());
+      }
+    }
+
+    // Store orders
+    match /orders/{orderId} {
+      allow read: if isSignedIn() && (resource.data.userId == request.auth.uid || isAdmin());
+      allow create: if isSignedIn() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    // System connection test doc
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+  }
+}
