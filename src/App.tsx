@@ -31,6 +31,7 @@ import { GuitarStudio } from './components/Studio/GuitarStudio';
 import { KeyboardStudio } from './components/Studio/KeyboardStudio';
 import { CommunityFeed } from './components/Community/CommunityFeed';
 import { PlansModal } from './components/Subscription/PlansModal';
+import { SocialModal } from './components/Social/SocialModal';
 
 // --- ROUTER CONTEXT ---
 interface RouterContextType {
@@ -42,6 +43,7 @@ interface RouterContextType {
   openSheetViewer: (sheet: SheetMusic) => void;
   openAuthModal: () => void;
   openPlansModal: () => void;
+  openSocialModal: () => void;
   userPlan: 'free' | 'pro' | 'ultra';
   setUserPlan: (plan: 'free' | 'pro' | 'ultra') => void;
   cart: { product: Product; quantity: number }[];
@@ -109,25 +111,22 @@ const Header: React.FC = () => {
     .toUpperCase();
 
   return (
-    <header className="fixed top-0 left-0 right-0 h-20 bg-[#0f0b08]/95 backdrop-blur-md border-b border-amber-900/20 z-40 px-4 sm:px-8 flex items-center justify-between">
+    <header className="fixed top-0 left-0 right-0 h-20 bg-[#0b0d14]/90 backdrop-blur-md border-b border-white/10 z-40 px-4 sm:px-8 flex items-center justify-between">
       {/* Left: Brand Logo */}
       <div 
         className="flex items-center gap-3 cursor-pointer group"
         onClick={() => navigate('/')}
       >
-        <div className="relative w-11 h-11 rounded-2xl overflow-hidden border border-amber-500/40 shadow-md shadow-amber-950/40 flex-shrink-0 group-hover:scale-105 transition-transform bg-[#18130e]">
-          <img 
-            src="/assets/aistudio/Logo__836740ff.jpeg" 
-            alt="Tutti Escola de Música" 
+        <div className="w-11 h-11 rounded-2xl overflow-hidden shadow-lg shadow-cyan-500/15 group-hover:scale-105 transition-transform bg-[#131722] flex items-center justify-center">
+          <img
+            src="/assets/aistudio/logo_tutti_dark.jpg"
+            alt="Logo Tutti Escola de Música"
             className="w-full h-full object-cover"
           />
         </div>
         <div>
-          <span className="text-2xl font-black font-syne tracking-tight text-white flex items-center gap-1">
-            TuTTi <span className="text-amber-400 text-lg font-serif">♪</span>
-          </span>
-          <span className="block text-[10px] text-amber-300/80 uppercase tracking-widest font-bold -mt-1">
-            Escola de Música
+          <span className="text-2xl font-black font-syne tracking-tight text-white">
+            Tutti
           </span>
         </div>
       </div>
@@ -269,7 +268,7 @@ const MobileNav: React.FC = () => {
   ];
 
   return (
-    <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#0f0b08]/95 backdrop-blur-lg border-t border-amber-950/40 pb-safe z-40">
+    <nav className="xl:hidden fixed bottom-0 left-0 right-0 bg-[#0b0d14]/95 backdrop-blur-lg border-t border-white/10 pb-safe z-40">
       <div className="flex justify-around items-center h-16">
         {items.map((item) => {
           const Icon = item.icon;
@@ -279,10 +278,10 @@ const MobileNav: React.FC = () => {
               key={item.path}
               onClick={() => navigate(item.path)}
               className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-all ${
-                isActive ? 'text-amber-400 font-bold scale-105' : 'text-slate-400 hover:text-white'
+                isActive ? 'text-cyan-400 scale-105' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Icon size={20} className={isActive ? 'drop-shadow-[0_0_8px_rgba(212,175,55,0.6)]' : ''} />
+              <Icon size={20} className={isActive ? 'drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]' : ''} />
               <span className="text-[10px] font-bold">{item.label}</span>
             </button>
           );
@@ -296,7 +295,7 @@ const MobileNav: React.FC = () => {
 
 // 1. HOME PAGE
 const HomePage: React.FC = () => {
-  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal } = useAppRouter();
+  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal, openSocialModal } = useAppRouter();
   useSEO("Início", "Aprenda Saxofone, Teclado, Violão, Canto, Bateria e Violino com o Maestro Lucas.");
 
   const playDemoSound = (note: string) => {
@@ -310,15 +309,12 @@ const HomePage: React.FC = () => {
         <div className="flex-1 space-y-6 text-center lg:text-left">
 
           <div>
-            <span className="px-3.5 py-1 rounded-full bg-amber-500/10 text-amber-300 text-xs font-bold border border-amber-500/30 inline-block uppercase tracking-wider mb-2">
+            <span className="text-xs font-bold uppercase tracking-widest text-emerald-400 block mb-1">
               Plataforma de Música Digital
             </span>
-            <h1 className="text-5xl sm:text-6xl md:text-7xl font-syne font-black tracking-tight leading-tight text-white flex items-center gap-2">
-              TuTTi <span className="text-amber-400 font-serif text-4xl sm:text-5xl">♪</span>
+            <h1 className="text-5xl sm:text-6xl md:text-7xl font-syne font-black tracking-tight leading-tight text-white">
+              Tutti
             </h1>
-            <p className="text-xs uppercase tracking-widest text-amber-300/80 font-bold -mt-2">
-              Escola de Música
-            </p>
           </div>
 
           {/* BOTÃO EM BAIXO DO TUTTI: Troca de cor da tela (Preto ⇄ Branco) */}
@@ -327,20 +323,20 @@ const HomePage: React.FC = () => {
               onClick={toggleTheme}
               className={`inline-flex items-center gap-3 px-6 py-3.5 rounded-2xl font-bold text-sm shadow-xl transition-all cursor-pointer border transform hover:scale-102 active:scale-98 ${
                 theme === 'light'
-                  ? 'bg-[#18130e] !text-amber-200 hover:bg-[#251d16] border-amber-600/40 shadow-amber-950/20'
-                  : 'bg-[#faf6f0] text-[#2b1a11] hover:bg-[#f4ebdf] border-amber-300/60 shadow-amber-500/10'
+                  ? 'bg-slate-900 !text-white hover:bg-slate-800 border-slate-700 shadow-slate-900/15'
+                  : 'bg-white text-slate-950 hover:bg-slate-100 border-white/30 shadow-white/10'
               }`}
               title="Clique para alternar a cor da tela entre preto e branco"
             >
               {theme === 'light' ? (
                 <>
-                  <Moon size={19} className="text-amber-300 animate-pulse" />
-                  <span className="font-extrabold tracking-tight !text-amber-100">Trocar Cor da Tela: Ficar Preto (Modo Escuro)</span>
+                  <Moon size={19} className="text-violet-400 animate-pulse" />
+                  <span className="font-extrabold tracking-tight !text-white">Trocar Cor da Tela: Ficar Preto (Modo Escuro)</span>
                 </>
               ) : (
                 <>
-                  <Sun size={19} className="text-amber-600 animate-spin-slow" />
-                  <span className="font-extrabold tracking-tight text-[#2b1a11]">Trocar Cor da Tela: Ficar Branco (Modo Claro)</span>
+                  <Sun size={19} className="text-amber-500 animate-spin-slow" />
+                  <span className="font-extrabold tracking-tight text-slate-950">Trocar Cor da Tela: Ficar Branco (Modo Claro)</span>
                 </>
               )}
             </button>
@@ -366,14 +362,14 @@ const HomePage: React.FC = () => {
             </button>
             <button
               onClick={() => navigate('/estudio')}
-              className="px-6 py-4 rounded-2xl font-syne font-bold text-base bg-[#18130e] hover:bg-[#251d16] text-white border border-amber-500/20 hover:border-amber-400 transition-all flex items-center justify-center gap-2 cursor-pointer"
+              className="px-6 py-4 rounded-2xl font-syne font-bold text-base bg-[#131722] hover:bg-white/10 text-white border border-white/15 transition-all flex items-center justify-center gap-2 cursor-pointer"
             >
               Abrir Estúdio & Acordes
             </button>
           </div>
 
           {/* Highlights metrics */}
-          <div className="pt-4 flex flex-wrap justify-center lg:justify-start gap-8 border-t border-amber-900/20">
+          <div className="pt-4 flex flex-wrap justify-center lg:justify-start gap-8 border-t border-white/10">
             <div>
               <div className="text-2xl font-syne font-black text-white">+15.000</div>
               <div className="text-xs text-slate-400 font-medium">Alunos ativos no Brasil</div>
@@ -389,31 +385,20 @@ const HomePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Hero Visual: Logo Oficial da Tutti Escola de Música (substituindo a arte da colcheia) */}
-        <div className="flex-1 relative w-full max-w-lg lg:max-w-none flex justify-center">
-          <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/25 via-amber-700/20 to-yellow-500/10 blur-[100px] rounded-full pointer-events-none"></div>
+        {/* Hero Visual: Logo Oficial Tutti Escola de Música (Imagem cheia, sem borda ao redor, redes em oculto) */}
+        <div className="flex-1 relative w-full max-w-lg lg:max-w-none flex flex-col items-center justify-center">
+          <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/20 via-violet-500/20 to-emerald-500/15 blur-[90px] rounded-full pointer-events-none"></div>
           
           <div 
-            onClick={() => playDemoSound('C5')}
-            title="Tutti Escola de Música - Clique na logo para ouvir a nota C5 ressoar"
-            className="relative w-72 h-72 sm:w-96 sm:h-96 rounded-full bg-gradient-to-b from-[#2A1C14] via-[#1B130E] to-[#110B07] border-2 border-amber-500/40 flex items-center justify-center shadow-2xl overflow-hidden group cursor-pointer transition-all duration-300 hover:border-amber-400 hover:scale-102 hover:shadow-amber-500/20 active:scale-98"
+            onClick={openSocialModal}
+            title="Tutti Escola de Música"
+            className="relative w-72 h-72 sm:w-96 sm:h-96 rounded-full overflow-hidden shadow-2xl group cursor-pointer transition-all duration-300 active:scale-98 select-none"
           >
-            {/* Concentric ornamental gold resonance rings */}
-            <div className="absolute inset-2 sm:inset-3 rounded-full border border-amber-400/30 pointer-events-none"></div>
-            <div className="absolute inset-5 sm:inset-6 rounded-full border border-amber-500/20 pointer-events-none"></div>
-            <div className="absolute inset-8 sm:inset-10 rounded-full border border-amber-300/15 pointer-events-none"></div>
-
-            {/* Official Logo Image */}
-            <img 
-              src="/assets/aistudio/Logo__836740ff.jpeg" 
-              alt="Logo Tutti Escola de Música" 
-              className="w-full h-full object-cover rounded-full select-none transition-transform duration-500 group-hover:scale-105 drop-shadow-[0_10px_25px_rgba(0,0,0,0.5)]"
+            <img
+              src="/assets/aistudio/logo_tutti_dark.jpg"
+              alt="Logo Oficial Tutti Escola de Música"
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             />
-
-            {/* Interactive play hint badge */}
-            <div className="absolute bottom-3 sm:bottom-4 px-3.5 py-1.5 rounded-full bg-black/80 backdrop-blur-md border border-amber-400/40 text-[10px] sm:text-[11px] font-bold tracking-widest uppercase text-amber-200 pointer-events-none flex items-center gap-1.5 shadow-xl group-hover:bg-amber-500 group-hover:text-black transition-all">
-              <span>♪ Toque para soar C5</span>
-            </div>
           </div>
         </div>
       </section>
@@ -436,12 +421,23 @@ const HomePage: React.FC = () => {
               onClick={() => navigate('/aulas', { instrument: inst.id })}
               className="group cursor-pointer bg-[#131722] rounded-3xl border border-white/10 overflow-hidden hover:border-cyan-400/50 transition-all duration-300 hover:-translate-y-2 shadow-xl flex flex-col justify-between"
             >
-              <div className="h-40 bg-[#0b0d14] relative flex items-center justify-center overflow-hidden">
-                <div className={`absolute inset-0 bg-gradient-to-tr ${inst.color} opacity-10 group-hover:opacity-20 transition-opacity`}></div>
-                <span className="text-7xl group-hover:scale-125 group-hover:rotate-6 transition-transform duration-500">
-                  {inst.emoji}
-                </span>
-                <span className="absolute top-3 right-3 text-[10px] font-bold px-3 py-1 rounded-full bg-white/10 text-white backdrop-blur-md">
+              <div className="h-44 bg-[#0b0d14] relative flex items-center justify-center overflow-hidden">
+                {inst.image ? (
+                  <img
+                    src={inst.image}
+                    alt={inst.name}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                  />
+                ) : (
+                  <>
+                    <div className={`absolute inset-0 bg-gradient-to-tr ${inst.color} opacity-10 group-hover:opacity-20 transition-opacity`}></div>
+                    <span className="text-7xl group-hover:scale-125 group-hover:rotate-6 transition-transform duration-500">
+                      {inst.emoji}
+                    </span>
+                  </>
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-[#131722] via-black/20 to-transparent opacity-75 pointer-events-none"></div>
+                <span className="absolute top-3 right-3 text-[10px] font-bold px-3 py-1 rounded-full bg-black/60 text-white backdrop-blur-md border border-white/15 z-10 shadow-sm">
                   {inst.family}
                 </span>
               </div>
@@ -561,7 +557,7 @@ const HomePage: React.FC = () => {
       </section>
 
       {/* Local Folder Music Integration Banner */}
-      <section className="bg-gradient-to-r from-[#131722] via-[#161f30] to-[#131722] p-8 sm:p-10 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
+      <section className="banner-dark bg-gradient-to-r from-[#131722] via-[#161f30] to-[#131722] p-8 sm:p-10 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
         <div className="space-y-3 max-w-2xl">
           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-cyan-300 text-xs font-bold">
             <HardDrive size={14} className="text-cyan-400" />
@@ -584,7 +580,7 @@ const HomePage: React.FC = () => {
       </section>
 
       {/* Masterclass Banner */}
-      <section className="bg-gradient-to-r from-violet-950/60 via-[#131722] to-cyan-950/60 p-8 sm:p-12 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden">
+      <section className="banner-dark bg-gradient-to-r from-violet-950/60 via-[#131722] to-cyan-950/60 p-8 sm:p-12 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden">
         <div className="relative z-10 max-w-2xl space-y-4">
           <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-400 text-xs font-bold uppercase tracking-wider inline-block">
             🔴 Ao Vivo Hoje às 20h
@@ -2231,6 +2227,7 @@ export default function App() {
   };
 
   const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
+  const [isSocialModalOpen, setIsSocialModalOpen] = useState<boolean>(false);
 
   // Cart state
   const [cart, setCart] = useState<{ product: Product; quantity: number }[]>([]);
@@ -2309,6 +2306,7 @@ export default function App() {
     openSheetViewer: (sheet: SheetMusic) => setActiveSheetModal(sheet),
     openAuthModal: () => setIsAuthModalOpen(true),
     openPlansModal: () => setIsPlansModalOpen(true),
+    openSocialModal: () => setIsSocialModalOpen(true),
     userPlan,
     setUserPlan,
     cart,
@@ -2406,6 +2404,11 @@ export default function App() {
           <PlansModal
             isOpen={isPlansModalOpen}
             onClose={() => setIsPlansModalOpen(false)}
+          />
+
+          <SocialModal
+            isOpen={isSocialModalOpen}
+            onClose={() => setIsSocialModalOpen(false)}
           />
 
           {/* Toast Alert */}

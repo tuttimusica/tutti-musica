@@ -49,24 +49,154 @@ class AudioEngine {
   /**
    * Play a single note with warm synthesised harmonics
    */
-  public playNote(note: string, duration = 0.5, type: 'piano' | 'sax' | 'guitar' = 'piano') {
+  public playNote(
+    note: string, 
+    duration = 0.5, 
+    type: 'piano' | 'sax' | 'guitar' | 'sax-alto' | 'sax-tenor' | 'sax-soprano' | 'flauta' = 'piano'
+  ) {
     if (this.isMuted) return;
     try {
       const ctx = this.getContext();
-      const freq = this.noteToFreq(note);
+      const baseFreq = this.noteToFreq(note);
       const now = ctx.currentTime;
 
-      if (type === 'piano') {
+      if (type === 'flauta') {
+        // Flauta Transversal: Som límpido e aveludado em Dó (C), ataque de ar suave, vibrato natural
+        const osc = ctx.createOscillator();
+        const osc2 = ctx.createOscillator();
+        const lfo = ctx.createOscillator();
+        const lfoGain = ctx.createGain();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+
+        // Vibrato suave (5.5 Hz)
+        lfo.frequency.setValueAtTime(5.5, now);
+        lfoGain.gain.setValueAtTime(3.2, now);
+        lfo.connect(lfoGain);
+        lfoGain.connect(osc.frequency);
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(baseFreq, now);
+
+        // 2º harmônico sutil (oitava suave típica da embocadura da flauta)
+        osc2.type = 'sine';
+        osc2.frequency.setValueAtTime(baseFreq * 2, now);
+        const gain2 = ctx.createGain();
+        gain2.gain.setValueAtTime(0.04, now);
+        osc2.connect(gain2);
+        gain2.connect(filter);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(baseFreq * 3.5, now);
+
+        // Envelope: Ataque suave com sopro, sustentação limpa
+        gain.gain.setValueAtTime(0.001, now);
+        gain.gain.linearRampToValueAtTime(0.24, now + 0.06);
+        gain.gain.exponentialRampToValueAtTime(0.0008, now + duration);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        lfo.start(now);
+        osc.start(now);
+        osc2.start(now);
+        lfo.stop(now + duration);
+        osc.stop(now + duration);
+        osc2.stop(now + duration);
+      } else if (type === 'sax-tenor') {
+        // Sax Tenor em Si Bemol (Bb): Mais encorpado, aveludado e grave (14 semitons abaixo da partitura escrita)
+        const tenorFreq = baseFreq * Math.pow(2, -14 / 12);
+        const osc = ctx.createOscillator();
+        const subOsc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(tenorFreq, now);
+
+        // Sub-oscilador para corpo de madeira e graves característicos do tenor
+        subOsc.type = 'triangle';
+        subOsc.frequency.setValueAtTime(tenorFreq, now);
+        const subGain = ctx.createGain();
+        subGain.gain.setValueAtTime(0.12, now);
+        subOsc.connect(subGain);
+        subGain.connect(filter);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(tenorFreq * 2.2, now);
+        filter.Q.setValueAtTime(2.5, now);
+
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.28, now + 0.07);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration * 1.1);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        subOsc.start(now);
+        osc.stop(now + duration * 1.1);
+        subOsc.stop(now + duration * 1.1);
+      } else if (type === 'sax-soprano') {
+        // Sax Soprano em Si Bemol (Bb): Brilhante, lírico e focado (2 semitons abaixo da escrita)
+        const sopranoFreq = baseFreq * Math.pow(2, -2 / 12);
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(sopranoFreq, now);
+
+        filter.type = 'bandpass';
+        filter.frequency.setValueAtTime(sopranoFreq * 1.8, now);
+        filter.Q.setValueAtTime(1.8, now);
+
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.2, now + 0.04);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + duration);
+      } else if (type === 'sax' || type === 'sax-alto') {
+        // Sax Alto em Mi Bemol (Eb): Som equilibrado, vibrante e cantarolado (9 semitons abaixo da escrita)
+        const altoFreq = baseFreq * Math.pow(2, -9 / 12);
+        const osc = ctx.createOscillator();
+        const filter = ctx.createBiquadFilter();
+        const gain = ctx.createGain();
+
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(altoFreq, now);
+
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(altoFreq * 2.8, now);
+
+        gain.gain.setValueAtTime(0.01, now);
+        gain.gain.linearRampToValueAtTime(0.22, now + 0.05);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+        osc.connect(filter);
+        filter.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + duration);
+      } else if (type === 'piano') {
         // Multi-oscillator Rhodes / piano sound
         const osc1 = ctx.createOscillator();
         const osc2 = ctx.createOscillator();
         const gain = ctx.createGain();
 
         osc1.type = 'triangle';
-        osc1.frequency.setValueAtTime(freq, now);
+        osc1.frequency.setValueAtTime(baseFreq, now);
 
         osc2.type = 'sine';
-        osc2.frequency.setValueAtTime(freq * 2, now);
+        osc2.frequency.setValueAtTime(baseFreq * 2, now);
 
         gain.gain.setValueAtTime(0.3, now);
         gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
@@ -79,34 +209,12 @@ class AudioEngine {
         osc2.start(now);
         osc1.stop(now + duration);
         osc2.stop(now + duration);
-      } else if (type === 'sax') {
-        // Rich sawtooth with low-pass filter
-        const osc = ctx.createOscillator();
-        const filter = ctx.createBiquadFilter();
-        const gain = ctx.createGain();
-
-        osc.type = 'sawtooth';
-        osc.frequency.setValueAtTime(freq, now);
-
-        filter.type = 'lowpass';
-        filter.frequency.setValueAtTime(freq * 2.8, now);
-
-        gain.gain.setValueAtTime(0.01, now);
-        gain.gain.linearRampToValueAtTime(0.2, now + 0.05);
-        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
-
-        osc.connect(filter);
-        filter.connect(gain);
-        gain.connect(ctx.destination);
-
-        osc.start(now);
-        osc.stop(now + duration);
       } else {
         // Plucked acoustic guitar emulation
         const osc = ctx.createOscillator();
         const gain = ctx.createGain();
         osc.type = 'triangle';
-        osc.frequency.setValueAtTime(freq, now);
+        osc.frequency.setValueAtTime(baseFreq, now);
 
         gain.gain.setValueAtTime(0.4, now);
         gain.gain.exponentialRampToValueAtTime(0.0001, now + duration * 1.2);

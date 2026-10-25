@@ -95,7 +95,7 @@ export const CheckoutModal: React.FC<CheckoutModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl relative overflow-hidden">
+      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-xl max-h-[92vh] flex flex-col shadow-2xl relative overflow-hidden modal-dark">
         {/* Header */}
         <div className="bg-[#0b0d14] px-6 py-4 border-b border-white/10 flex items-center justify-between">
           <div className="flex items-center gap-3">

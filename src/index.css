@@ -131,22 +131,86 @@ h1, h2, h3, h4, h5, h6, .font-syne, .font-heading {
 .theme-light h4,
 .theme-light h5,
 .theme-light h6 {
-  color: #2b1a11 !important;
+  color: #2b1a11;
 }
 .theme-light .text-white {
   color: #2b1a11;
 }
 .theme-light .text-slate-100 {
-  color: #2b1a11 !important;
+  color: #2b1a11;
 }
 .theme-light .text-slate-200 {
-  color: #3d2719 !important;
+  color: #3d2719;
 }
 .theme-light .text-slate-300 {
-  color: #543928 !important;
+  color: #4a3424;
 }
 .theme-light .text-slate-400 {
-  color: #705544 !important;
+  color: #634b3b;
+}
+
+/* HIGH-CONTRAST TEXT FOR DELIBERATELY DARK BANNERS (Image 1 fix) */
+.banner-dark,
+.theme-light .banner-dark,
+.theme-light [class*="via-[#161f30]"],
+.theme-light [class*="from-violet-950"],
+.theme-light [class*="from-[#131722]"][class*="via-[#161f30]"] {
+  background: linear-gradient(to right, #0d111d, #161f30, #0d111d) !important;
+  border-color: rgba(6, 182, 212, 0.4) !important;
+}
+
+.theme-light :is(.banner-dark, [class*="via-[#161f30]"], [class*="from-violet-950"]) :is(h1, h2, h3, h4, h5, h6, .text-white, strong) {
+  color: #ffffff !important;
+}
+.theme-light :is(.banner-dark, [class*="via-[#161f30]"], [class*="from-violet-950"]) :is(p, .text-slate-300) {
+  color: #e2e8f0 !important;
+}
+.theme-light :is(.banner-dark, [class*="via-[#161f30]"], [class*="from-violet-950"]) .text-slate-400 {
+  color: #94a3b8 !important;
+}
+.theme-light :is(.banner-dark, [class*="via-[#161f30]"], [class*="from-violet-950"]) code {
+  background-color: #080b12 !important;
+  color: #67e8f9 !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+/* PRO-AUDIO MODALS (Images 5, 6, 7, 8, 9 fix) - Always crisp dark surface with high contrast */
+.modal-dark,
+.theme-light .modal-dark {
+  background-color: #0d111d !important;
+  color: #f8fafc !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.8) !important;
+}
+
+.theme-light .modal-dark :is(h1, h2, h3, h4, h5, h6, .text-white) {
+  color: #ffffff !important;
+}
+.theme-light .modal-dark .text-slate-300 {
+  color: #cbd5e1 !important;
+}
+.theme-light .modal-dark .text-slate-400 {
+  color: #94a3b8 !important;
+}
+.theme-light .modal-dark .text-slate-500 {
+  color: #64748b !important;
+}
+.theme-light .modal-dark .bg-\[\#0b0d14\],
+.theme-light .modal-dark .bg-\[\#0f0b08\] {
+  background-color: #07090f !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+.theme-light .modal-dark .bg-white\/5 {
+  background-color: rgba(255, 255, 255, 0.08) !important;
+  color: #ffffff !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+.theme-light .modal-dark .bg-white\/10 {
+  background-color: rgba(255, 255, 255, 0.15) !important;
+  color: #ffffff !important;
+}
+.theme-light .modal-dark button:not([class*="bg-cyan"]):not([class*="bg-emerald"]):not([class*="bg-red"]):not([class*="bg-violet"]):not([class*="bg-gradient"]) {
+  color: #ffffff;
 }
 
 /* CRITICAL: Preserve high-contrast text on dark, vibrant, or gradient buttons & pills */
@@ -213,6 +277,24 @@ h1, h2, h3, h4, h5, h6, .font-syne, .font-heading {
   box-shadow: 0 0 0 3px rgba(6, 182, 212, 0.15) !important;
 }
 
+/* High-contrast pastel tags in light mode outside dark containers (Images 2, 3 fix) */
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) > .text-cyan-400,
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) .text-cyan-400 {
+  color: #0284c7;
+}
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) > .text-emerald-400,
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) .text-emerald-400 {
+  color: #047857;
+}
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) > .text-violet-400,
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) .text-violet-400 {
+  color: #6d28d9;
+}
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) > .text-red-400,
+.theme-light :not(.modal-dark):not(.banner-dark):not([class*="via-[#161f30]"]):not(.notation-chalkboard) .text-red-400 {
+  color: #b91c1c;
+}
+
 /* Border utilities in light mode */
 .theme-light .border-white\/5,
 .theme-light .border-white\/10,
@@ -227,28 +309,41 @@ h1, h2, h3, h4, h5, h6, .font-syne, .font-heading {
   background-color: #cbd5e1 !important;
 }
 
-/* Musical Staff in Saxophone Studio (High-contrast notes in light mode) */
-.theme-light .staff-line {
+/* Musical Notation Chalkboard (Image 4 fix) - Always deep notation surface */
+.notation-chalkboard,
+.theme-light .notation-chalkboard {
+  background-color: #0a0e17 !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4) !important;
+}
+.notation-chalkboard .staff-line,
+.theme-light .notation-chalkboard .staff-line {
   stroke: #64748b !important;
 }
-.theme-light .staff-clef {
-  fill: #1e293b !important;
+.notation-chalkboard .staff-clef,
+.theme-light .notation-chalkboard .staff-clef {
+  fill: #e2e8f0 !important;
 }
-.theme-light .staff-ledger:not(.selected) {
-  stroke: #475569 !important;
+.notation-chalkboard .staff-ledger:not(.selected),
+.theme-light .notation-chalkboard .staff-ledger:not(.selected) {
+  stroke: #cbd5e1 !important;
 }
-.theme-light .staff-accidental:not(.selected) {
-  fill: #0f172a !important;
+.notation-chalkboard .staff-accidental:not(.selected),
+.theme-light .notation-chalkboard .staff-accidental:not(.selected) {
+  fill: #f8fafc !important;
 }
-.theme-light .staff-note-head:not(.selected):not(.altissimo) {
-  fill: #0f172a !important;
-  stroke: #000000 !important;
+.notation-chalkboard .staff-note-head:not(.selected),
+.theme-light .notation-chalkboard .staff-note-head:not(.selected) {
+  fill: #f8fafc !important;
+  stroke: #0f172a !important;
 }
-.theme-light .staff-note-label:not(.selected):not(.altissimo) {
-  fill: #475569 !important;
+.notation-chalkboard .staff-note-label:not(.selected),
+.theme-light .notation-chalkboard .staff-note-label:not(.selected) {
+  fill: #cbd5e1 !important;
 }
-.theme-light .staff-note-label:hover {
-  fill: #000000 !important;
+.notation-chalkboard .staff-note-label:hover,
+.theme-light .notation-chalkboard .staff-note-label:hover {
+  fill: #ffffff !important;
 }
 
 /* Guitar Fretboard in Studio */

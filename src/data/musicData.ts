@@ -142,7 +142,8 @@ export const INSTRUMENTS: Instrument[] = [
     description: 'A base universal da harmonia musical, leitura à primeira vista, condução de vozes e acompanhamento.',
     color: 'from-cyan-500 to-blue-600',
     tuning: 'Pitch de Concerto (C)',
-    techniques: ['Independência de mãos', 'Condução de vozes', 'Inversão de acordes', 'Pedal de sustain']
+    techniques: ['Independência de mãos', 'Condução de vozes', 'Inversão de acordes', 'Pedal de sustain'],
+    image: '/assets/instruments/piano.jpg'
   },
   {
     id: 'canto',
@@ -154,7 +155,8 @@ export const INSTRUMENTS: Instrument[] = [
     description: 'Descubra a potência, afinação e extensão da sua própria voz com ressonância facial e saúde vocal.',
     color: 'from-pink-500 to-rose-600',
     tuning: 'Voz Humana (A3 - C6)',
-    techniques: ['Apoio intercostal', 'Mix voice (voz mista)', 'Vibrato natural', 'Dicção límpida']
+    techniques: ['Apoio intercostal', 'Mix voice (voz mista)', 'Vibrato natural', 'Dicção límpida'],
+    image: '/assets/instruments/canto.jpg'
   },
   {
     id: 'violao',
@@ -166,7 +168,8 @@ export const INSTRUMENTS: Instrument[] = [
     description: 'O instrumento mais versátil da música brasileira: levadas de samba, bossa nova, fingerstyle e solos.',
     color: 'from-emerald-500 to-teal-600',
     tuning: 'E - A - D - G - B - E',
-    techniques: ['Levada de Bossa', 'Fingerpicking clássico', 'Pestana sem dor', 'Walking bass']
+    techniques: ['Levada de Bossa', 'Fingerpicking clássico', 'Pestana sem dor', 'Walking bass'],
+    image: '/assets/instruments/violao.jpg'
   },
   {
     id: 'bateria',
@@ -178,7 +181,8 @@ export const INSTRUMENTS: Instrument[] = [
     description: 'O coração e o pulso de qualquer banda: coordenação motora dos 4 membros, grooves e rudimentos.',
     color: 'from-purple-500 to-indigo-600',
     tuning: 'Afinação percussiva',
-    techniques: ['Paradiddle e Rolls', 'Independência de bumbo', 'Hi-hat dinâmico', 'Levada de Samba funk']
+    techniques: ['Paradiddle e Rolls', 'Independência de bumbo', 'Hi-hat dinâmico', 'Levada de Samba funk'],
+    image: '/assets/instruments/bateria.jpg'
   },
   {
     id: 'violino',
@@ -190,7 +194,8 @@ export const INSTRUMENTS: Instrument[] = [
     description: 'Elegância melódica, afinação milimétrica, controle de arco e expressão para clássico e popular.',
     color: 'from-orange-500 to-amber-700',
     tuning: 'G - D - A - E',
-    techniques: ['Postura de arco franco', 'Afinação de ouvido', 'Vibrato contínuo', 'Mudança de posição']
+    techniques: ['Postura de arco franco', 'Afinação de ouvido', 'Vibrato contínuo', 'Mudança de posição'],
+    image: '/assets/instruments/violino.jpg'
   }
 ];
 

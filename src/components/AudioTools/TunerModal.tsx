@@ -181,7 +181,7 @@ export const TunerModal: React.FC<TunerModalProps> = ({ isOpen, onClose }) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative space-y-6">
+      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-lg p-6 shadow-2xl relative space-y-6 modal-dark">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-white/10 pb-4">
           <div className="flex items-center gap-3">

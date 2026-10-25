@@ -223,7 +223,7 @@ export const SheetViewerModal: React.FC<SheetViewerModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-5xl h-[92vh] flex flex-col shadow-2xl relative overflow-hidden">
+      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-5xl h-[92vh] flex flex-col shadow-2xl relative overflow-hidden modal-dark">
         {/* Hidden Input for Selecting Local PDF */}
         <input
           ref={fileInputRef}

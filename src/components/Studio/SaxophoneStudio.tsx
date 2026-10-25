@@ -701,23 +701,226 @@ const STAFF_NOTE_DATA: Record<string, { step: number; accidental?: 'sharp' | 'fl
   'D7': { step: 22, row: 2 },
 };
 
+// Flute Key Map and Note Fingering Definition
+export interface FluteKeyMap {
+  thumbB?: boolean;
+  thumbBb?: boolean;
+  lh1?: boolean;
+  lh2?: boolean;
+  lh3?: boolean;
+  gSharp?: boolean;
+  rh4?: boolean;
+  rh5?: boolean;
+  rh6?: boolean;
+  footEb?: boolean;
+  footCsharp?: boolean;
+  footC?: boolean;
+}
+
+export function getFluteKeys(noteId: string): { keys: FluteKeyMap; text: { left: string; right: string; tip: string } } {
+  switch(noteId) {
+    case 'C4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true, footC: true, footCsharp: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5, 6 + Pé de Dó (todas as chaves)', tip: 'Ar quente e coluna de ar relaxada para o Dó fundamental da flauta.' }
+      };
+    case 'C#4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true, footCsharp: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5, 6 + Chave C# do pé', tip: 'Apoio firme no diafragma sem forçar a embocadura.' }
+      };
+    case 'D4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5, 6 (chave Eb aberta)', tip: 'Nota fundamental encorpada, afinação estável.' }
+      };
+    case 'Eb4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5, 6 + Chave Eb (mindinho)', tip: 'Chave de Eb acionada com o mindinho direito.' }
+      };
+    case 'E4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5 + Chave Eb', tip: 'Dedo 6 aberto.' }
+      };
+    case 'F4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedo 4 + Chave Eb', tip: 'Dedos 5 e 6 abertos.' }
+      };
+    case 'F#4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh6: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedo 6 + Chave Eb', tip: 'Dedos 4 e 5 abertos (utiliza o anelar direito).' }
+      };
+    case 'G4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Mão direita aberta + Chave Eb', tip: 'Som redondo e centrado.' }
+      };
+    case 'G#4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, gSharp: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3 + Chave G# (mindinho esquerdo)', right: 'Chave Eb (mindinho direito)', tip: 'Acione a alavanca de Sol# com o dedo mindinho esquerdo.' }
+      };
+    case 'A4':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2', right: 'Chave Eb (mindinho direito)', tip: 'Dedo 3 aberto. Tom de afinação da orquestra (440Hz).' }
+      };
+    case 'Bb4':
+      return {
+        keys: { thumbB: true, lh1: true, rh4: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedo 1', right: 'Dedo 4 + Chave Eb', tip: 'Dedilhado clássico 1 em 1 com chave de Eb aberta.' }
+      };
+    case 'B4':
+      return {
+        keys: { thumbB: true, lh1: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedo 1', right: 'Chave Eb (mindinho direito)', tip: 'Som brilhante e flexível.' }
+      };
+    case 'C5':
+      return {
+        keys: { lh1: true, footEb: true },
+        text: { left: 'Apenas Dedo 1 (polegar aberto)', right: 'Chave Eb (mindinho direito)', tip: 'Polegar esquerdo fora da chave para liberar a oitava.' }
+      };
+    case 'C#5':
+      return {
+        keys: { footEb: true },
+        text: { left: 'Todas as chaves esquerdas abertas', right: 'Apenas Chave Eb de apoio', tip: 'Nota mais aberta da flauta; requer embocadura estável para não desafinar.' }
+      };
+    case 'D5':
+      return {
+        keys: { thumbB: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true },
+        text: { left: 'Polegar (B) + Dedos 2, 3 (Dedo 1 aberto)', right: 'Dedos 4, 5, 6 (chave Eb aberta)', tip: 'Atenção: Dedo 1 da mão esquerda DEVE ficar levantado!' }
+      };
+    case 'Eb5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, rh6: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5, 6 + Chave Eb', tip: 'Mesmo dedilhado do Eb4 com velocidade de ar da 2ª oitava.' }
+      };
+    case 'E5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, rh5: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedos 4, 5 + Chave Eb', tip: 'Ar mais veloz apontado ligeiramente para cima.' }
+      };
+    case 'F5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh4: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedo 4 + Chave Eb', tip: 'Oitava média brilhante.' }
+      };
+    case 'F#5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, rh6: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Dedo 6 + Chave Eb', tip: 'Anelar direito acionado.' }
+      };
+    case 'G5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3', right: 'Chave Eb', tip: 'Embocadura firme nos cantos dos lábios.' }
+      };
+    case 'G#5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, gSharp: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2, 3 + Chave G#', right: 'Chave Eb', tip: 'Mindinho esquerdo pressiona chave G#.' }
+      };
+    case 'A5':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 1, 2', right: 'Chave Eb', tip: 'Coluna de ar sustentada.' }
+      };
+    case 'Bb5':
+      return {
+        keys: { thumbB: true, lh1: true, rh4: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedo 1', right: 'Dedo 4 + Chave Eb', tip: 'Dedilhado de 1 em 1.' }
+      };
+    case 'B5':
+      return {
+        keys: { thumbB: true, lh1: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedo 1', right: 'Chave Eb', tip: 'Límpido e expressivo.' }
+      };
+    case 'C6':
+      return {
+        keys: { lh1: true, footEb: true },
+        text: { left: 'Apenas Dedo 1 (polegar aberto)', right: 'Chave Eb', tip: 'Início da 3ª oitava.' }
+      };
+    case 'C#6':
+      return {
+        keys: { footEb: true },
+        text: { left: 'Todas as chaves abertas', right: 'Chave Eb de apoio', tip: 'Harmônico superior.' }
+      };
+    case 'D6':
+      return {
+        keys: { thumbB: true, lh2: true, lh3: true, footEb: true },
+        text: { left: 'Polegar (B) + Dedos 2, 3', right: 'Chave Eb (dedos 4, 5, 6 abertos)', tip: 'Primeira nota dos agudos da 3ª oitava. Ar muito focado.' }
+      };
+    case 'Eb6':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, gSharp: true, rh4: true, rh5: true, rh6: true, footEb: true },
+        text: { left: 'Polegar + 1, 2, 3 + G#', right: '4, 5, 6 + Eb', tip: 'Pressão harmônica alta.' }
+      };
+    case 'E6':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, rh4: true, rh5: true, footEb: true },
+        text: { left: 'Polegar + 1, 2 (3 aberto)', right: '4, 5 + Eb', tip: 'Dedo 3 esquerdo aberto é fundamental para soar o Mi agudo.' }
+      };
+    case 'F6':
+      return {
+        keys: { thumbB: true, lh1: true, lh3: true, rh4: true, footEb: true },
+        text: { left: 'Polegar + 1, 3 (2 aberto)', right: '4 + Eb', tip: 'Harmônico agudo potente.' }
+      };
+    case 'F#6':
+      return {
+        keys: { thumbB: true, lh1: true, lh3: true, rh6: true, footEb: true },
+        text: { left: 'Polegar + 1, 3', right: '6 + Eb', tip: 'Dedo 6 direito acionado.' }
+      };
+    case 'G6':
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, lh3: true, footEb: true },
+        text: { left: 'Polegar + 1, 2, 3', right: 'Chave Eb', tip: 'Ar altamente comprimido, embocadura avançada.' }
+      };
+    case 'G#6':
+      return {
+        keys: { lh2: true, lh3: true, gSharp: true, footEb: true },
+        text: { left: 'Dedos 2, 3 + G# (polegar e 1 abertos)', right: 'Chave Eb', tip: 'Superagudo lírico.' }
+      };
+    case 'A6':
+      return {
+        keys: { thumbB: true, lh2: true, rh4: true, footEb: true },
+        text: { left: 'Polegar + Dedo 2', right: 'Dedo 4 + Eb', tip: 'Lá da 3ª oitava.' }
+      };
+    default:
+      return {
+        keys: { thumbB: true, lh1: true, lh2: true, rh4: true, footEb: true },
+        text: { left: 'Dedos superiores correspondentes', right: 'Apoio em Eb', tip: 'Superagudo de ar veloz.' }
+      };
+  }
+}
+
 export const SaxophoneStudio: React.FC = () => {
   const [selectedNoteId, setSelectedNoteId] = useState<string>('C4');
   const [filterRegister, setFilterRegister] = useState<'Todos' | 'Grave' | 'Médio' | 'Agudo' | 'Altíssimo'>('Todos');
-  const [saxVoice, setSaxVoice] = useState<'Alto' | 'Tenor' | 'Soprano'>('Alto');
+  const [saxVoice, setSaxVoice] = useState<'Alto' | 'Tenor' | 'Soprano' | 'Flauta'>('Alto');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [diagramViewMode, setDiagramViewMode] = useState<'both' | 'photo' | 'diagram'>('both');
 
   const currentNote = SAX_NOTES.find(n => n.id === selectedNoteId) || SAX_NOTES[2];
+  const fluteData = getFluteKeys(currentNote.id);
 
   const handlePlaySound = (scientific: string) => {
     setIsPlayingAudio(true);
-    // Sound pitch adjustment for transposing instruments
-    // Alto: Eb (sounds major 6th lower)
-    // Tenor: Bb (sounds major 9th lower)
-    // Soprano: Bb (sounds major 2nd lower)
-    audioEngine.playNote(scientific, 1.2, 'sax');
+    // Sound pitch and timbre adjustment according to instrument:
+    // Sax Alto: Eb timbre
+    // Sax Tenor: Bb deep timbre
+    // Sax Soprano: Bb bright soprano timbre
+    // Flauta Transversal: C pure crystalline concert flute timbre
+    const soundType = 
+      saxVoice === 'Alto' ? 'sax-alto' :
+      saxVoice === 'Tenor' ? 'sax-tenor' :
+      saxVoice === 'Soprano' ? 'sax-soprano' : 'flauta';
+
+    audioEngine.playNote(scientific, 1.2, soundType);
     setTimeout(() => setIsPlayingAudio(false), 1200);
   };
 
@@ -730,9 +933,19 @@ export const SaxophoneStudio: React.FC = () => {
   });
 
   const k = currentNote.keys;
+  const fk = fluteData.keys;
 
   const row1Notes = SAX_NOTES.filter(n => STAFF_NOTE_DATA[n.id]?.row === 1);
   const row2Notes = SAX_NOTES.filter(n => STAFF_NOTE_DATA[n.id]?.row === 2);
+
+  const windInstruments = [
+    { id: 'Alto', label: 'Alto (Eb)', tuning: 'Mi Bemol (Eb)' },
+    { id: 'Tenor', label: 'Tenor (Bb)', tuning: 'Si Bemol (Bb)' },
+    { id: 'Soprano', label: 'Soprano (Bb)', tuning: 'Si Bemol (Bb)' },
+    { id: 'Flauta', label: 'Flauta Transversal (C)', tuning: 'Dó (C)' },
+  ] as const;
+
+  const currentInstInfo = windInstruments.find(w => w.id === saxVoice) || windInstruments[0];
 
   return (
     <div className="space-y-8 animate-in fade-in duration-300">
@@ -742,13 +955,13 @@ export const SaxophoneStudio: React.FC = () => {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold mb-2">
               <Sparkles size={14} />
-              <span>Chaves Ativas Destacadas em Vermelho • Extensão Completa até Altíssimo</span>
+              <span>Chaves Ativas Destacadas em Vermelho • Extensão Completa</span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-syne font-black text-white">
-              Dedilhado Interativo do Saxofone
+              {saxVoice === 'Flauta' ? 'Dedilhado Interativo da Flauta Transversal' : `Dedilhado Interativo: ${currentInstInfo.label}`}
             </h2>
             <p className="text-slate-400 text-sm max-w-2xl mt-1">
-              Selecione qualquer nota para visualizar as chaves que devem ser pressionadas (em vermelho) no saxofone, desde o Si bemol grave até as notas fora da extensão (Superagudos / Altíssimo).
+              Selecione qualquer nota para visualizar as chaves ativas (em vermelho) e emitir o som real correspondente ao instrumento selecionado.
             </p>
           </div>
 
@@ -762,31 +975,33 @@ export const SaxophoneStudio: React.FC = () => {
             }`}
           >
             <Volume2 size={18} />
-            <span>Ouvir {currentNote.namePt} ({currentNote.scientific})</span>
+            <span>
+              Ouvir {saxVoice === 'Flauta' ? 'Flauta' : `Sax ${saxVoice}`} • {currentNote.namePt} ({currentNote.scientific})
+            </span>
           </button>
         </div>
 
-        {/* ALTO / TENOR / SOPRANO SWITCHER (matches uploaded diagram) & REFERENCE ASSETS */}
+        {/* INSTRUMENTOS DE SOPRO SWITCHER & REFERENCE ASSETS */}
         <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#0b0d14] p-3.5 rounded-2xl border border-white/10">
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Tipo de Saxofone:</span>
-            <div className="inline-flex p-1 rounded-full bg-[#131722] border border-white/15 shadow-md">
-              {(['Alto', 'Tenor', 'Soprano'] as const).map(voice => (
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Instrumentos de Sopro:</span>
+            <div className="inline-flex p-1 rounded-full bg-[#131722] border border-white/15 shadow-md flex-wrap gap-1">
+              {windInstruments.map(item => (
                 <button
-                  key={voice}
-                  onClick={() => setSaxVoice(voice)}
-                  className={`px-5 py-1.5 rounded-full font-syne font-bold text-xs transition-all cursor-pointer ${
-                    saxVoice === voice
+                  key={item.id}
+                  onClick={() => setSaxVoice(item.id)}
+                  className={`px-4 sm:px-5 py-1.5 rounded-full font-syne font-bold text-xs transition-all cursor-pointer ${
+                    saxVoice === item.id
                       ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  {voice} {voice === 'Alto' ? '(Eb)' : '(Bb)'}
+                  {item.label}
                 </button>
               ))}
             </div>
             <span className="text-[11px] text-cyan-400 font-semibold hidden md:inline">
-              Afinação: {saxVoice === 'Alto' ? 'Mi Bemol (Eb)' : 'Si Bemol (Bb)'}
+              Afinação: {currentInstInfo.tuning}
             </span>
           </div>
 
@@ -799,7 +1014,7 @@ export const SaxophoneStudio: React.FC = () => {
               title="Abrir a Tabela Oficial de Teclas em PDF enviada"
             >
               <BookOpen size={13} />
-              <span>Tabela PDF de Teclas</span>
+              <span>Tabela PDF</span>
               <ExternalLink size={11} />
             </a>
             <button
@@ -808,7 +1023,7 @@ export const SaxophoneStudio: React.FC = () => {
               title="Visualizar a ilustração e tabela de referência"
             >
               <ImageIcon size={13} />
-              <span>Ilustração Original</span>
+              <span>Ilustração</span>
             </button>
           </div>
         </div>
@@ -820,7 +1035,7 @@ export const SaxophoneStudio: React.FC = () => {
               <span className="text-xs font-bold text-white uppercase tracking-wider flex items-center gap-1.5">
                 🎼 Pauta Musical Interativa (Pentagrama)
               </span>
-              <span className="text-[11px] text-slate-400">• Clique em qualquer nota na pauta para ouvi-la e ver o dedilhado</span>
+              <span className="text-[11px] text-slate-400 hidden sm:inline">• Clique em qualquer nota na pauta para ouvi-la no timbre do instrumento</span>
             </div>
             <div className="text-xs font-bold text-rose-400">
               Nota Atual: <span className="text-white bg-rose-500/20 px-2 py-0.5 rounded-md border border-rose-500/30 font-mono">{currentNote.namePt} ({currentNote.scientific})</span>
@@ -830,7 +1045,7 @@ export const SaxophoneStudio: React.FC = () => {
           {/* Staves container: 2 rows with treble clefs, notes and selection highlight */}
           <div className="space-y-4 overflow-x-auto pb-2">
             {/* Staff Row 1: Graves e Médios (Bb3 a F5) */}
-            <div className="min-w-[760px] bg-[#131722]/80 p-3 rounded-xl border border-white/5">
+            <div className="min-w-[760px] p-3 rounded-xl notation-chalkboard">
               <div className="text-[10px] uppercase font-bold text-slate-400 mb-1 pl-2">
                 Linha 1: Registro Grave e Médio (Sib3 ao Fá5)
               </div>
@@ -923,7 +1138,7 @@ export const SaxophoneStudio: React.FC = () => {
             </div>
 
             {/* Staff Row 2: Agudos e Superagudos / Altíssimo (F#5 a D7) */}
-            <div className="min-w-[760px] bg-[#131722]/80 p-3 rounded-xl border border-white/5">
+            <div className="min-w-[760px] p-3 rounded-xl notation-chalkboard">
               <div className="text-[10px] uppercase font-bold text-rose-400 mb-1 pl-2 flex items-center gap-1.5">
                 <span>Linha 2: Registro Agudo & Superagudos / Altíssimo (Fá#5 ao Ré7)</span>
                 <span className="px-1.5 py-0.2 rounded-full bg-red-500/20 text-[9px] text-red-300">Extensão Completa</span>
@@ -1118,17 +1333,21 @@ export const SaxophoneStudio: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Saxophone Visual Diagram with Red Highlighted Keys */}
+        {/* Right Column: Instrument Visual Diagram with Red Highlighted Keys */}
         <div className="lg:col-span-7 bg-[#131722] p-6 sm:p-8 rounded-3xl border border-white/10 shadow-xl space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div>
               <h3 className="font-syne font-black text-xl text-white flex items-center gap-2">
-                <span>Diagrama & Saxofone Real</span>
+                <span>Diagrama & {saxVoice === 'Flauta' ? 'Flauta Real' : 'Saxofone Real'}</span>
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
                   Chaves em Vermelho = Pressionar
                 </span>
               </h3>
-              <p className="text-xs text-slate-400">Saxofone Alto de verdade integrado com marcação de chaves ativas</p>
+              <p className="text-xs text-slate-400">
+                {saxVoice === 'Flauta'
+                  ? 'Flauta transversal real integrada com digitação do sistema Boehm'
+                  : `${currentInstInfo.label} de verdade integrado com marcação de chaves ativas`}
+              </p>
             </div>
 
             <div className="flex items-center gap-2">
@@ -1141,7 +1360,7 @@ export const SaxophoneStudio: React.FC = () => {
                     diagramViewMode === 'both' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Sax Real & Chaves
+                  Instrumento & Chaves
                 </button>
                 <button
                   type="button"
@@ -1150,7 +1369,7 @@ export const SaxophoneStudio: React.FC = () => {
                     diagramViewMode === 'photo' ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Sax Real
+                  Instrumento Real
                 </button>
                 <button
                   type="button"
@@ -1172,28 +1391,44 @@ export const SaxophoneStudio: React.FC = () => {
             </div>
           </div>
 
-          {/* Graphical Representation of Saxophone with Real Instrument and Highlighted Red Keys */}
+          {/* Graphical Representation of Instrument with Real Photo and Highlighted Red Keys */}
           <div className="bg-[#0b0d14] p-6 rounded-3xl border border-white/10 flex flex-col xl:flex-row items-center justify-center gap-6 relative overflow-hidden">
             {/* Background subtle glow */}
             <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/5 via-red-500/5 to-transparent pointer-events-none"></div>
 
-            {/* Real Alto Saxophone Image */}
+            {/* Real Instrument Photo (Dynamic based on selected wind instrument) */}
             {(diagramViewMode === 'both' || diagramViewMode === 'photo') && (
               <div className="flex flex-col items-center gap-2">
                 <div className="relative group rounded-2xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-black/50 max-h-[460px]">
                   <img
-                    src="/assets/instruments/alto_sax.jpg"
-                    alt="Saxofone Alto Real"
+                    src={
+                      saxVoice === 'Alto'
+                        ? '/assets/instruments/alto_sax.jpg'
+                        : saxVoice === 'Tenor'
+                        ? '/assets/instruments/tenor_sax.jpg'
+                        : saxVoice === 'Soprano'
+                        ? '/assets/instruments/soprano_sax.jpg'
+                        : '/assets/instruments/flauta.jpg'
+                    }
+                    alt={saxVoice === 'Flauta' ? 'Flauta Transversal Real' : `Saxofone ${saxVoice} Real`}
                     className="w-48 sm:w-52 h-[420px] object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                   <div className="absolute top-2 left-2 right-2 bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-center">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
-                      Saxofone Alto Real (Mib)
+                      {saxVoice === 'Flauta'
+                        ? 'Flauta Transversal (C)'
+                        : `Saxofone ${saxVoice} (${saxVoice === 'Alto' ? 'Eb' : 'Bb'})`}
                     </span>
                   </div>
                   <div className="absolute bottom-2 left-2 right-2 bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-center">
                     <span className="text-[10px] text-slate-300 font-medium">
-                      Latão Dourado • Afinação Eb
+                      {saxVoice === 'Flauta'
+                        ? 'Corpo em Prata • Afinação Dó'
+                        : saxVoice === 'Alto'
+                        ? 'Latão Dourado • Afinação Eb'
+                        : saxVoice === 'Tenor'
+                        ? 'Tubo Encurvado • Afinação Bb'
+                        : 'Tubo Reto • Afinação Bb'}
                     </span>
                   </div>
                 </div>
@@ -1203,249 +1438,481 @@ export const SaxophoneStudio: React.FC = () => {
               </div>
             )}
 
-            {/* SVG Saxophone Body with interactive keys */}
+            {/* SVG Diagram: Flute Boehm Diagram when Flauta is selected; Saxophone Diagram otherwise */}
             {(diagramViewMode === 'both' || diagramViewMode === 'diagram') && (
-            <div className="relative w-48 sm:w-56 h-[460px] flex items-center justify-center">
-              <svg viewBox="0 0 200 480" className="w-full h-full drop-shadow-2xl">
-                {/* Sax Neck & Mouthpiece */}
-                <path d="M 90 20 Q 90 60 100 80 L 100 420 Q 100 450 140 450 Q 170 450 170 380 Q 170 340 140 330" fill="none" stroke="#d97706" strokeWidth="18" strokeLinecap="round" opacity="0.25" />
-                <path d="M 90 20 Q 90 60 100 80 L 100 420 Q 100 450 140 450 Q 170 450 170 380 Q 170 340 140 330" fill="none" stroke="#f59e0b" strokeWidth="10" strokeLinecap="round" />
-                
-                {/* Mouthpiece / Boquilha */}
-                <rect x="84" y="8" width="12" height="22" rx="4" fill="#0f172a" stroke="#475569" strokeWidth="2" />
-                <path d="M 84 8 L 96 8 L 93 18 L 87 18 Z" fill="#38bdf8" opacity="0.6" />
+              saxVoice === 'Flauta' ? (
+                /* --- FLUTE BOEHM DIAGRAM --- */
+                <div className="relative w-48 sm:w-56 h-[460px] flex items-center justify-center">
+                  <svg viewBox="0 0 200 480" className="w-full h-full drop-shadow-2xl">
+                    {/* Flute Silver Tube Body */}
+                    <rect x="94" y="20" width="12" height="436" rx="4" fill="#94a3b8" opacity="0.35" />
+                    <line x1="100" y1="20" x2="100" y2="456" stroke="#f8fafc" strokeWidth="2" opacity="0.7" />
 
-                {/* Bell (Campana) */}
-                <ellipse cx="148" cy="350" rx="20" ry="32" fill="#d97706" stroke="#fbbf24" strokeWidth="3" opacity="0.85" />
-                <ellipse cx="148" cy="350" rx="14" ry="24" fill="#78350f" />
+                    {/* Flute Crown / Cap */}
+                    <rect x="92" y="14" width="16" height="7" rx="2" fill="#cbd5e1" stroke="#64748b" strokeWidth="1.2" />
 
-                {/* --- LEFT HAND SECTION (UPPER TUBE) --- */}
-                {/* Octave Key (Thumb Back) */}
-                <g transform="translate(68, 90)">
-                  <rect x="0" y="0" width="16" height="26" rx="6" 
-                    fill={k.octave ? "#ef4444" : "#1e293b"} 
-                    stroke={k.octave ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2.5" 
-                    className={k.octave ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="8" y="16" textAnchor="middle" fill={k.octave ? "#ffffff" : "#94a3b8"} fontSize="8" fontWeight="bold">OCT</text>
-                </g>
+                    {/* Headjoint & Embouchure Hole (Bocal & Porta-Lábio) */}
+                    <ellipse cx="100" cy="45" rx="15" ry="11" fill="#e2e8f0" stroke="#94a3b8" strokeWidth="1.5" />
+                    <ellipse cx="100" cy="45" rx="6" ry="4" fill="#0f172a" stroke="#475569" strokeWidth="1.5" />
 
-                {/* Palm Keys (Left side: D, Eb, F) */}
-                <g transform="translate(64, 125)">
-                  {/* Palm D */}
-                  <path d="M 0 0 C 10 -4 14 10 0 14 Z" 
-                    fill={k.palmD ? "#ef4444" : "#1e293b"} 
-                    stroke={k.palmD ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2"
-                    className={k.palmD ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  {/* Palm Eb */}
-                  <path d="M 0 18 C 10 14 14 28 0 32 Z" 
-                    fill={k.palmEb ? "#ef4444" : "#1e293b"} 
-                    stroke={k.palmEb ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2"
-                    className={k.palmEb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  {/* Palm F */}
-                  <path d="M 0 36 C 10 32 14 46 0 50 Z" 
-                    fill={k.palmF ? "#ef4444" : "#1e293b"} 
-                    stroke={k.palmF ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2"
-                    className={k.palmF ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                </g>
+                    {/* Body Joint Rings */}
+                    <rect x="91" y="78" width="18" height="4" rx="1" fill="#cbd5e1" stroke="#64748b" strokeWidth="1" />
+                    <rect x="91" y="375" width="18" height="4" rx="1" fill="#cbd5e1" stroke="#64748b" strokeWidth="1" />
 
-                {/* Front F Key (Chave X) */}
-                <circle cx="100" cy="118" r="7" 
-                  fill={k.frontF ? "#ef4444" : "#1e293b"} 
-                  stroke={k.frontF ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2"
-                  className={k.frontF ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                />
-                <text x="100" y="121" textAnchor="middle" fill={k.frontF ? "#fff" : "#94a3b8"} fontSize="8" fontWeight="bold">X</text>
+                    {/* Left Hand Thumb Keys (Chaves de Polegar: B e Bb) */}
+                    <g transform="translate(62, 106)">
+                      {/* Thumb B */}
+                      <rect
+                        x="0"
+                        y="0"
+                        width="24"
+                        height="20"
+                        rx="5"
+                        fill={fk.thumbB ? "#ef4444" : "#1e293b"}
+                        stroke={fk.thumbB ? "#dc2626" : "#64748b"}
+                        strokeWidth="2"
+                        className={fk.thumbB ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="12" y="13" textAnchor="middle" fill={fk.thumbB ? "#fff" : "#94a3b8"} fontSize="8" fontWeight="bold">
+                        TH(B)
+                      </text>
 
-                {/* Key 1 (B) */}
-                <circle cx="100" cy="142" r="11" 
-                  fill={k.lh1 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.lh1 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.lh1 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="146" textAnchor="middle" fill={k.lh1 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">1</text>
+                      {/* Thumb Bb Lever */}
+                      <rect
+                        x="0"
+                        y="23"
+                        width="24"
+                        height="16"
+                        rx="4"
+                        fill={fk.thumbBb ? "#ef4444" : "#1e293b"}
+                        stroke={fk.thumbBb ? "#dc2626" : "#64748b"}
+                        strokeWidth="1.8"
+                        className={fk.thumbBb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="12" y="34" textAnchor="middle" fill={fk.thumbBb ? "#fff" : "#94a3b8"} fontSize="7.5" fontWeight="bold">
+                        Bb
+                      </text>
+                    </g>
 
-                {/* Bis Key (between 1 and 2) */}
-                <circle cx="100" cy="162" r="6" 
-                  fill={k.bis ? "#ef4444" : "#1e293b"} 
-                  stroke={k.bis ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2"
-                  className={k.bis ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                />
-                <text x="100" y="165" textAnchor="middle" fill={k.bis ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">Bis</text>
+                    {/* Left Hand Main Keys: 1, 2, 3 */}
+                    {/* Key 1 */}
+                    <circle
+                      cx="100"
+                      cy="118"
+                      r="11"
+                      fill={fk.lh1 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.lh1 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.lh1 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="122" textAnchor="middle" fill={fk.lh1 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">1</text>
 
-                {/* Key 2 (A) */}
-                <circle cx="100" cy="182" r="11" 
-                  fill={k.lh2 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.lh2 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.lh2 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="186" textAnchor="middle" fill={k.lh2 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">2</text>
+                    {/* Key 2 */}
+                    <circle
+                      cx="100"
+                      cy="156"
+                      r="11"
+                      fill={fk.lh2 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.lh2 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.lh2 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="160" textAnchor="middle" fill={fk.lh2 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">2</text>
 
-                {/* Key 3 (G) */}
-                <circle cx="100" cy="210" r="11" 
-                  fill={k.lh3 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.lh3 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.lh3 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="214" textAnchor="middle" fill={k.lh3 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">3</text>
+                    {/* Key 3 */}
+                    <circle
+                      cx="100"
+                      cy="192"
+                      r="11"
+                      fill={fk.lh3 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.lh3 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.lh3 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="196" textAnchor="middle" fill={fk.lh3 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">3</text>
 
-                {/* Left Hand Table Keys (G#, C#, B, Bb - Mesa do Mindinho Esquerdo) */}
-                <g transform="translate(68, 225)">
-                  {/* G# */}
-                  <rect x="0" y="0" width="14" height="12" rx="3" 
-                    fill={k.gSharp ? "#ef4444" : "#1e293b"} 
-                    stroke={k.gSharp ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.gSharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="7" y="9" textAnchor="middle" fill={k.gSharp ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">G#</text>
+                    {/* G# Pinky Key (Left Hand Pinky Lever) */}
+                    <g transform="translate(62, 212)">
+                      <rect
+                        x="0"
+                        y="0"
+                        width="24"
+                        height="18"
+                        rx="4"
+                        fill={fk.gSharp ? "#ef4444" : "#1e293b"}
+                        stroke={fk.gSharp ? "#dc2626" : "#64748b"}
+                        strokeWidth="2"
+                        className={fk.gSharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="12" y="12" textAnchor="middle" fill={fk.gSharp ? "#fff" : "#94a3b8"} fontSize="8" fontWeight="bold">
+                        G#
+                      </text>
+                    </g>
 
-                  {/* Low C# */}
-                  <rect x="16" y="0" width="14" height="12" rx="3" 
-                    fill={k.lowCsharp ? "#ef4444" : "#1e293b"} 
-                    stroke={k.lowCsharp ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.lowCsharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="23" y="9" textAnchor="middle" fill={k.lowCsharp ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">C#</text>
+                    {/* Trill Keys on Right side */}
+                    <g transform="translate(118, 222)">
+                      <rect x="0" y="0" width="12" height="12" rx="3" fill="#1e293b" stroke="#64748b" strokeWidth="1.5" />
+                      <text x="6" y="9" textAnchor="middle" fill="#94a3b8" fontSize="6.5" fontWeight="bold">Tr1</text>
+                      <rect x="0" y="15" width="12" height="12" rx="3" fill="#1e293b" stroke="#64748b" strokeWidth="1.5" />
+                      <text x="6" y="24" textAnchor="middle" fill="#94a3b8" fontSize="6.5" fontWeight="bold">Tr2</text>
+                    </g>
 
-                  {/* Low B */}
-                  <rect x="0" y="14" width="14" height="12" rx="3" 
-                    fill={k.lowB ? "#ef4444" : "#1e293b"} 
-                    stroke={k.lowB ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.lowB ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="7" y="23" textAnchor="middle" fill={k.lowB ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">B</text>
+                    {/* Right Hand Main Keys: 4, 5, 6 */}
+                    {/* Key 4 */}
+                    <circle
+                      cx="100"
+                      cy="268"
+                      r="11"
+                      fill={fk.rh4 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.rh4 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.rh4 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="272" textAnchor="middle" fill={fk.rh4 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">4</text>
 
-                  {/* Low Bb */}
-                  <rect x="16" y="14" width="14" height="12" rx="3" 
-                    fill={k.lowBb ? "#ef4444" : "#1e293b"} 
-                    stroke={k.lowBb ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.lowBb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="23" y="23" textAnchor="middle" fill={k.lowBb ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">Bb</text>
-                </g>
+                    {/* Key 5 */}
+                    <circle
+                      cx="100"
+                      cy="302"
+                      r="11"
+                      fill={fk.rh5 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.rh5 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.rh5 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="306" textAnchor="middle" fill={fk.rh5 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">5</text>
 
-                {/* --- RIGHT HAND SECTION (LOWER TUBE) --- */}
-                {/* Side Keys (Right side: Side Bb, Side C, High E) */}
-                <g transform="translate(122, 160)">
-                  {/* Side High E */}
-                  <rect x="0" y="0" width="12" height="14" rx="3" 
-                    fill={k.sideHighE ? "#ef4444" : "#1e293b"} 
-                    stroke={k.sideHighE ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.sideHighE ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="6" y="10" textAnchor="middle" fill={k.sideHighE ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">E</text>
+                    {/* Key 6 */}
+                    <circle
+                      cx="100"
+                      cy="336"
+                      r="11"
+                      fill={fk.rh6 ? "#ef4444" : "#1e293b"}
+                      stroke={fk.rh6 ? "#dc2626" : "#64748b"}
+                      strokeWidth="2.5"
+                      className={fk.rh6 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="340" textAnchor="middle" fill={fk.rh6 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">6</text>
 
-                  {/* Side C */}
-                  <rect x="0" y="18" width="12" height="14" rx="3" 
-                    fill={k.sideC ? "#ef4444" : "#1e293b"} 
-                    stroke={k.sideC ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.sideC ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="6" y="28" textAnchor="middle" fill={k.sideC ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">C</text>
+                    {/* Footjoint Keys (Pé da Flauta: Eb, C#, C) */}
+                    <g transform="translate(118, 386)">
+                      {/* Key Eb (Chave de Mib / Apoio da mão direita) */}
+                      <rect
+                        x="0"
+                        y="0"
+                        width="22"
+                        height="16"
+                        rx="4"
+                        fill={fk.footEb ? "#ef4444" : "#1e293b"}
+                        stroke={fk.footEb ? "#dc2626" : "#64748b"}
+                        strokeWidth="2"
+                        className={fk.footEb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="11" y="11" textAnchor="middle" fill={fk.footEb ? "#fff" : "#94a3b8"} fontSize="8" fontWeight="bold">
+                        Eb
+                      </text>
 
-                  {/* Side Bb */}
-                  <rect x="0" y="36" width="12" height="14" rx="3" 
-                    fill={k.sideBb ? "#ef4444" : "#1e293b"} 
-                    stroke={k.sideBb ? "#dc2626" : "#64748b"} 
-                    strokeWidth="1.5"
-                    className={k.sideBb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="6" y="46" textAnchor="middle" fill={k.sideBb ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">Bb</text>
-                </g>
+                      {/* Low C# (Rolete de C#) */}
+                      <rect
+                        x="0"
+                        y="20"
+                        width="22"
+                        height="15"
+                        rx="4"
+                        fill={fk.footCsharp ? "#ef4444" : "#1e293b"}
+                        stroke={fk.footCsharp ? "#dc2626" : "#64748b"}
+                        strokeWidth="1.8"
+                        className={fk.footCsharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="11" y="31" textAnchor="middle" fill={fk.footCsharp ? "#fff" : "#94a3b8"} fontSize="7.5" fontWeight="bold">
+                        C#
+                      </text>
 
-                {/* Key 4 (F) */}
-                <circle cx="100" cy="275" r="11" 
-                  fill={k.rh4 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.rh4 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.rh4 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="279" textAnchor="middle" fill={k.rh4 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">4</text>
+                      {/* Low C (Rolete de C) */}
+                      <rect
+                        x="0"
+                        y="39"
+                        width="22"
+                        height="15"
+                        rx="4"
+                        fill={fk.footC ? "#ef4444" : "#1e293b"}
+                        stroke={fk.footC ? "#dc2626" : "#64748b"}
+                        strokeWidth="1.8"
+                        className={fk.footC ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="11" y="50" textAnchor="middle" fill={fk.footC ? "#fff" : "#94a3b8"} fontSize="7.5" fontWeight="bold">
+                        C
+                      </text>
+                    </g>
 
-                {/* Key 5 (E) */}
-                <circle cx="100" cy="305" r="11" 
-                  fill={k.rh5 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.rh5 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.rh5 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="309" textAnchor="middle" fill={k.rh5 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">5</text>
+                    {/* Flute Bottom End */}
+                    <rect x="93" y="456" width="14" height="4" rx="1" fill="#cbd5e1" stroke="#64748b" strokeWidth="1" />
+                  </svg>
+                </div>
+              ) : (
+                /* --- SAXOPHONE VISUAL DIAGRAM --- */
+                <div className="relative w-48 sm:w-56 h-[460px] flex items-center justify-center">
+                  <svg viewBox="0 0 200 480" className="w-full h-full drop-shadow-2xl">
+                    {/* Sax Neck & Mouthpiece */}
+                    <path d="M 90 20 Q 90 60 100 80 L 100 420 Q 100 450 140 450 Q 170 450 170 380 Q 170 340 140 330" fill="none" stroke="#d97706" strokeWidth="18" strokeLinecap="round" opacity="0.25" />
+                    <path d="M 90 20 Q 90 60 100 80 L 100 420 Q 100 450 140 450 Q 170 450 170 380 Q 170 340 140 330" fill="none" stroke="#f59e0b" strokeWidth="10" strokeLinecap="round" />
+                    
+                    {/* Mouthpiece / Boquilha */}
+                    <rect x="84" y="8" width="12" height="22" rx="4" fill="#0f172a" stroke="#475569" strokeWidth="2" />
+                    <path d="M 84 8 L 96 8 L 93 18 L 87 18 Z" fill="#38bdf8" opacity="0.6" />
 
-                {/* Key 6 (D) */}
-                <circle cx="100" cy="335" r="11" 
-                  fill={k.rh6 ? "#ef4444" : "#1e293b"} 
-                  stroke={k.rh6 ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2.5"
-                  className={k.rh6 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
-                />
-                <text x="100" y="339" textAnchor="middle" fill={k.rh6 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">6</text>
+                    {/* Bell (Campana) */}
+                    <ellipse cx="148" cy="350" rx="20" ry="32" fill="#d97706" stroke="#fbbf24" strokeWidth="3" opacity="0.85" />
+                    <ellipse cx="148" cy="350" rx="14" ry="24" fill="#78350f" />
 
-                {/* High F# Key */}
-                <circle cx="120" cy="290" r="7" 
-                  fill={k.highFsharp ? "#ef4444" : "#1e293b"} 
-                  stroke={k.highFsharp ? "#dc2626" : "#64748b"} 
-                  strokeWidth="2"
-                  className={k.highFsharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                />
-                <text x="120" y="293" textAnchor="middle" fill={k.highFsharp ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">F#</text>
+                    {/* --- LEFT HAND SECTION (UPPER TUBE) --- */}
+                    {/* Octave Key (Thumb Back) */}
+                    <g transform="translate(68, 90)">
+                      <rect x="0" y="0" width="16" height="26" rx="6" 
+                        fill={k.octave ? "#ef4444" : "#1e293b"} 
+                        stroke={k.octave ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2.5" 
+                        className={k.octave ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="8" y="16" textAnchor="middle" fill={k.octave ? "#ffffff" : "#94a3b8"} fontSize="8" fontWeight="bold">OCT</text>
+                    </g>
 
-                {/* Right Hand Pinky Keys (Low Eb and Low C) */}
-                <g transform="translate(116, 350)">
-                  {/* Low Eb */}
-                  <ellipse cx="8" cy="8" rx="8" ry="6" 
-                    fill={k.lowEb ? "#ef4444" : "#1e293b"} 
-                    stroke={k.lowEb ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2"
-                    className={k.lowEb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="8" y="10" textAnchor="middle" fill={k.lowEb ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">Eb</text>
+                    {/* Palm Keys (Left side: D, Eb, F) */}
+                    <g transform="translate(64, 125)">
+                      {/* Palm D */}
+                      <path d="M 0 0 C 10 -4 14 10 0 14 Z" 
+                        fill={k.palmD ? "#ef4444" : "#1e293b"} 
+                        stroke={k.palmD ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2"
+                        className={k.palmD ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      {/* Palm Eb */}
+                      <path d="M 0 18 C 10 14 14 28 0 32 Z" 
+                        fill={k.palmEb ? "#ef4444" : "#1e293b"} 
+                        stroke={k.palmEb ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2"
+                        className={k.palmEb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      {/* Palm F */}
+                      <path d="M 0 36 C 10 32 14 46 0 50 Z" 
+                        fill={k.palmF ? "#ef4444" : "#1e293b"} 
+                        stroke={k.palmF ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2"
+                        className={k.palmF ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                    </g>
 
-                  {/* Low C */}
-                  <ellipse cx="8" cy="24" rx="8" ry="6" 
-                    fill={k.lowC ? "#ef4444" : "#1e293b"} 
-                    stroke={k.lowC ? "#dc2626" : "#64748b"} 
-                    strokeWidth="2"
-                    className={k.lowC ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
-                  />
-                  <text x="8" y="26" textAnchor="middle" fill={k.lowC ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">C</text>
-                </g>
-              </svg>
-            </div>
+                    {/* Front F Key (Chave X) */}
+                    <circle cx="100" cy="118" r="7" 
+                      fill={k.frontF ? "#ef4444" : "#1e293b"} 
+                      stroke={k.frontF ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2"
+                      className={k.frontF ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                    />
+                    <text x="100" y="121" textAnchor="middle" fill={k.frontF ? "#fff" : "#94a3b8"} fontSize="8" fontWeight="bold">X</text>
+
+                    {/* Key 1 (B) */}
+                    <circle cx="100" cy="142" r="11" 
+                      fill={k.lh1 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.lh1 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.lh1 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="146" textAnchor="middle" fill={k.lh1 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">1</text>
+
+                    {/* Bis Key (between 1 and 2) */}
+                    <circle cx="100" cy="162" r="6" 
+                      fill={k.bis ? "#ef4444" : "#1e293b"} 
+                      stroke={k.bis ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2"
+                      className={k.bis ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                    />
+                    <text x="100" y="165" textAnchor="middle" fill={k.bis ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">Bis</text>
+
+                    {/* Key 2 (A) */}
+                    <circle cx="100" cy="182" r="11" 
+                      fill={k.lh2 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.lh2 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.lh2 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="186" textAnchor="middle" fill={k.lh2 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">2</text>
+
+                    {/* Key 3 (G) */}
+                    <circle cx="100" cy="210" r="11" 
+                      fill={k.lh3 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.lh3 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.lh3 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="214" textAnchor="middle" fill={k.lh3 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">3</text>
+
+                    {/* Left Hand Table Keys (G#, C#, B, Bb - Mesa do Mindinho Esquerdo) */}
+                    <g transform="translate(68, 225)">
+                      {/* G# */}
+                      <rect x="0" y="0" width="14" height="12" rx="3" 
+                        fill={k.gSharp ? "#ef4444" : "#1e293b"} 
+                        stroke={k.gSharp ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.gSharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="7" y="9" textAnchor="middle" fill={k.gSharp ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">G#</text>
+
+                      {/* Low C# */}
+                      <rect x="16" y="0" width="14" height="12" rx="3" 
+                        fill={k.lowCsharp ? "#ef4444" : "#1e293b"} 
+                        stroke={k.lowCsharp ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.lowCsharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="23" y="9" textAnchor="middle" fill={k.lowCsharp ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">C#</text>
+
+                      {/* Low B */}
+                      <rect x="0" y="14" width="14" height="12" rx="3" 
+                        fill={k.lowB ? "#ef4444" : "#1e293b"} 
+                        stroke={k.lowB ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.lowB ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="7" y="23" textAnchor="middle" fill={k.lowB ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">B</text>
+
+                      {/* Low Bb */}
+                      <rect x="16" y="14" width="14" height="12" rx="3" 
+                        fill={k.lowBb ? "#ef4444" : "#1e293b"} 
+                        stroke={k.lowBb ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.lowBb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="23" y="23" textAnchor="middle" fill={k.lowBb ? "#fff" : "#94a3b8"} fontSize="7" fontWeight="bold">Bb</text>
+                    </g>
+
+                    {/* --- RIGHT HAND SECTION (LOWER TUBE) --- */}
+                    {/* Side Keys (Right side: Side Bb, Side C, High E) */}
+                    <g transform="translate(122, 160)">
+                      {/* Side High E */}
+                      <rect x="0" y="0" width="12" height="14" rx="3" 
+                        fill={k.sideHighE ? "#ef4444" : "#1e293b"} 
+                        stroke={k.sideHighE ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.sideHighE ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="6" y="10" textAnchor="middle" fill={k.sideHighE ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">E</text>
+
+                      {/* Side C */}
+                      <rect x="0" y="18" width="12" height="14" rx="3" 
+                        fill={k.sideC ? "#ef4444" : "#1e293b"} 
+                        stroke={k.sideC ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.sideC ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="6" y="28" textAnchor="middle" fill={k.sideC ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">C</text>
+
+                      {/* Side Bb */}
+                      <rect x="0" y="36" width="12" height="14" rx="3" 
+                        fill={k.sideBb ? "#ef4444" : "#1e293b"} 
+                        stroke={k.sideBb ? "#dc2626" : "#64748b"} 
+                        strokeWidth="1.5"
+                        className={k.sideBb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="6" y="46" textAnchor="middle" fill={k.sideBb ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">Bb</text>
+                    </g>
+
+                    {/* Key 4 (F) */}
+                    <circle cx="100" cy="275" r="11" 
+                      fill={k.rh4 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.rh4 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.rh4 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="279" textAnchor="middle" fill={k.rh4 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">4</text>
+
+                    {/* Key 5 (E) */}
+                    <circle cx="100" cy="305" r="11" 
+                      fill={k.rh5 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.rh5 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.rh5 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="309" textAnchor="middle" fill={k.rh5 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">5</text>
+
+                    {/* Key 6 (D) */}
+                    <circle cx="100" cy="335" r="11" 
+                      fill={k.rh6 ? "#ef4444" : "#1e293b"} 
+                      stroke={k.rh6 ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2.5"
+                      className={k.rh6 ? "filter drop-shadow-[0_0_10px_rgba(239,68,68,0.95)]" : ""}
+                    />
+                    <text x="100" y="339" textAnchor="middle" fill={k.rh6 ? "#fff" : "#cbd5e1"} fontSize="11" fontWeight="bold">6</text>
+
+                    {/* High F# Key */}
+                    <circle cx="120" cy="290" r="7" 
+                      fill={k.highFsharp ? "#ef4444" : "#1e293b"} 
+                      stroke={k.highFsharp ? "#dc2626" : "#64748b"} 
+                      strokeWidth="2"
+                      className={k.highFsharp ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                    />
+                    <text x="120" y="293" textAnchor="middle" fill={k.highFsharp ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">F#</text>
+
+                    {/* Right Hand Pinky Keys (Low Eb and Low C) */}
+                    <g transform="translate(116, 350)">
+                      {/* Low Eb */}
+                      <ellipse cx="8" cy="8" rx="8" ry="6" 
+                        fill={k.lowEb ? "#ef4444" : "#1e293b"} 
+                        stroke={k.lowEb ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2"
+                        className={k.lowEb ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="8" y="10" textAnchor="middle" fill={k.lowEb ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">Eb</text>
+
+                      {/* Low C */}
+                      <ellipse cx="8" cy="24" rx="8" ry="6" 
+                        fill={k.lowC ? "#ef4444" : "#1e293b"} 
+                        stroke={k.lowC ? "#dc2626" : "#64748b"} 
+                        strokeWidth="2"
+                        className={k.lowC ? "filter drop-shadow-[0_0_8px_rgba(239,68,68,0.9)]" : ""}
+                      />
+                      <text x="8" y="26" textAnchor="middle" fill={k.lowC ? "#fff" : "#94a3b8"} fontSize="6.5" fontWeight="bold">C</text>
+                    </g>
+                  </svg>
+                </div>
+              )
             )}
 
-            {/* Right: Technical Explanation of Fingers & Keys */}
+            {/* Right: Technical Explanation of Fingers & Keys (Adapts to Wind Instrument) */}
             <div className="flex-1 space-y-4 text-xs">
               <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
-                <span className="font-bold text-red-400 uppercase tracking-wider block">Mão Esquerda (Superior)</span>
-                <p className="text-white font-medium">{currentNote.fingeringText.leftHand}</p>
+                <span className="font-bold text-red-400 uppercase tracking-wider block">
+                  {saxVoice === 'Flauta' ? 'Mão Esquerda (Polegar & Dedos 1, 2, 3)' : 'Mão Esquerda (Superior)'}
+                </span>
+                <p className="text-white font-medium">
+                  {saxVoice === 'Flauta' ? fluteData.text.left : currentNote.fingeringText.leftHand}
+                </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
-                <span className="font-bold text-amber-400 uppercase tracking-wider block">Mão Direita (Inferior)</span>
-                <p className="text-white font-medium">{currentNote.fingeringText.rightHand}</p>
+                <span className="font-bold text-amber-400 uppercase tracking-wider block">
+                  {saxVoice === 'Flauta' ? 'Mão Direita (Dedos 4, 5, 6)' : 'Mão Direita (Inferior)'}
+                </span>
+                <p className="text-white font-medium">
+                  {saxVoice === 'Flauta' ? fluteData.text.right : currentNote.fingeringText.rightHand}
+                </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
-                <span className="font-bold text-cyan-400 uppercase tracking-wider block">Chaves Especiais / Laterais</span>
-                <p className="text-white font-medium">{currentNote.fingeringText.specialKeys}</p>
+                <span className="font-bold text-cyan-400 uppercase tracking-wider block">
+                  {saxVoice === 'Flauta' ? 'Pé da Flauta & Chaves de Apoio' : 'Chaves Especiais / Laterais'}
+                </span>
+                <p className="text-white font-medium">
+                  {saxVoice === 'Flauta'
+                    ? (fluteData.keys.footEb
+                        ? 'Chave de Eb acionada (mindinho direito)'
+                        : fluteData.keys.footC
+                        ? 'Chaves de Dó e Dó# graves acionadas'
+                        : fluteData.keys.footCsharp
+                        ? 'Chave de Dó# grave acionada'
+                        : 'Pé livre (sem chave pressionada)')
+                    : currentNote.fingeringText.specialKeys}
+                </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-500/10 to-transparent border border-red-500/20 space-y-1">
@@ -1453,7 +1920,7 @@ export const SaxophoneStudio: React.FC = () => {
                   <Info size={14} /> Dica de Voicing & Embocadura
                 </span>
                 <p className="text-slate-300 leading-relaxed font-medium">
-                  {currentNote.voicingTip}
+                  {saxVoice === 'Flauta' ? fluteData.text.tip : currentNote.voicingTip}
                 </p>
               </div>
             </div>

@@ -77,7 +77,7 @@ export const MaestroPanel: React.FC<MaestroPanelProps> = ({
         {
           id: Date.now().toString(),
           sender: 'maestro',
-          text: `⚠️ **Limite de perguntas diárias atingido (Plano Grátis)**\n\nVocê utilizou todas as 5 perguntas gratuitas de hoje com o Maestro Lucas.\n\nPara ter acesso **ILIMITADO** a qualquer hora e mentoria musical completa sem limites, faça o upgrade para o **Tutti Pro**!`,
+          text: `⚠️ **Limite de perguntas semanais atingido (Plano Grátis)**\n\nVocê utilizou todas as 5 perguntas gratuitas desta semana com o Maestro Lucas.\n\nPara ter acesso **ILIMITADO VITALÍCIO** a qualquer hora e mentoria musical completa sem limites, garanta o **Tutti Pro**!`,
           timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
         }
       ]);
@@ -196,8 +196,8 @@ export const MaestroPanel: React.FC<MaestroPanelProps> = ({
               <Zap size={12} className={isLimitReached ? 'text-rose-400' : 'text-amber-400'} />
               <span>
                 {isLimitReached
-                  ? '0/5 Hoje • Liberar Pro'
-                  : `${remainingFreeMessages} de ${FREE_DAILY_LIMIT} grátis hoje`}
+                  ? '0/5 Semana • Liberar Pro'
+                  : `${remainingFreeMessages} de ${FREE_DAILY_LIMIT} grátis esta semana`}
               </span>
             </button>
           ) : (
@@ -332,7 +332,7 @@ export const MaestroPanel: React.FC<MaestroPanelProps> = ({
           disabled={isLimitReached}
           placeholder={
             isLimitReached
-              ? 'Limite de 5 perguntas atingido. Assine o Tutti Pro para continuar.'
+              ? 'Limite de 5 perguntas semanais atingido. Assine o Tutti Pro Vitalício para continuar.'
               : `Pergunte ao Maestro sobre ${currentInstrument}, harmonia, técnica...`
           }
           className="flex-1 bg-[#131722] text-white border border-white/10 rounded-xl px-4 py-2.5 text-sm outline-none focus:border-cyan-400 transition-colors disabled:opacity-50"

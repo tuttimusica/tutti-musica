@@ -34,14 +34,14 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
       setUserPlan('pro');
       setIsProcessing(false);
       setSelectedPlanForCheckout(null);
-      showToast('🎉 Parabéns! Assinatura Tutti Pro ativada com sucesso! Todas as partituras e Maestro IA agora são ilimitados.');
+      showToast('🎉 Parabéns! Acesso Vitalício Tutti Pro ativado com sucesso! Mais de 1000 partituras e Maestro IA agora são ilimitados.');
       onClose();
     }, 1200);
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-6xl my-auto bg-[#0f0b08] text-slate-100 border border-amber-900/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-8 overflow-hidden">
+      <div className="relative w-full max-w-6xl my-auto bg-[#0f0b08] text-slate-100 border border-amber-900/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-8 overflow-hidden modal-dark">
         {/* Background glow effects matching logo warmth */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-64 bg-amber-600/10 rounded-full blur-[100px] pointer-events-none" />
         <div className="absolute -bottom-10 right-10 w-80 h-80 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none" />
@@ -152,7 +152,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 </li>
                 <li className="flex items-start gap-2.5 text-slate-200">
                   <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>Maestro IA limitada (5 perguntas/dia)</span>
+                  <span>Maestro IA limitada (5 perguntas/semana)</span>
                 </li>
 
                 {/* Strikethrough items */}
@@ -195,7 +195,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
             </div>
           </div>
 
-          {/* PLAN 2: PRO (Featured / Mais Popular) */}
+          {/* PLAN 2: PRO (Featured / Acesso Vitalício) */}
           <div className="rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative bg-[#1c1611] border-2 border-amber-500/80 shadow-2xl shadow-amber-500/20 transform lg:-translate-y-2">
             {/* Top Badge: "mais popular" */}
             <div className="absolute -top-3.5 right-6">
@@ -209,17 +209,17 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
                   <span>Pro</span>
                   <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
-                    Recomendado
+                    Acesso Vitalício
                   </span>
                 </h3>
                 <div className="flex items-baseline gap-1 mt-3">
                   <span className="text-4xl sm:text-5xl font-syne font-black text-white">
-                    {billingPeriod === 'monthly' ? 'R$ 49,90' : 'R$ 39,90'}
+                    R$ 147,00
                   </span>
-                  <span className="text-xs font-semibold text-slate-400">/mês</span>
+                  <span className="text-xs font-bold text-amber-300 ml-1">único</span>
                 </div>
                 <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider mt-1">
-                  {billingPeriod === 'monthly' ? 'COBRANÇA MENSAL' : 'COBRANÇA ANUAL COM 2 MESES GRÁTIS'}
+                  PAGAMENTO ÚNICO • ACESSO VITALÍCIO
                 </span>
               </div>
 
@@ -227,9 +227,9 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
               {/* Features List */}
               <ul className="space-y-3 text-xs leading-relaxed">
-                <li className="flex items-start gap-2.5 text-white">
+                <li className="flex items-start gap-2.5 text-white font-semibold">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>30 partituras aleatórias</span>
+                  <span>Mais de 1000 partituras</span>
                 </li>
                 <li className="flex items-start gap-2.5 text-white">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
@@ -242,10 +242,6 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 <li className="flex items-start gap-2.5 text-white">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
                   <span>Metrônomo / afinador</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>IA Maestro limitada</span>
                 </li>
                 <li className="flex items-start gap-2.5 text-white font-semibold">
                   <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
@@ -284,23 +280,35 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white font-syne font-black text-sm hover:opacity-95 transition-all shadow-xl shadow-violet-600/30 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
               >
                 <Zap size={16} />
-                <span>{userPlan === 'pro' ? 'Seu Plano Atual (Gerenciar)' : 'Realizar Compra (Assinar Pro)'}</span>
+                <span>{userPlan === 'pro' ? 'Seu Plano Atual (Vitalício)' : 'Garantir Acesso Vitalício (Pro)'}</span>
               </button>
             </div>
           </div>
 
-          {/* PLAN 3: ULTRA */}
-          <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border transition-all duration-300 ${
+          {/* PLAN 3: ULTRA (Com Selo de Maior Indicação) */}
+          <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 transition-all duration-300 relative ${
             userPlan === 'ultra'
-              ? 'bg-[#18130e] border-amber-400 shadow-xl'
-              : 'bg-[#18130e]/70 hover:bg-[#18130e] border-amber-900/30'
+              ? 'bg-[#18130e] border-emerald-400 shadow-2xl shadow-emerald-500/20'
+              : 'bg-[#18130e] hover:bg-[#1c1611] border-emerald-500/70 shadow-xl shadow-emerald-500/10'
           }`}>
+            {/* Top Badge: "Maior Indicação" */}
+            <div className="absolute -top-3.5 right-6 z-20">
+              <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 flex items-center gap-1.5 border border-emerald-300/40">
+                <Crown size={12} className="text-black" /> Maior Indicação
+              </span>
+            </div>
+
             <div className="space-y-5">
               <div>
-                <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
-                  <span>Ultra</span>
-                  <Crown size={18} className="text-amber-400" />
-                </h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
+                    <span>Ultra</span>
+                    <Crown size={18} className="text-amber-400" />
+                  </h3>
+                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-bold border border-emerald-500/30 flex items-center gap-1">
+                    ★ Maior Indicação
+                  </span>
+                </div>
                 <div className="flex items-baseline gap-1 mt-3">
                   <span className="text-xs text-slate-400 uppercase font-bold mr-1">a partir de</span>
                   <span className="text-3xl sm:text-4xl font-syne font-black text-white">R$ 299,90</span>
@@ -315,9 +323,9 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
               {/* Features List (100% liberated) */}
               <ul className="space-y-3 text-xs leading-relaxed">
-                <li className="flex items-start gap-2.5 text-white">
+                <li className="flex items-start gap-2.5 text-white font-semibold">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>30 partituras aleatórias</span>
+                  <span>Mais de 1000 partituras</span>
                 </li>
                 <li className="flex items-start gap-2.5 text-white">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
@@ -330,10 +338,6 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 <li className="flex items-start gap-2.5 text-white">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
                   <span>Metrônomo / afinador</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>IA Maestro limitada</span>
                 </li>
                 <li className="flex items-start gap-2.5 text-white">
                   <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
@@ -411,14 +415,14 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
             <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex justify-between items-center">
               <div>
-                <span className="font-bold text-white block text-sm">Plano Tutti Pro ({billingPeriod === 'monthly' ? 'Mensal' : 'Anual'})</span>
-                <span className="text-[11px] text-slate-400">Cobrança recorrente</span>
+                <span className="font-bold text-white block text-sm">Plano Tutti Pro (Acesso Vitalício)</span>
+                <span className="text-[11px] text-amber-400 font-semibold">Pagamento Único • Sem mensalidades</span>
               </div>
               <div className="text-right">
-                <span className="text-xl font-syne font-black text-cyan-400">
-                  {billingPeriod === 'monthly' ? 'R$ 49,90' : 'R$ 39,90'}
+                <span className="text-xl font-syne font-black text-amber-400">
+                  R$ 147,00
                 </span>
-                <span className="text-[10px] text-slate-400 block">/mês</span>
+                <span className="text-[10px] text-slate-400 block font-medium">pagamento único</span>
               </div>
             </div>
 
@@ -499,7 +503,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
               ) : (
                 <>
                   <Zap size={16} />
-                  <span>Confirmar & Ativar Tutti Pro</span>
+                  <span>Confirmar & Ativar Tutti Pro Vitalício</span>
                 </>
               )}
             </button>
