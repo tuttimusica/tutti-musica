@@ -5,6 +5,7 @@ import {
   Smile, MoreHorizontal, Camera, CheckCircle2, Bookmark,
   TrendingUp, Users, Film, Radio, Award, MapPin, Search, X
 } from 'lucide-react';
+import { supabase } from '../../lib/supabase';
 
 export interface PostComment {
   id: string;
@@ -208,7 +209,49 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({ currentUserProfile
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync posts to localStorage
+  // Load posts from Supabase on mount
+  useEffect(() => {
+    const fetchSupabasePosts = async () => {
+      try {
+        const { data, error } = await supabase
+          .from('community_posts')
+          .select('*')
+          .order('created_at', { ascending: false })
+          .limit(30);
+
+        if (data && data.length > 0 && !error) {
+          const remotePosts: SocialPost[] = data.map((row: any) => ({
+            id: String(row.id),
+            author: row.author_name || 'Músico Tutti',
+            avatar: row.author_avatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80',
+            instrument: row.instrument || 'Saxofone',
+            timeAgo: 'Recentemente',
+            content: row.content || '',
+            imageUrl: row.image_url || undefined,
+            videoUrl: row.video_url || undefined,
+            likes: Number(row.likes) || 0,
+            userLiked: false,
+            comments: Array.isArray(row.comments) ? row.comments : [],
+            shares: 0,
+            tag: row.tag || '#Tutti',
+            isCurrentUser: row.author_id === currentUserProfile?.name
+          }));
+
+          setPosts(prev => {
+            const remoteIds = new Set(remotePosts.map(p => p.id));
+            const localOnly = prev.filter(p => !remoteIds.has(p.id));
+            return [...remotePosts, ...localOnly];
+          });
+        }
+      } catch (err) {
+        console.warn('Supabase community posts load note:', err);
+      }
+    };
+
+    fetchSupabasePosts();
+  }, [currentUserProfile?.name]);
+
+  // Sync posts to localStorage for offline resilience
   useEffect(() => {
     try {
       localStorage.setItem('tutti_community_posts_v2', JSON.stringify(posts));
@@ -260,6 +303,29 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({ currentUserProfile
     setPostMediaType('none');
     setShowMediaInput(false);
     showToast('Publicação compartilhada com a comunidade musical! 🎵');
+
+    // Persist to Supabase backend asynchronously
+    try {
+      supabase
+        .from('community_posts')
+        .insert({
+          author_id: currentUserProfile?.name || 'guest',
+          author_name: newPost.author,
+          author_avatar: newPost.avatar,
+          instrument: newPost.instrument,
+          content: newPost.content,
+          imageUrl: newPost.imageUrl || null,
+          videoUrl: newPost.videoUrl || null,
+          likes: newPost.likes,
+          tag: newPost.tag,
+          created_at: new Date().toISOString()
+        })
+        .then(({ error }) => {
+          if (error) console.warn('Supabase post persist note:', error.message);
+        });
+    } catch (err) {
+      console.warn('Post publish note:', err);
+    }
   };
 
   // Local image upload handler
@@ -283,10 +349,21 @@ export const CommunityFeed: React.FC<CommunityFeedProps> = ({ currentUserProfile
     setPosts(prev => prev.map(p => {
       if (p.id === postId) {
         const nextLiked = !p.userLiked;
+        const nextLikes = nextLiked ? p.likes + 1 : Math.max(0, p.likes - 1);
+
+        // Update like in Supabase
+        try {
+          supabase
+            .from('community_posts')
+            .update({ likes: nextLikes })
+            .eq('id', postId)
+            .then(() => {});
+        } catch {}
+
         return {
           ...p,
           userLiked: nextLiked,
-          likes: nextLiked ? p.likes + 1 : Math.max(0, p.likes - 1)
+          likes: nextLikes
         };
       }
       return p;

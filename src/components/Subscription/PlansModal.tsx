@@ -58,7 +58,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
         <div className="text-center space-y-3 relative z-10 max-w-2xl mx-auto pt-2">
           <div className="flex items-center justify-center gap-2 mb-1">
             <img 
-              src="/assets/aistudio/Logo__836740ff.jpeg" 
+              src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif" 
               alt="Tutti Escola de Música" 
               className="w-7 h-7 rounded-full border border-amber-500/40 object-cover shadow-sm"
             />
@@ -214,7 +214,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                 </h3>
                 <div className="flex items-baseline gap-1 mt-3">
                   <span className="text-4xl sm:text-5xl font-syne font-black text-white">
-                    R$ 147,00
+                    R$ 49,90
                   </span>
                   <span className="text-xs font-bold text-amber-300 ml-1">único</span>
                 </div>
@@ -420,7 +420,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
               </div>
               <div className="text-right">
                 <span className="text-xl font-syne font-black text-amber-400">
-                  R$ 147,00
+                  R$ 49,90
                 </span>
                 <span className="text-[10px] text-slate-400 block font-medium">pagamento único</span>
               </div>

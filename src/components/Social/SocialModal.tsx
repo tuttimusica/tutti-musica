@@ -92,7 +92,7 @@ export const SocialModal: React.FC<SocialModalProps> = ({ isOpen, onClose }) => 
         <div className="text-center space-y-3 relative z-10 pt-2">
           <div className="inline-flex items-center justify-center p-1.5 rounded-full bg-gradient-to-tr from-cyan-500/30 via-violet-500/30 to-emerald-500/30 border border-white/20 shadow-xl mb-1">
             <img
-              src="/assets/aistudio/logo_tutti_dark.jpg"
+              src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif"
               alt="Logo Tutti Escola de Música"
               className="w-16 h-16 rounded-full object-cover shadow-inner"
             />

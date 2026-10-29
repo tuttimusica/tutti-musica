@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { X, LogIn, LogOut, CheckCircle2, Sparkles, Shield, User, Database, Mail, Lock } from 'lucide-react';
+import { X, LogOut, Database, Mail, Lock, User, KeyRound, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useAppRouter } from '../../context/RouterContext';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -8,8 +9,9 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { user, profile, projectId, loginWithGoogle, loginWithEmail, signUpWithEmail, logout } = useAuth();
-  const [authMode, setAuthMode] = useState<'signin' | 'signup'>('signin');
+  const { user, profile, projectId, loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword, logout } = useAuth();
+  const { navigate, showToast } = useAppRouter();
+  const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -19,6 +21,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   if (!isOpen) return null;
 
+  const translateAuthError = (err: any): string => {
+    const msg = err?.message || err?.error_description || String(err || '');
+    if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
+      return 'E-mail ou senha incorretos. Verifique suas credenciais.';
+    }
+    if (msg.includes('User already registered') || msg.includes('already registered')) {
+      return 'Este e-mail já está cadastrado. Tente fazer login ou recuperar sua senha.';
+    }
+    if (msg.includes('Password should be at least 6 characters')) {
+      return 'A senha precisa ter pelo menos 6 caracteres.';
+    }
+    if (msg.includes('Email not confirmed')) {
+      return 'E-mail ainda não confirmado. Verifique o link enviado para sua caixa de entrada.';
+    }
+    if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
+      return 'Erro de conexão com o Supabase. Verifique sua internet ou tente novamente em instantes.';
+    }
+    return msg || 'Ocorreu um erro na autenticação.';
+  };
+
   const handleGoogleSignIn = async () => {
     try {
       setIsSubmitting(true);
@@ -27,7 +49,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       onClose();
     } catch (err: any) {
       console.warn('Login error:', err);
-      setErrorMsg(err?.message || 'Não foi possível autenticar com o Google. Tente com email e senha.');
+      setErrorMsg(translateAuthError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -35,10 +57,16 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const handleEmailAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email || !password) {
-      setErrorMsg('Preencha seu e-mail e senha.');
+    if (!email.trim()) {
+      setErrorMsg('Informe o seu e-mail.');
       return;
     }
+
+    if (authMode !== 'forgot' && !password) {
+      setErrorMsg('Digite sua senha.');
+      return;
+    }
+
     setIsSubmitting(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -47,15 +75,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       if (authMode === 'signin') {
         const { error } = await loginWithEmail(email, password);
         if (error) throw error;
-        onClose();
-      } else {
+        setSuccessMsg('Login efetuado com sucesso!');
+        setTimeout(() => onClose(), 600);
+      } else if (authMode === 'signup') {
         const { error } = await signUpWithEmail(email, password, displayName || 'Músico Tutti');
         if (error) throw error;
         setSuccessMsg('Conta criada com sucesso no Supabase! Verifique seu e-mail se a confirmação estiver ativada.');
         setTimeout(() => onClose(), 1500);
+      } else if (authMode === 'forgot') {
+        const { error } = await resetPassword(email);
+        if (error) throw error;
+        setSuccessMsg('Instruções de redefinição de senha enviadas para o seu e-mail!');
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Erro ao processar autenticação no Supabase.');
+      setErrorMsg(translateAuthError(err));
     } finally {
       setIsSubmitting(false);
     }
@@ -64,6 +97,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const handleSignOut = async () => {
     await logout();
     onClose();
+    navigate('/');
+    showToast('Sessão encerrada com sucesso. Até breve! ♪');
   };
 
   return (
@@ -72,7 +107,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors"
+          className="absolute top-5 right-5 w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 flex items-center justify-center text-slate-400 hover:text-white transition-colors cursor-pointer"
         >
           <X size={18} />
         </button>
@@ -108,7 +143,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   </span>
                 )}
               </div>
-              <p className="text-xs text-slate-400">{user.email}</p>
+              <p className="text-xs text-slate-400 font-mono">{user.email}</p>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20 mt-1">
                 <Database size={12} /> Supabase ({projectId}) Conectado
               </div>
@@ -127,7 +162,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
             <button
               onClick={handleSignOut}
-              className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 text-slate-300 text-sm font-bold transition-colors flex items-center justify-center gap-2 border border-white/10"
+              className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 text-slate-300 text-sm font-bold transition-colors flex items-center justify-center gap-2 border border-white/10 cursor-pointer"
             >
               <LogOut size={16} /> Encerrar Sessão
             </button>
@@ -140,7 +175,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 ♪
               </div>
               <h3 className="font-syne font-black text-2xl text-white">
-                Entrar no Tutti ♪
+                {authMode === 'forgot' ? 'Recuperar Senha' : 'Entrar no Tutti ♪'}
               </h3>
               <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
                 <Database size={11} /> Backend Supabase: {projectId}
@@ -148,26 +183,36 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             </div>
 
             {/* Sign in / Sign up Mode tabs */}
-            <div className="flex bg-[#0b0d14] p-1 rounded-xl border border-white/10">
-              <button
-                type="button"
-                onClick={() => setAuthMode('signin')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                  authMode === 'signin' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Entrar
-              </button>
-              <button
-                type="button"
-                onClick={() => setAuthMode('signup')}
-                className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors ${
-                  authMode === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Criar Conta
-              </button>
-            </div>
+            {authMode !== 'forgot' && (
+              <div className="flex bg-[#0b0d14] p-1 rounded-xl border border-white/10">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('signin');
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                    authMode === 'signin' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Entrar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('signup');
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
+                    authMode === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  Criar Conta
+                </button>
+              </div>
+            )}
 
             {/* Email & Password Form */}
             <form onSubmit={handleEmailAuth} className="space-y-3">
@@ -183,6 +228,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
                       placeholder="Ex: Rafael Drumond"
+                      required
                       className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
                     />
                   </div>
@@ -191,7 +237,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
               <div>
                 <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  E-mail
+                  E-mail Cadastrado
                 </label>
                 <div className="relative">
                   <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
@@ -206,77 +252,121 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  Senha
-                </label>
-                <div className="relative">
-                  <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    minLength={6}
-                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
-                  />
+              {authMode !== 'forgot' && (
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                      Senha
+                    </label>
+                    {authMode === 'signin' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAuthMode('forgot');
+                          setErrorMsg(null);
+                          setSuccessMsg(null);
+                        }}
+                        className="text-[11px] text-cyan-400 hover:underline cursor-pointer"
+                      >
+                        Esqueceu a senha?
+                      </button>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <input
+                      type="password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••"
+                      required
+                      minLength={6}
+                      className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
+                    />
+                  </div>
                 </div>
-              </div>
+              )}
 
               {errorMsg && (
-                <p className="text-xs text-rose-400 bg-rose-500/10 p-2.5 rounded-xl border border-rose-500/20">
-                  {errorMsg}
-                </p>
+                <div className="text-xs text-rose-300 bg-rose-500/15 p-2.5 rounded-xl border border-rose-500/30 flex items-start gap-2">
+                  <AlertCircle size={15} className="text-rose-400 flex-shrink-0 mt-0.5" />
+                  <span>{errorMsg}</span>
+                </div>
               )}
+
               {successMsg && (
-                <p className="text-xs text-emerald-400 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20">
-                  {successMsg}
-                </p>
+                <div className="text-xs text-emerald-300 bg-emerald-500/15 p-2.5 rounded-xl border border-emerald-500/30 flex items-start gap-2">
+                  <CheckCircle2 size={15} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                  <span>{successMsg}</span>
+                </div>
               )}
 
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg glow"
+                className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg glow cursor-pointer disabled:opacity-50"
               >
-                {isSubmitting ? 'Processando...' : authMode === 'signin' ? 'Entrar com E-mail' : 'Cadastrar no Supabase'}
+                {isSubmitting
+                  ? 'Processando no Supabase...'
+                  : authMode === 'signin'
+                  ? 'Entrar com E-mail'
+                  : authMode === 'signup'
+                  ? 'Criar Conta no Supabase'
+                  : 'Enviar E-mail de Recuperação'}
               </button>
+
+              {authMode === 'forgot' && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setAuthMode('signin');
+                    setErrorMsg(null);
+                    setSuccessMsg(null);
+                  }}
+                  className="w-full py-2 text-xs text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <ArrowLeft size={14} /> Voltar para o Login
+                </button>
+              )}
             </form>
 
-            <div className="relative flex items-center justify-center">
-              <div className="border-t border-white/10 w-full"></div>
-              <span className="bg-[#131722] px-3 text-[11px] text-slate-500 font-bold uppercase tracking-wider">
-                ou
-              </span>
-            </div>
+            {authMode !== 'forgot' && (
+              <>
+                <div className="relative flex items-center justify-center">
+                  <div className="border-t border-white/10 w-full"></div>
+                  <span className="bg-[#131722] px-3 text-[11px] text-slate-500 font-bold uppercase tracking-wider">
+                    ou
+                  </span>
+                </div>
 
-            {/* Google OAuth Button */}
-            <button
-              onClick={handleGoogleSignIn}
-              disabled={isSubmitting}
-              className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-white hover:bg-slate-100 text-slate-900 shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" viewBox="0 0 24 24">
-                <path
-                  fill="#4285F4"
-                  d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.87c2.26-2.09 3.67-5.17 3.67-9.15z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.87-3.05c-1.08.72-2.45 1.16-4.06 1.16-3.13 0-5.78-2.11-6.73-4.96H1.27v3.15C3.31 21.36 7.36 24 12 24z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.61H1.27C.46 8.23 0 10.06 0 12s.46 3.77 1.27 5.39l4-3.15z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.31 2.64 1.27 6.61l4 3.15c.95-2.85 3.6-4.96 6.73-4.96z"
-                />
-              </svg>
-              <span>Continuar com Google</span>
-            </button>
+                {/* Google OAuth Button */}
+                <button
+                  onClick={handleGoogleSignIn}
+                  disabled={isSubmitting}
+                  className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-white hover:bg-slate-100 text-slate-900 shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50 cursor-pointer"
+                >
+                  <svg className="w-4 h-4" viewBox="0 0 24 24">
+                    <path
+                      fill="#4285F4"
+                      d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.8-2.4 3.66v3.05h3.87c2.26-2.09 3.67-5.17 3.67-9.15z"
+                    />
+                    <path
+                      fill="#34A853"
+                      d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.87-3.05c-1.08.72-2.45 1.16-4.06 1.16-3.13 0-5.78-2.11-6.73-4.96H1.27v3.15C3.31 21.36 7.36 24 12 24z"
+                    />
+                    <path
+                      fill="#FBBC05"
+                      d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.61H1.27C.46 8.23 0 10.06 0 12s.46 3.77 1.27 5.39l4-3.15z"
+                    />
+                    <path
+                      fill="#EA4335"
+                      d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.36 0 3.31 2.64 1.27 6.61l4 3.15c.95-2.85 3.6-4.96 6.73-4.96z"
+                    />
+                  </svg>
+                  <span>Continuar com Google</span>
+                </button>
+              </>
+            )}
           </div>
         )}
       </div>

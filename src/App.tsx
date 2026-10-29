@@ -7,7 +7,7 @@ import {
   Volume2, VolumeX, Activity, Radio, Award,
   Flame, Clock, Check, Layers, ChevronRight,
   Folder, HardDrive, Sun, Moon, Video, Edit3, Image as ImageIcon, ExternalLink,
-  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2
+  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn
 } from 'lucide-react';
 
 import { 
@@ -25,6 +25,8 @@ import { LocalSheetLibrary } from './components/SheetMusic/LocalSheetLibrary';
 import { CheckoutModal } from './components/Store/CheckoutModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthModal } from './components/Auth/AuthModal';
+import { ProtectedRoute } from './components/Auth/ProtectedRoute';
+import { AuthPage } from './components/Auth/AuthPage';
 import { supabase, SUPABASE_PROJECT_ID } from './services/supabase';
 import { SaxophoneStudio } from './components/Studio/SaxophoneStudio';
 import { GuitarStudio } from './components/Studio/GuitarStudio';
@@ -32,45 +34,9 @@ import { KeyboardStudio } from './components/Studio/KeyboardStudio';
 import { CommunityFeed } from './components/Community/CommunityFeed';
 import { PlansModal } from './components/Subscription/PlansModal';
 import { SocialModal } from './components/Social/SocialModal';
-
-// --- ROUTER CONTEXT ---
-interface RouterContextType {
-  currentPath: string;
-  queryParams: Record<string, string>;
-  navigate: (path: string, params?: Record<string, string>) => void;
-  openMetronome: () => void;
-  openTuner: () => void;
-  openSheetViewer: (sheet: SheetMusic) => void;
-  openAuthModal: () => void;
-  openPlansModal: () => void;
-  openSocialModal: () => void;
-  userPlan: 'free' | 'pro' | 'ultra';
-  setUserPlan: (plan: 'free' | 'pro' | 'ultra') => void;
-  cart: { product: Product; quantity: number }[];
-  addToCart: (product: Product) => void;
-  removeFromCart: (productId: number) => void;
-  clearCart: () => void;
-  openCheckout: () => void;
-  toast: string | null;
-  showToast: (msg: string) => void;
-  theme: 'dark' | 'light';
-  toggleTheme: () => void;
-  userStats: {
-    xp: number;
-    streakDays: number;
-    practiceHours: number;
-    completedLessons: number;
-  };
-  completeTask: (xpGain: number) => void;
-}
-
-const RouterContext = createContext<RouterContextType | null>(null);
-
-export const useAppRouter = () => {
-  const context = useContext(RouterContext);
-  if (!context) throw new Error("useAppRouter must be used within RouterProvider");
-  return context;
-};
+import { RouterContext, RouterContextType, useAppRouter } from './context/RouterContext';
+export { useAppRouter, RouterContext };
+export type { RouterContextType };
 
 // SEO helper
 const useSEO = (title: string, description: string) => {
@@ -117,9 +83,9 @@ const Header: React.FC = () => {
         className="flex items-center gap-3 cursor-pointer group"
         onClick={() => navigate('/')}
       >
-        <div className="w-11 h-11 rounded-2xl overflow-hidden shadow-lg shadow-cyan-500/15 group-hover:scale-105 transition-transform bg-[#131722] flex items-center justify-center">
+        <div className="w-11 h-11 rounded-full overflow-hidden shadow-lg shadow-amber-500/20 border border-amber-400/30 group-hover:scale-105 transition-transform bg-[#131722] flex items-center justify-center">
           <img
-            src="/assets/aistudio/logo_tutti_dark.jpg"
+            src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif"
             alt="Logo Tutti Escola de Música"
             className="w-full h-full object-cover"
           />
@@ -218,34 +184,44 @@ const Header: React.FC = () => {
 
         {/* Auth / Profile trigger */}
         <div className="flex items-center gap-1.5">
-          <button
-            onClick={() => navigate('/perfil')}
-            className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all border ${
-              currentPath === '/perfil'
-                ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                : 'bg-[#131722] hover:bg-white/10 border-white/10 text-white'
-            }`}
-          >
-            {photoUrl ? (
-              <img
-                src={photoUrl}
-                alt={displayName}
-                className="w-7 h-7 rounded-full border border-cyan-400 object-cover"
-              />
-            ) : (
-              <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-black font-bold text-xs">
-                {initials || 'RD'}
-              </div>
-            )}
-            <span className="hidden md:inline text-xs font-bold">
-              {displayName.split(' ')[0]}
-            </span>
-          </button>
+          {user ? (
+            <button
+              onClick={() => navigate('/perfil')}
+              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all border cursor-pointer ${
+                currentPath === '/perfil'
+                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                  : 'bg-[#131722] hover:bg-white/10 border-white/10 text-white'
+              }`}
+            >
+              {photoUrl ? (
+                <img
+                  src={photoUrl}
+                  alt={displayName}
+                  className="w-7 h-7 rounded-full border border-cyan-400 object-cover"
+                />
+              ) : (
+                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-black font-bold text-xs">
+                  {initials || 'AL'}
+                </div>
+              )}
+              <span className="hidden md:inline text-xs font-bold">
+                {displayName.split(' ')[0]}
+              </span>
+            </button>
+          ) : (
+            <button
+              onClick={() => navigate('/auth')}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-xs font-black shadow-md hover:opacity-90 transition-opacity cursor-pointer"
+            >
+              <LogIn size={14} />
+              <span className="hidden sm:inline">Entrar</span>
+            </button>
+          )}
 
           <button
             onClick={openAuthModal}
-            title={user ? "Gerenciar Conta Supabase" : "Entrar no Supabase"}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-cyan-400 border border-white/10 text-xs font-bold transition-colors"
+            title={user ? "Gerenciar Conta Supabase" : "Entrar ou Criar Conta"}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-cyan-400 border border-white/10 text-xs font-bold transition-colors cursor-pointer"
           >
             <User size={16} />
           </button>
@@ -385,20 +361,40 @@ const HomePage: React.FC = () => {
           </div>
         </div>
 
-        {/* Hero Visual: Logo Oficial Tutti Escola de Música (Imagem cheia, sem borda ao redor, redes em oculto) */}
-        <div className="flex-1 relative w-full max-w-lg lg:max-w-none flex flex-col items-center justify-center">
-          <div className="absolute inset-0 bg-gradient-to-tr from-cyan-500/20 via-violet-500/20 to-emerald-500/15 blur-[90px] rounded-full pointer-events-none"></div>
-          
+        {/* Hero Visual: Logo Oficial Tutti Escola de Música harmonizada com o fundo */}
+        <div className="flex-1 relative w-full max-w-lg lg:max-w-none flex flex-col items-center justify-center py-4">
+          {/* Ambient golden lighting that harmonizes with the metallic medallion and page background */}
+          <div className="absolute -inset-10 sm:-inset-16 bg-gradient-to-tr from-amber-600/30 via-yellow-500/15 to-amber-700/10 blur-[100px] rounded-full pointer-events-none"></div>
+          <div className="absolute inset-2 bg-radial from-amber-400/20 via-amber-600/10 to-transparent blur-3xl rounded-full pointer-events-none"></div>
+
+          {/* Concentric ambient luxury halo rings */}
+          <div className="absolute -inset-5 sm:-inset-7 rounded-full border border-amber-400/20 pointer-events-none animate-pulse opacity-75"></div>
+          <div className="absolute -inset-10 sm:-inset-12 rounded-full border border-amber-500/10 pointer-events-none"></div>
+
+          {/* Interactive Logo Container with smooth radial feathering to blend seamlessly into the background */}
           <div 
             onClick={openSocialModal}
             title="Tutti Escola de Música"
-            className="relative w-72 h-72 sm:w-96 sm:h-96 rounded-full overflow-hidden shadow-2xl group cursor-pointer transition-all duration-300 active:scale-98 select-none"
+            className="relative w-72 h-72 sm:w-96 sm:h-96 rounded-full group cursor-pointer transition-all duration-500 active:scale-98 select-none shadow-[0_0_70px_rgba(217,119,6,0.25),0_25px_60px_rgba(0,0,0,0.65)]"
           >
-            <img
-              src="/assets/aistudio/logo_tutti_dark.jpg"
-              alt="Logo Oficial Tutti Escola de Música"
-              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            />
+            {/* Subtle inner gold rim accent */}
+            <div className="absolute inset-0 rounded-full border border-amber-400/25 pointer-events-none z-10 group-hover:border-amber-300/40 transition-colors duration-300"></div>
+
+            <div 
+              className="w-full h-full rounded-full overflow-hidden"
+              style={{
+                WebkitMaskImage: 'radial-gradient(circle at center, black 72%, rgba(0,0,0,0.85) 86%, transparent 100%)',
+                maskImage: 'radial-gradient(circle at center, black 72%, rgba(0,0,0,0.85) 86%, transparent 100%)',
+              }}
+            >
+              <img
+                src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif"
+                alt="Logo Oficial Tutti Escola de Música"
+                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
+              />
+              {/* Subtle warm golden sheen overlay */}
+              <div className="absolute inset-0 rounded-full bg-gradient-to-tr from-amber-500/10 via-transparent to-yellow-300/10 pointer-events-none mix-blend-overlay"></div>
+            </div>
           </div>
         </div>
       </section>
@@ -1699,8 +1695,8 @@ const LojaPage: React.FC = () => {
 
 // 8. PERFIL PAGE
 const PerfilPage: React.FC = () => {
-  const { userStats, showToast, openAuthModal, openPlansModal, userPlan } = useAppRouter();
-  const { user, profile, savePracticeAudio } = useAuth();
+  const { userStats, showToast, openAuthModal, openPlansModal, userPlan, navigate } = useAppRouter();
+  const { user, profile, savePracticeAudio, updateProfileData, logout } = useAuth();
   const [isRecording, setIsRecording] = useState(false);
   const [recordedAudioUrl, setRecordedAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -1762,6 +1758,13 @@ const PerfilPage: React.FC = () => {
     return localStorage.getItem('tutti_custom_instrument') || profile?.currentInstrument || 'Saxofone Alto';
   });
 
+  // Sync profile data when loaded from Supabase
+  useEffect(() => {
+    if (profile?.displayName) setProfileName(profile.displayName);
+    if (profile?.bio) setProfileBio(profile.bio);
+    if (profile?.currentInstrument) setProfileInstrument(profile.currentInstrument);
+  }, [profile]);
+
   const [archivedTab, setArchivedTab] = useState<'all' | 'photos' | 'videos'>('all');
 
   // Load user posts from community feed
@@ -1797,13 +1800,25 @@ const PerfilPage: React.FC = () => {
     ];
   });
 
-  const handleSaveProfile = (e: React.FormEvent) => {
+  const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
-    localStorage.setItem('tutti_custom_display_name', profileName.trim());
-    localStorage.setItem('tutti_custom_bio', profileBio.trim());
+    const cleanName = profileName.trim();
+    const cleanBio = profileBio.trim();
+    localStorage.setItem('tutti_custom_display_name', cleanName);
+    localStorage.setItem('tutti_custom_bio', cleanBio);
     localStorage.setItem('tutti_custom_instrument', profileInstrument);
+
+    try {
+      await updateProfileData({
+        displayName: cleanName,
+        bio: cleanBio,
+        currentInstrument: profileInstrument
+      });
+      showToast('Perfil sincronizado e salvo no Supabase com sucesso! ✓');
+    } catch {
+      showToast('Perfil atualizado com sucesso! ✓');
+    }
     setIsEditingProfile(false);
-    showToast('Perfil atualizado com sucesso! ✓');
   };
 
   const effectiveDisplayName = profileName;
@@ -2169,6 +2184,40 @@ const PerfilPage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Account & Session Management Card */}
+      <div className="bg-[#131722] p-6 sm:p-8 rounded-3xl border border-white/10 space-y-4 shadow-xl">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div>
+            <h3 className="font-syne font-bold text-lg text-white flex items-center gap-2">
+              <ShieldCheck size={18} className="text-emerald-400" /> Segurança e Sessão da Conta
+            </h3>
+            <p className="text-xs text-slate-400">
+              Autenticado com segurança via Supabase Auth ({user?.email || 'Músico Conectado'})
+            </p>
+          </div>
+          <button
+            onClick={async () => {
+              await logout();
+              showToast('Sessão encerrada com sucesso. Até logo!');
+              navigate('/');
+            }}
+            className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-xs font-bold flex items-center justify-center gap-2 transition-all active:scale-95 cursor-pointer"
+          >
+            <LogOut size={14} />
+            <span>Encerrar Sessão</span>
+          </button>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 pt-1">
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+            <span>Sessão ativa protegida por Row-Level Security (RLS)</span>
+          </div>
+          <span className="text-[11px] font-mono text-slate-500">
+            ID: {user?.id ? `${user.id.slice(0, 12)}...` : 'Ativo'}
+          </span>
+        </div>
+      </div>
     </div>
   );
 };
@@ -2350,12 +2399,16 @@ export default function App() {
             )}
             {visitedTabs.has('/agenda') && (
               <div style={{ display: currentPath === '/agenda' ? 'block' : 'none' }}>
-                <AgendaPage />
+                <ProtectedRoute routeName="a sua Agenda de Aulas e Masterclasses">
+                  <AgendaPage />
+                </ProtectedRoute>
               </div>
             )}
             {visitedTabs.has('/comunidade') && (
               <div style={{ display: currentPath === '/comunidade' ? 'block' : 'none' }}>
-                <ComunidadePage />
+                <ProtectedRoute routeName="o Mural da Comunidade Musical Tutti">
+                  <ComunidadePage />
+                </ProtectedRoute>
               </div>
             )}
             {visitedTabs.has('/loja') && (
@@ -2365,7 +2418,14 @@ export default function App() {
             )}
             {visitedTabs.has('/perfil') && (
               <div style={{ display: currentPath === '/perfil' ? 'block' : 'none' }}>
-                <PerfilPage />
+                <ProtectedRoute routeName="o seu Perfil de Aluno">
+                  <PerfilPage />
+                </ProtectedRoute>
+              </div>
+            )}
+            {(visitedTabs.has('/auth') || visitedTabs.has('/login') || currentPath === '/auth' || currentPath === '/login') && (
+              <div style={{ display: (currentPath === '/auth' || currentPath === '/login') ? 'block' : 'none' }}>
+                <AuthPage />
               </div>
             )}
           </main>

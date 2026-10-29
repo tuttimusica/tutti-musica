@@ -7,6 +7,14 @@ import { GoogleGenAI } from '@google/genai';
 
 dotenv.config();
 
+// Ensure valid Supabase URL and Key in environment (discards dummy values like "123")
+if (!process.env.VITE_SUPABASE_URL || !process.env.VITE_SUPABASE_URL.startsWith('http')) {
+  process.env.VITE_SUPABASE_URL = 'https://viwxalwpvuvgcyxsdjbi.supabase.co';
+}
+if (!process.env.VITE_SUPABASE_ANON_KEY || process.env.VITE_SUPABASE_ANON_KEY.length < 15) {
+  process.env.VITE_SUPABASE_ANON_KEY = 'sb_publishable_lmlaQ5wY_WDUa5G8O9SRVw_PKStIgXy';
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
