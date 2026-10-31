@@ -1,4 +1,4 @@
-import React, { useState, useEffect, createContext, useContext, useMemo, useRef } from 'react';
+import React, { useState, useEffect, createContext, useContext, useMemo, useRef, useCallback } from 'react';
 import { 
   Home, Music, BookOpen, ShoppingBag, User, 
   Search, Play, MessageSquare, ShoppingCart, 
@@ -7,7 +7,7 @@ import {
   Volume2, VolumeX, Activity, Radio, Award,
   Flame, Clock, Check, Layers, ChevronRight,
   Folder, HardDrive, Sun, Moon, Video, Edit3, Image as ImageIcon, ExternalLink,
-  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn
+  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn, GraduationCap
 } from 'lucide-react';
 
 import { 
@@ -27,6 +27,9 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthModal } from './components/Auth/AuthModal';
 import { ProtectedRoute } from './components/Auth/ProtectedRoute';
 import { AuthPage } from './components/Auth/AuthPage';
+import { DeveloperPanel } from './components/Panels/DeveloperPanel';
+import { TeacherPanel } from './components/Panels/TeacherPanel';
+import { StudentPanel } from './components/Panels/StudentPanel';
 import { supabase, SUPABASE_PROJECT_ID } from './services/supabase';
 import { SaxophoneStudio } from './components/Studio/SaxophoneStudio';
 import { GuitarStudio } from './components/Studio/GuitarStudio';
@@ -52,22 +55,32 @@ const Header: React.FC = () => {
   const { 
     currentPath, navigate, openMetronome, openTuner, 
     cart, openCheckout, openAuthModal, openPlansModal, userPlan,
-    theme, toggleTheme 
+    theme, toggleTheme, showToast
   } = useAppRouter();
-  const { user, profile } = useAuth();
+  const { user, profile, logout } = useAuth();
   const totalCartCount = cart.reduce((acc, c) => acc + c.quantity, 0);
 
-  const navLinks: { path: string; label: string; badge?: string }[] = [
+  const userRole = profile?.role || 'aluno';
+  const rolePath = userRole === 'desenvolvedor' ? '/admin' : userRole === 'professor' ? '/professor' : '/aluno';
+
+  const baseNavLinks: { path: string; label: string; badge?: string }[] = [
     { path: '/', label: 'Início' },
     { path: '/aulas', label: 'Aulas' },
     { path: '/partituras', label: 'Partituras' },
     { path: '/estudio', label: 'Estúdio & Instrumentos' },
     { path: '/agenda', label: 'Agenda de Aula' },
     { path: '/comunidade', label: 'Comunidade' },
-    { path: '/loja', label: 'Loja', badge: 'Em Breve' },
   ];
 
-  const displayName = profile?.displayName || user?.user_metadata?.full_name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Rafael Drumond';
+  const roleNavLinks = user ? [
+    ...(userRole === 'desenvolvedor' ? [{ path: '/admin', label: 'Painel Dev', badge: 'Admin' }] : []),
+    ...(userRole === 'professor' ? [{ path: '/professor', label: 'Área Professor', badge: 'Docente' }] : []),
+    ...(userRole === 'aluno' ? [{ path: '/aluno', label: 'Área do Aluno', badge: 'Aluno' }] : []),
+  ] : [];
+
+  const navLinks = [...baseNavLinks, ...roleNavLinks];
+
+  const displayName = profile?.displayName || user?.user_metadata?.full_name || user?.user_metadata?.display_name || user?.email?.split('@')[0] || 'Músico Tutti';
   const photoUrl = profile?.photoURL || user?.user_metadata?.avatar_url;
   const initials = displayName
     .split(' ')
@@ -75,6 +88,12 @@ const Header: React.FC = () => {
     .slice(0, 2)
     .join('')
     .toUpperCase();
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/auth');
+    showToast('Sessão encerrada com sucesso. Voltando para o login.');
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 h-20 bg-[#0b0d14]/90 backdrop-blur-md border-b border-white/10 z-40 px-4 sm:px-8 flex items-center justify-between">
@@ -105,7 +124,7 @@ const Header: React.FC = () => {
             onClick={() => navigate(item.path)}
             className={`px-3.5 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 ${
               currentPath === item.path
-                ? 'bg-gradient-to-r from-cyan-400 to-violet-600 text-black shadow-md shadow-cyan-500/20 font-black'
+                ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 shadow-md font-bold'
                 : 'text-slate-300 hover:text-white hover:bg-white/5'
             }`}
           >
@@ -113,8 +132,8 @@ const Header: React.FC = () => {
             {item.badge && (
               <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold uppercase tracking-wider ${
                 currentPath === item.path 
-                  ? 'bg-black/30 text-black font-black' 
-                  : 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/30'
+                  ? 'bg-black/30 text-slate-950 font-black' 
+                  : 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
               }`}>
                 {item.badge}
               </span>
@@ -176,52 +195,93 @@ const Header: React.FC = () => {
         >
           <ShoppingCart size={18} />
           {totalCartCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-[11px] font-black flex items-center justify-center shadow-md">
+            <span className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-gradient-to-r from-amber-400 to-yellow-500 text-slate-950 text-[11px] font-black flex items-center justify-center shadow-md">
               {totalCartCount}
             </span>
           )}
         </button>
 
         {/* Auth / Profile trigger */}
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-2">
           {user ? (
-            <button
-              onClick={() => navigate('/perfil')}
-              className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all border cursor-pointer ${
-                currentPath === '/perfil'
-                  ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                  : 'bg-[#131722] hover:bg-white/10 border-white/10 text-white'
-              }`}
-            >
-              {photoUrl ? (
-                <img
-                  src={photoUrl}
-                  alt={displayName}
-                  className="w-7 h-7 rounded-full border border-cyan-400 object-cover"
-                />
-              ) : (
-                <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-black font-bold text-xs">
-                  {initials || 'AL'}
-                </div>
-              )}
-              <span className="hidden md:inline text-xs font-bold">
-                {displayName.split(' ')[0]}
-              </span>
-            </button>
+            <>
+              {/* Role Quick Access Button */}
+              <button
+                onClick={() => navigate(rolePath)}
+                title={`Acessar ${userRole === 'desenvolvedor' ? 'Painel do Desenvolvedor' : userRole === 'professor' ? 'Portal do Professor' : 'Área do Aluno'}`}
+                className={`hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                  userRole === 'desenvolvedor'
+                    ? 'bg-amber-500/15 text-amber-300 border-amber-500/30 hover:bg-amber-500/25'
+                    : userRole === 'professor'
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                    : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30 hover:bg-cyan-500/25'
+                }`}
+              >
+                {userRole === 'desenvolvedor' ? (
+                  <ShieldCheck size={14} className="text-amber-400" />
+                ) : userRole === 'professor' ? (
+                  <GraduationCap size={14} className="text-emerald-400" />
+                ) : (
+                  <Music size={14} className="text-cyan-400" />
+                )}
+                <span>
+                  {userRole === 'desenvolvedor'
+                    ? 'Painel Dev'
+                    : userRole === 'professor'
+                    ? 'Área Professor'
+                    : 'Área Aluno'}
+                </span>
+              </button>
+
+              {/* Profile Avatar */}
+              <button
+                onClick={() => navigate(rolePath)}
+                className={`flex items-center gap-2 p-1.5 sm:px-3 sm:py-2 rounded-xl transition-all border cursor-pointer ${
+                  currentPath === rolePath || currentPath === '/perfil'
+                    ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                    : 'bg-[#131722] hover:bg-white/10 border-white/10 text-white'
+                }`}
+              >
+                {photoUrl ? (
+                  <img
+                    src={photoUrl}
+                    alt={displayName}
+                    className="w-7 h-7 rounded-full border border-amber-400 object-cover"
+                  />
+                ) : (
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-bold text-xs">
+                    {initials || 'TT'}
+                  </div>
+                )}
+                <span className="hidden lg:inline text-xs font-bold truncate max-w-[100px]">
+                  {displayName.split(' ')[0]}
+                </span>
+              </button>
+
+              {/* Prominent Sair da Conta (Logout -> returns to /auth) */}
+              <button
+                onClick={handleLogout}
+                title="Sair da Conta (Voltar para a página de login)"
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 text-xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+              >
+                <LogOut size={14} className="text-rose-400" />
+                <span className="hidden sm:inline">Sair</span>
+              </button>
+            </>
           ) : (
             <button
               onClick={() => navigate('/auth')}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-xs font-black shadow-md hover:opacity-90 transition-opacity cursor-pointer"
+              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 text-xs font-bold shadow-md hover:opacity-95 transition cursor-pointer"
             >
               <LogIn size={14} />
-              <span className="hidden sm:inline">Entrar</span>
+              <span>Entrar</span>
             </button>
           )}
 
           <button
             onClick={openAuthModal}
-            title={user ? "Gerenciar Conta Supabase" : "Entrar ou Criar Conta"}
-            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-cyan-400 border border-white/10 text-xs font-bold transition-colors cursor-pointer"
+            title={user ? "Gerenciar Perfil e Trocar Ambiente" : "Entrar ou Criar Conta"}
+            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400 border border-white/10 text-xs font-bold transition-colors cursor-pointer"
           >
             <User size={16} />
           </button>
@@ -233,14 +293,22 @@ const Header: React.FC = () => {
 
 // --- MOBILE NAVIGATION BAR ---
 const MobileNav: React.FC = () => {
-  const { currentPath, navigate, openMetronome, openTuner } = useAppRouter();
+  const { currentPath, navigate } = useAppRouter();
+  const { user, profile } = useAuth();
+
+  const userRole = profile?.role || 'aluno';
+  const rolePath = userRole === 'desenvolvedor' ? '/admin' : userRole === 'professor' ? '/professor' : '/aluno';
+  const roleIcon = userRole === 'desenvolvedor' ? ShieldCheck : userRole === 'professor' ? GraduationCap : User;
+  const roleLabel = userRole === 'desenvolvedor' ? 'Dev/Admin' : userRole === 'professor' ? 'Professor' : 'Aluno';
 
   const items = [
     { path: '/', icon: Home, label: 'Início' },
     { path: '/aulas', icon: Play, label: 'Aulas' },
     { path: '/partituras', icon: Music, label: 'Partituras' },
     { path: '/estudio', icon: Headphones, label: 'Estúdio' },
-    { path: '/perfil', icon: User, label: 'Perfil' },
+    ...(user
+      ? [{ path: rolePath, icon: roleIcon, label: roleLabel }]
+      : [{ path: '/auth', icon: LogIn, label: 'Entrar' }]),
   ];
 
   return (
@@ -254,10 +322,10 @@ const MobileNav: React.FC = () => {
               key={item.path}
               onClick={() => navigate(item.path)}
               className={`flex flex-col items-center justify-center w-full h-full space-y-1 transition-all ${
-                isActive ? 'text-cyan-400 scale-105' : 'text-slate-400 hover:text-white'
+                isActive ? 'text-amber-400 scale-105' : 'text-slate-400 hover:text-white'
               }`}
             >
-              <Icon size={20} className={isActive ? 'drop-shadow-[0_0_8px_rgba(6,182,212,0.6)]' : ''} />
+              <Icon size={20} className={isActive ? 'drop-shadow-[0_0_8px_rgba(245,158,11,0.6)]' : ''} />
               <span className="text-[10px] font-bold">{item.label}</span>
             </button>
           );
@@ -2224,8 +2292,27 @@ const PerfilPage: React.FC = () => {
 
 // --- APP SHELL AND PROVIDER ---
 export default function App() {
-  const [currentPath, setCurrentPath] = useState('/');
-  const [queryParams, setQueryParams] = useState<Record<string, string>>({});
+  // Sync initial path with window.location.pathname so F5 refresh preserves the current page
+  const [currentPath, setCurrentPath] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      const p = window.location.pathname;
+      const validPaths = ['/', '/aulas', '/partituras', '/estudio', '/agenda', '/comunidade', '/loja', '/perfil', '/auth', '/login'];
+      if (validPaths.includes(p)) return p;
+    }
+    return '/';
+  });
+
+  const [queryParams, setQueryParams] = useState<Record<string, string>>(() => {
+    if (typeof window !== 'undefined') {
+      const params: Record<string, string> = {};
+      new URLSearchParams(window.location.search).forEach((val, key) => {
+        params[key] = val;
+      });
+      return params;
+    }
+    return {};
+  });
+
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
   const [isTunerOpen, setIsTunerOpen] = useState(false);
   const [activeSheetModal, setActiveSheetModal] = useState<SheetMusic | null>(null);
@@ -2234,7 +2321,13 @@ export default function App() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Tab State & Scroll Persistence across tabs
-  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(new Set(['/']));
+  const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => {
+    const initial = new Set<string>(['/']);
+    if (typeof window !== 'undefined') {
+      initial.add(window.location.pathname || '/');
+    }
+    return initial;
+  });
   const tabScrollPositions = useRef<Record<string, number>>({});
 
   // Screen theme state (Preto / Branco)
@@ -2253,9 +2346,26 @@ export default function App() {
     }
   }, [theme]);
 
-  const toggleTheme = () => {
+  const toggleTheme = useCallback(() => {
     setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
-  };
+  }, []);
+
+  // Listen to browser Back / Forward buttons (popstate)
+  useEffect(() => {
+    const handlePopState = () => {
+      const p = window.location.pathname || '/';
+      const params: Record<string, string> = {};
+      new URLSearchParams(window.location.search).forEach((val, key) => {
+        params[key] = val;
+      });
+      setCurrentPath(p);
+      setQueryParams(params);
+      setVisitedTabs(prev => new Set(prev).add(p));
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // User Subscription Plan ('free' | 'pro' | 'ultra')
   const [userPlan, setUserPlanState] = useState<'free' | 'pro' | 'ultra'>(() => {
@@ -2266,14 +2376,14 @@ export default function App() {
     }
   });
 
-  const setUserPlan = (plan: 'free' | 'pro' | 'ultra') => {
+  const setUserPlan = useCallback((plan: 'free' | 'pro' | 'ultra') => {
     setUserPlanState(plan);
     try {
       localStorage.setItem('tutti_user_plan', plan);
     } catch (e) {
       console.warn('Storage error:', e);
     }
-  };
+  }, []);
 
   const [isPlansModalOpen, setIsPlansModalOpen] = useState<boolean>(false);
   const [isSocialModalOpen, setIsSocialModalOpen] = useState<boolean>(false);
@@ -2289,10 +2399,13 @@ export default function App() {
     completedLessons: 8
   });
 
-  // Persistent navigation: saves scroll, retains page instances in DOM, doesn't reload page
-  const navigate = (path: string, params: Record<string, string> = {}) => {
+  // Persistent navigation: saves scroll, retains page instances in DOM, syncs browser URL
+  const navigate = useCallback((path: string, params: Record<string, string> = {}) => {
     // 1. Save scroll position of current tab
-    tabScrollPositions.current[currentPath] = window.scrollY;
+    setCurrentPath(prevPath => {
+      tabScrollPositions.current[prevPath] = window.scrollY;
+      return prevPath;
+    });
 
     // 2. Mark new tab as visited
     setVisitedTabs(prev => {
@@ -2301,31 +2414,42 @@ export default function App() {
       return next;
     });
 
-    // 3. Switch current path
+    // 3. Switch current path and params
     setCurrentPath(path);
     setQueryParams(params);
 
-    // 4. Restore scroll position of target tab without resetting state
+    // 4. Update browser URL history without reloading page
+    try {
+      const qs = Object.keys(params).length > 0 ? '?' + new URLSearchParams(params).toString() : '';
+      const fullUrl = path + qs;
+      if (window.location.pathname + window.location.search !== fullUrl) {
+        window.history.pushState({ path, params }, '', fullUrl);
+      }
+    } catch {
+      // In case iframe restricts pushState
+    }
+
+    // 5. Restore scroll position of target tab
     requestAnimationFrame(() => {
       const targetY = tabScrollPositions.current[path] ?? 0;
       window.scrollTo({ top: targetY, behavior: 'instant' });
     });
-  };
+  }, []);
 
-  const showToast = (msg: string) => {
+  const showToast = useCallback((msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3500);
-  };
+  }, []);
 
-  const completeTask = (xpGain: number) => {
+  const completeTask = useCallback((xpGain: number) => {
     setUserStats(prev => ({
       ...prev,
       xp: prev.xp + xpGain,
       completedLessons: prev.completedLessons + 1
     }));
-  };
+  }, []);
 
-  const addToCart = (product: Product) => {
+  const addToCart = useCallback((product: Product) => {
     setCart(prev => {
       const existing = prev.find(item => item.product.id === product.id);
       if (existing) {
@@ -2336,17 +2460,17 @@ export default function App() {
       return [...prev, { product, quantity: 1 }];
     });
     showToast(`"${product.name}" adicionado ao carrinho! 🛒`);
-  };
+  }, [showToast]);
 
-  const removeFromCart = (productId: number) => {
+  const removeFromCart = useCallback((productId: number) => {
     setCart(prev => prev.filter(item => item.product.id !== productId));
-  };
+  }, []);
 
-  const clearCart = () => {
+  const clearCart = useCallback(() => {
     setCart([]);
-  };
+  }, []);
 
-  const contextValue: RouterContextType = {
+  const contextValue: RouterContextType = useMemo(() => ({
     currentPath,
     queryParams,
     navigate,
@@ -2369,7 +2493,23 @@ export default function App() {
     toggleTheme,
     userStats,
     completeTask
-  };
+  }), [
+    currentPath,
+    queryParams,
+    navigate,
+    userPlan,
+    setUserPlan,
+    cart,
+    addToCart,
+    removeFromCart,
+    clearCart,
+    toastMessage,
+    showToast,
+    theme,
+    toggleTheme,
+    userStats,
+    completeTask
+  ]);
 
   return (
     <AuthProvider>
@@ -2399,14 +2539,14 @@ export default function App() {
             )}
             {visitedTabs.has('/agenda') && (
               <div style={{ display: currentPath === '/agenda' ? 'block' : 'none' }}>
-                <ProtectedRoute routeName="a sua Agenda de Aulas e Masterclasses">
+                <ProtectedRoute isActive={currentPath === '/agenda'} routeName="a sua Agenda de Aulas e Masterclasses">
                   <AgendaPage />
                 </ProtectedRoute>
               </div>
             )}
             {visitedTabs.has('/comunidade') && (
               <div style={{ display: currentPath === '/comunidade' ? 'block' : 'none' }}>
-                <ProtectedRoute routeName="o Mural da Comunidade Musical Tutti">
+                <ProtectedRoute isActive={currentPath === '/comunidade'} routeName="o Mural da Comunidade Musical Tutti">
                   <ComunidadePage />
                 </ProtectedRoute>
               </div>
@@ -2418,13 +2558,43 @@ export default function App() {
             )}
             {visitedTabs.has('/perfil') && (
               <div style={{ display: currentPath === '/perfil' ? 'block' : 'none' }}>
-                <ProtectedRoute routeName="o seu Perfil de Aluno">
+                <ProtectedRoute isActive={currentPath === '/perfil'} routeName="o seu Perfil de Usuário">
                   <PerfilPage />
                 </ProtectedRoute>
               </div>
             )}
-            {(visitedTabs.has('/auth') || visitedTabs.has('/login') || currentPath === '/auth' || currentPath === '/login') && (
-              <div style={{ display: (currentPath === '/auth' || currentPath === '/login') ? 'block' : 'none' }}>
+            {visitedTabs.has('/admin') && (
+              <div style={{ display: currentPath === '/admin' ? 'block' : 'none' }}>
+                <ProtectedRoute isActive={currentPath === '/admin'} routeName="o Painel de Desenvolvedor e Administrador">
+                  <DeveloperPanel
+                    onLogoutToAuth={() => navigate('/auth')}
+                    onNavigateHome={() => navigate('/')}
+                  />
+                </ProtectedRoute>
+              </div>
+            )}
+            {visitedTabs.has('/professor') && (
+              <div style={{ display: currentPath === '/professor' ? 'block' : 'none' }}>
+                <ProtectedRoute isActive={currentPath === '/professor'} routeName="o Painel do Professor">
+                  <TeacherPanel
+                    onLogoutToAuth={() => navigate('/auth')}
+                    onNavigateHome={() => navigate('/')}
+                  />
+                </ProtectedRoute>
+              </div>
+            )}
+            {visitedTabs.has('/aluno') && (
+              <div style={{ display: currentPath === '/aluno' ? 'block' : 'none' }}>
+                <ProtectedRoute isActive={currentPath === '/aluno'} routeName="a Área do Aluno">
+                  <StudentPanel
+                    onLogoutToAuth={() => navigate('/auth')}
+                    onNavigateHome={() => navigate('/')}
+                  />
+                </ProtectedRoute>
+              </div>
+            )}
+            {(currentPath === '/auth' || currentPath === '/login') && (
+              <div className="animate-in fade-in duration-200">
                 <AuthPage />
               </div>
             )}

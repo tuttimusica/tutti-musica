@@ -1,6 +1,7 @@
 import express from 'express';
 import { createServer as createViteServer } from 'vite';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { GoogleGenAI } from '@google/genai';
@@ -24,6 +25,31 @@ async function startServer() {
   const isProduction = process.env.NODE_ENV === 'production';
 
   app.use(express.json());
+
+  // Serve static public folder files
+  app.use(express.static(path.resolve(__dirname, 'public')));
+
+  // Endpoint de download e visualização do PDF da Estrutura do Banco de Dados
+  app.get(['/api/download-db-pdf', '/tutti_estrutura_banco_de_dados.pdf'], (req, res) => {
+    const pdfFilePath = path.resolve(__dirname, 'public/tutti_estrutura_banco_de_dados.pdf');
+    if (fs.existsSync(pdfFilePath)) {
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', 'inline; filename="tutti_estrutura_banco_de_dados.pdf"');
+      return res.sendFile(pdfFilePath);
+    }
+    return res.status(404).send('PDF da estrutura não encontrado.');
+  });
+
+  // Endpoint de download do arquivo SQL bruto
+  app.get(['/api/download-db-sql', '/tutti_database_full_schema.sql'], (req, res) => {
+    const sqlFilePath = path.resolve(__dirname, 'tutti_database_full_schema.sql');
+    if (fs.existsSync(sqlFilePath)) {
+      res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      res.setHeader('Content-Disposition', 'attachment; filename="tutti_database_full_schema.sql"');
+      return res.sendFile(sqlFilePath);
+    }
+    return res.status(404).send('Arquivo SQL não encontrado.');
+  });
 
   // Maestro IA API endpoint using @google/genai
   app.post('/api/maestro', async (req, res) => {

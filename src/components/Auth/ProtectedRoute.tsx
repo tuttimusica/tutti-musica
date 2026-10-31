@@ -6,18 +6,23 @@ import { Lock, LogIn, Sparkles } from 'lucide-react';
 interface ProtectedRouteProps {
   children: React.ReactNode;
   routeName?: string;
+  isActive?: boolean;
 }
 
-export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children, routeName = 'esta área restrita' }) => {
+export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ 
+  children, 
+  routeName = 'esta área restrita',
+  isActive = true
+}) => {
   const { user, loading } = useAuth();
   const { currentPath, navigate } = useAppRouter();
 
   useEffect(() => {
-    // If not loading and no user authenticated, redirect to /auth preserving destination
-    if (!loading && !user) {
+    // Only redirect if this protected route is currently active, loading finished, and user is unauthenticated
+    if (isActive && !loading && !user) {
       navigate('/auth', { redirectTo: currentPath });
     }
-  }, [loading, user, currentPath, navigate]);
+  }, [isActive, loading, user, currentPath]);
 
   // 1. Loading state: checking Supabase session
   if (loading) {

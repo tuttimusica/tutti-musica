@@ -1,0 +1,699 @@
+# PROMPT MASTER — SEPARAÇÃO DE FRONTENDS, CONTROLE DE ACESSO E GESTÃO DE AULAS DA TUTTI
+
+Atue como um Arquiteto de Software Sênior, Engenheiro Full Stack e Especialista em React, TypeScript, Supabase, PostgreSQL, autenticação, autorização, segurança RLS e aplicações web escaláveis.
+
+Seu objetivo é evoluir o projeto existente da plataforma de música Tutti, implementando três ambientes de usuário independentes e integrados:
+
+1. **Desenvolvedor / Administrador**
+2. **Professor**
+3. **Aluno**
+
+A aplicação já possui uma estrutura de frontend e está conectada ao Supabase. A implementação deve aproveitar a arquitetura existente, preservar as funcionalidades atuais e adaptar o sistema para o novo modelo de permissões.
+
+## REGRA PRINCIPAL: PRESERVAR O PROJETO EXISTENTE
+
+Antes de realizar qualquer alteração:
+
+- Analise o código atual, a estrutura dos componentes, as rotas, os serviços, os hooks, a autenticação e a integração com o Supabase.
+- Identifique as tabelas, views, relacionamentos, políticas RLS e funções já existentes.
+- Identifique as páginas e funcionalidades que já estão funcionando.
+- Reaproveite os componentes e estilos existentes sempre que possível.
+- Não recrie o projeto do zero.
+- Não remova funcionalidades existentes sem necessidade.
+- Não duplique tabelas ou componentes que já cumpram a mesma finalidade.
+- Não substitua tecnologias ou bibliotecas sem justificativa técnica.
+- Não invente tabelas, campos ou relacionamentos antes de verificar o banco atual.
+
+Implemente as mudanças gradualmente, mantendo a compatibilidade com o projeto existente.
+
+# 1. ARQUITETURA DOS TRÊS AMBIENTES
+
+Crie uma separação lógica entre os três ambientes, utilizando o mesmo projeto, a mesma identidade visual e o mesmo backend.
+
+Não é necessário criar três aplicações independentes. Utilize a arquitetura atual e implemente layouts, rotas e permissões diferentes conforme o perfil autenticado.
+
+Os três ambientes devem compartilhar os dados necessários em tempo real ou por consultas atualizadas ao Supabase.
+
+A estrutura deve funcionar assim:
+
+- Desenvolvedor: controle administrativo completo.
+- Professor: gerenciamento limitado às suas aulas e aos seus alunos autorizados.
+- Aluno: consulta das próprias aulas, materiais e informações disponibilizadas.
+
+Cada usuário deve ser identificado por seu ID autenticado no Supabase Auth. Não utilize apenas o endereço de e-mail ou informações enviadas pelo frontend para determinar permissões.
+
+# 2. SISTEMA DE PERFIS E AUTORIZAÇÃO
+
+Implemente um sistema de perfis com, no mínimo, os seguintes papéis:
+
+- `desenvolvedor`
+- `professor`
+- `aluno`
+
+Considere também um estado de aprovação para usuários que solicitarem acesso como professor:
+
+- `pendente`
+- `aprovado`
+- `rejeitado`
+
+O perfil e o estado de aprovação devem ser armazenados no backend, em estruturas persistentes do Supabase.
+
+Regras obrigatórias:
+
+1. Um usuário que se cadastrar como aluno deve receber o perfil de aluno.
+2. Um usuário que solicitar cadastro como professor deve ter sua solicitação registrada com estado pendente.
+3. Nenhum usuário pode se tornar desenvolvedor apenas alterando o frontend, uma requisição ou os metadados da própria conta.
+4. O perfil desenvolvedor deve ser atribuído somente por um mecanismo administrativo confiável.
+5. Um professor pendente ou rejeitado não pode acessar o ambiente de professor.
+6. Um professor aprovado pode acessar somente as funcionalidades autorizadas para professores.
+7. Um aluno não pode acessar as funcionalidades administrativas ou de professor.
+8. A alteração de perfil e a aprovação de professores devem ser realizadas no backend com validação de permissões.
+
+Caso o sistema atual utilize tabelas de usuários, reaproveite-as e faça as adaptações necessárias sem perder os dados existentes.
+
+# 3. FRONTEND DO DESENVOLVEDOR
+
+Crie ou adapte o ambiente administrativo do desenvolvedor.
+
+O desenvolvedor será responsável por gerenciar a plataforma Tutti, incluindo os conteúdos, as partituras, as aulas, os professores, os alunos, as aprovações e os relatórios.
+
+## 3.1. Painel administrativo
+
+Crie um painel administrativo com navegação lateral e as seguintes abas:
+
+- Dashboard
+- Gerenciar site
+- Partituras
+- Partituras em destaque
+- Professores
+- Alunos
+- Aulas
+- Marcações
+- Solicitações de professores
+- Relatórios
+- Configurações
+
+Mantenha o padrão visual existente e crie uma interface organizada, responsiva e profissional.
+
+## 3.2. Gerenciar site
+
+Permita ao desenvolvedor administrar os conteúdos que já existem no projeto e os que forem necessários para a plataforma.
+
+Quando aplicável, disponibilize operações de:
+
+- Criar.
+- Visualizar.
+- Editar.
+- Publicar.
+- Despublicar.
+- Excluir com confirmação.
+- Organizar e ordenar conteúdos.
+
+Inclua gerenciamento dos textos, títulos, imagens, banners, seções e outros conteúdos dinâmicos já presentes no site, desde que a estrutura atual permita essa administração.
+
+Não transforme código-fonte, componentes ou configurações de segurança em campos editáveis de um painel administrativo.
+
+Alterações no código da aplicação continuam sendo feitas no ambiente de desenvolvimento, como o Google AI Studio, e precisam ser publicadas por meio do fluxo de implantação.
+
+Alterações em conteúdos armazenados no banco de dados devem ser refletidas nas interfaces dos usuários sem exigir uma nova implantação do site.
+
+## 3.3. Gerenciamento de partituras
+
+Crie uma interface administrativa completa para gerenciar as partituras.
+
+O desenvolvedor poderá:
+
+- Adicionar partituras.
+- Editar informações.
+- Substituir arquivos.
+- Remover partituras com confirmação.
+- Definir título, descrição, instrumento, estilo musical e nível de dificuldade, conforme os campos existentes.
+- Definir se a partitura está publicada.
+- Definir se a partitura ficará em destaque.
+- Organizar as partituras por categoria.
+- Consultar os materiais cadastrados.
+
+Reutilize as tabelas e os recursos de armazenamento do Supabase, se já existirem.
+
+Os arquivos devem ser armazenados de maneira apropriada, utilizando Supabase Storage ou o sistema já configurado no projeto.
+
+Verifique as permissões de leitura, envio, atualização e exclusão dos arquivos.
+
+## 3.4. Partituras em destaque
+
+Permita que o desenvolvedor selecione quais partituras serão exibidas em destaque no ambiente dos alunos.
+
+As alterações devem ser persistidas no Supabase e refletidas na interface dos alunos.
+
+Evite manter uma lista fixa diretamente no código quando o conteúdo precisar ser administrado pelo painel.
+
+## 3.5. Gerenciamento de professores
+
+Crie uma área para visualizar:
+
+- Professores pendentes.
+- Professores aprovados.
+- Professores rejeitados.
+- Nome e e-mail.
+- Data da solicitação.
+- Situação atual.
+- Informações de perfil disponíveis no sistema.
+
+O desenvolvedor poderá aprovar ou rejeitar solicitações.
+
+Ao aprovar, o backend deverá atualizar o estado do professor de forma persistente.
+
+Ao rejeitar, o usuário não poderá acessar as funcionalidades de professor.
+
+Registre a data da decisão e, quando apropriado, o administrador responsável.
+
+## 3.6. Gerenciamento de alunos
+
+Permita visualizar e pesquisar os alunos cadastrados, suas informações de perfil e suas marcações de aula.
+
+O desenvolvedor poderá consultar o histórico de aulas, os professores vinculados e os dados necessários para prestar suporte.
+
+A edição de dados pessoais deve ser limitada ao necessário e respeitar as regras de segurança e privacidade.
+
+# 4. ABA SOLICITAÇÕES DE PROFESSORES
+
+Crie uma aba administrativa chamada "Solicitações de professores".
+
+Sempre que um usuário solicitar uma conta de professor, a solicitação deverá aparecer nessa área.
+
+Cada registro deve mostrar, quando os dados estiverem disponíveis:
+
+- Nome.
+- E-mail.
+- Data de solicitação.
+- Estado da aprovação.
+- Ações de aprovar e rejeitar.
+
+Inclua filtros por situação e busca por nome ou e-mail.
+
+## Aprovação
+
+Ao clicar em "Aprovar":
+
+1. Solicite confirmação da ação.
+2. Envie a operação ao backend.
+3. Valide que o usuário autenticado possui permissão administrativa.
+4. Atualize o estado da solicitação para aprovado.
+5. Registre a data da aprovação e o administrador responsável, se suportado pelo esquema.
+6. Atualize a interface administrativa.
+7. Permita o acesso ao ambiente de professor após a confirmação da alteração no backend.
+
+## Rejeição
+
+Ao clicar em "Rejeitar":
+
+1. Solicite confirmação.
+2. Registre a decisão no backend.
+3. Atualize a situação para rejeitado.
+4. Impeça o acesso ao ambiente de professor.
+5. Atualize a interface administrativa.
+
+As operações devem ser seguras e persistentes.
+
+Não simule aprovação apenas alterando o estado local do frontend.
+
+# 5. ABA RELATÓRIOS
+
+Crie uma aba chamada "Relatórios" no painel do desenvolvedor.
+
+Essa área deve apresentar informações reais obtidas do Supabase, e não valores estáticos ou fictícios.
+
+## 5.1. Indicadores principais
+
+Exiba cartões com:
+
+- Total de alunos cadastrados.
+- Total de professores aprovados.
+- Total de solicitações pendentes.
+- Total de professores rejeitados.
+- Total de logins de alunos.
+- Total de logins de professores.
+- Total de aulas agendadas.
+- Total de aulas realizadas, caso esse dado exista.
+
+Não confunda número de usuários cadastrados com número de logins realizados.
+
+## 5.2. Relatório de acessos
+
+Crie uma estrutura apropriada para registrar eventos de autenticação, caso ainda não exista.
+
+Quando tecnicamente possível e de forma confiável, registre:
+
+- ID do usuário.
+- Perfil do usuário no momento do evento.
+- Tipo de evento.
+- Data e hora.
+- Resultado do evento.
+- Informações adicionais estritamente necessárias.
+
+Diferencie eventos como:
+
+- Login bem-sucedido.
+- Tentativa de login malsucedida, se houver um mecanismo seguro e confiável para registrá-la.
+- Solicitação de acesso como professor.
+- Aprovação ou rejeição de professor.
+- Logout, quando for possível registrá-lo adequadamente.
+
+Não registre senhas, tokens de autenticação ou segredos.
+
+Não afirme que o sistema consegue contabilizar todas as tentativas de login do Supabase Auth somente consultando a tabela pública de usuários.
+
+Se for necessário um mecanismo administrativo ou de servidor para obter dados de autenticação, apresente a arquitetura segura e a configuração necessária.
+
+## 5.3. Filtros dos relatórios
+
+Permita filtrar por:
+
+- Período.
+- Perfil.
+- Tipo de evento.
+- Resultado.
+- Usuário, quando aplicável.
+
+Apresente tabelas legíveis e gráficos apenas quando houver dados reais suficientes.
+
+Os dados devem vir do backend e respeitar as permissões administrativas.
+
+# 6. ABA MARCAÇÕES DO DESENVOLVEDOR
+
+Crie uma aba chamada "Marcações".
+
+Essa será a área administrativa para consultar e administrar as aulas marcadas entre professores e alunos.
+
+Cada marcação deverá apresentar, quando disponível:
+
+- Nome do aluno.
+- E-mail do aluno.
+- Telefone do aluno, caso esteja cadastrado.
+- Nome do professor.
+- E-mail do professor.
+- Data da aula.
+- Hora de início.
+- Hora de término ou duração.
+- Situação da marcação.
+- Observações, se existentes.
+
+Permita:
+
+- Consultar marcações.
+- Buscar por aluno ou professor.
+- Filtrar por data.
+- Filtrar por situação.
+- Visualizar detalhes.
+- Criar marcações administrativas, quando necessário.
+- Editar ou cancelar marcações com confirmação e validação de conflitos.
+
+As informações devem ser obtidas do backend, não de dados temporários mantidos somente no navegador.
+
+O desenvolvedor deverá ter visão administrativa das marcações, mas todas as operações devem respeitar a integridade dos relacionamentos entre alunos, professores e aulas.
+
+# 7. FRONTEND DO PROFESSOR
+
+Crie um ambiente específico para professores, reutilizando os componentes e o design do site atual.
+
+O professor não poderá modificar a estrutura do site, os componentes globais, as configurações, o banco de dados, os conteúdos administrativos ou as permissões de usuários.
+
+Ele poderá utilizar exclusivamente as funcionalidades disponibilizadas ao perfil de professor.
+
+## 7.1. Cadastro e acesso
+
+Quando um usuário escolher o perfil de professor no cadastro, registre a solicitação de aprovação no backend.
+
+Enquanto a solicitação estiver pendente, ao tentar entrar no ambiente de professor, exiba exatamente a seguinte mensagem:
+
+"Perfil em análise, aguarde! Utilize a sua conta como aluno até a sua aprovação. Grato!"
+
+O usuário pendente não poderá acessar o painel do professor.
+
+Se a solicitação for rejeitada, bloqueie o acesso ao painel de professor e apresente uma mensagem clara informando que o perfil não foi aprovado.
+
+Se a solicitação for aprovada, libere as funcionalidades de professor de acordo com o perfil confirmado pelo backend.
+
+Não permita que o usuário escolha ou altere seu perfil privilegiado apenas por meio de parâmetros da URL, armazenamento local ou alterações no frontend.
+
+## 7.2. Painel do professor
+
+Crie as seguintes abas:
+
+- Dashboard.
+- Minhas aulas.
+- Agenda de aulas.
+- Marcações.
+- Meus alunos.
+- Meu perfil.
+
+O professor deverá visualizar somente as informações necessárias para suas atividades.
+
+## 7.3. Agenda de aulas
+
+Implemente uma interface de agendamento para que o professor possa marcar aulas com alunos.
+
+O formulário de marcação deverá conter os campos solicitados:
+
+- E-mail do aluno.
+- Telefone do aluno.
+- Nome do aluno.
+- Data.
+- Hora.
+
+Inclua também, se necessário para o funcionamento adequado:
+
+- Duração da aula.
+- Observações.
+- Estado da marcação.
+
+Sempre que possível, identifique o aluno por seu ID autenticado ou por um relacionamento válido no banco de dados, em vez de confiar exclusivamente no nome ou e-mail digitado.
+
+O sistema deve validar:
+
+- Campos obrigatórios.
+- Formato de e-mail.
+- Data válida.
+- Horário válido.
+- Horários passados, quando não permitidos.
+- Conflitos com outras aulas do professor.
+- Permissão do professor para agendar aulas.
+- Vínculo válido entre professor e aluno, conforme a regra de negócio adotada.
+
+Se houver conflito de horário, impeça a gravação e informe o motivo.
+
+Após salvar, confirme que a operação foi concluída no backend antes de exibir a marcação como criada.
+
+## 7.4. Aba marcações do professor
+
+Crie uma aba "Marcações" na qual o professor possa consultar as aulas sob sua responsabilidade.
+
+O professor poderá:
+
+- Visualizar suas próximas aulas.
+- Consultar aulas anteriores.
+- Filtrar por data.
+- Consultar as informações necessárias do aluno.
+- Criar marcações permitidas.
+- Alterar ou cancelar marcações que estejam sob sua responsabilidade, quando autorizado pelas regras do sistema.
+
+O professor nunca poderá consultar ou alterar marcações de outros professores sem autorização explícita.
+
+Não permita que ele altere o ID do professor associado à marcação para assumir aulas de outra pessoa.
+
+## 7.5. Dados disponíveis para o professor
+
+O professor poderá consultar somente os alunos e as informações necessários para as aulas que administra.
+
+Não disponibilize acesso administrativo às tabelas, às configurações ou às funções internas do site.
+
+# 8. FRONTEND DO ALUNO
+
+Crie um ambiente específico para os alunos, aproveitando a interface atual do site.
+
+O aluno será um usuário comum da plataforma e não poderá editar o frontend, o backend, as configurações globais ou os dados administrativos.
+
+## 8.1. Painel do aluno
+
+Crie ou adapte as seguintes áreas:
+
+- Dashboard.
+- Aulas.
+- Minhas marcações.
+- Partituras.
+- Partituras em destaque.
+- Professores, se essa funcionalidade já existir.
+- Meu perfil.
+
+Preserve as demais funcionalidades atuais que forem compatíveis com o ambiente do aluno.
+
+## 8.2. Aba aulas
+
+Na aba "Aulas", o aluno deverá visualizar as aulas vinculadas à sua própria conta.
+
+Apresente, conforme os dados disponíveis:
+
+- Nome do professor.
+- Data da aula.
+- Hora de início.
+- Hora de término ou duração.
+- Situação da aula.
+- Observações disponibilizadas ao aluno.
+- Informações de acesso à aula, caso exista integração com uma plataforma de videoconferência.
+
+As aulas devem estar associadas ao ID correto do aluno no banco de dados.
+
+O aluno não poderá visualizar aulas pertencentes a outros alunos.
+
+## 8.3. Minhas marcações
+
+Crie uma interface para o aluno consultar suas aulas marcadas.
+
+Mostre as próximas aulas primeiro e permita consultar o histórico.
+
+Sempre que uma marcação for criada, atualizada ou cancelada por um usuário autorizado, a interface do aluno deverá refletir a situação atual do backend.
+
+Utilize atualização por consultas ao Supabase, atualização automática ou Realtime, conforme a infraestrutura existente.
+
+Não utilize dados fictícios para simular marcações.
+
+## 8.4. Partituras e conteúdos
+
+As partituras publicadas pelo desenvolvedor deverão ser exibidas aos alunos conforme as permissões do conteúdo.
+
+As partituras selecionadas como destaque deverão aparecer na área correspondente.
+
+Quando o desenvolvedor publicar ou atualizar um conteúdo, a alteração deverá ser refletida na interface dos alunos sem exigir nova implantação do frontend.
+
+# 9. INTEGRAÇÃO ENTRE OS TRÊS AMBIENTES
+
+Todos os ambientes deverão compartilhar o mesmo backend e a mesma fonte de dados.
+
+Implemente os seguintes fluxos:
+
+### Fluxo A — Solicitação de professor
+
+1. Usuário cria uma conta e solicita o perfil de professor.
+2. Backend registra a solicitação como pendente.
+3. Solicitação aparece no painel do desenvolvedor.
+4. Desenvolvedor aprova ou rejeita.
+5. Backend registra a decisão.
+6. Interface do professor reflete a decisão.
+7. O acesso ao painel é liberado somente se a aprovação estiver confirmada.
+
+### Fluxo B — Agendamento de aula
+
+1. Professor autenticado acessa a agenda.
+2. Seleciona o aluno autorizado.
+3. Informa e-mail, telefone, nome, data e hora, conforme os dados exigidos.
+4. Backend valida as permissões e os conflitos de horário.
+5. A marcação é salva no Supabase.
+6. A marcação aparece na área administrativa do desenvolvedor.
+7. A marcação aparece no ambiente do professor.
+8. A marcação aparece na aba de aulas ou marcações do aluno correspondente.
+
+### Fluxo C — Alteração de conteúdo
+
+1. Desenvolvedor cria ou atualiza uma partitura ou conteúdo.
+2. A alteração é persistida no backend.
+3. As interfaces autorizadas consultam os dados atualizados.
+4. O conteúdo aparece ou deixa de aparecer conforme seu estado de publicação e suas permissões.
+
+### Fluxo D — Atualização de autorização
+
+1. Desenvolvedor aprova ou rejeita um professor.
+2. Backend atualiza o estado.
+3. O frontend consulta ou recebe a atualização.
+4. O sistema permite ou bloqueia as rotas conforme o estado real no backend.
+
+Não dependa exclusivamente do estado local do navegador para atualizar permissões.
+
+# 10. BANCO DE DADOS E RELACIONAMENTOS
+
+Inspecione o esquema atual do Supabase antes de fazer alterações.
+
+Identifique se já existem estruturas para:
+
+- Perfis de usuários.
+- Solicitações de professores.
+- Partituras.
+- Categorias.
+- Conteúdos publicados.
+- Aulas.
+- Marcações.
+- Relatórios e eventos.
+- Relacionamentos entre professores e alunos.
+
+Reaproveite as estruturas existentes quando forem adequadas.
+
+Caso faltem estruturas, proponha as alterações necessárias antes de executar migrações destrutivas.
+
+Utilize chaves primárias, chaves estrangeiras, restrições e índices apropriados.
+
+As marcações deverão ter relacionamentos consistentes com os usuários envolvidos.
+
+Garanta que a criação ou atualização de uma marcação não dependa apenas de campos fornecidos pelo frontend.
+
+Quando houver risco de operações simultâneas criarem conflitos de horário, implemente uma estratégia de validação e integridade no banco de dados ou no servidor.
+
+Não apague dados existentes.
+
+Não altere tipos de campos ou nomes de tabelas sem necessidade comprovada.
+
+Se houver incompatibilidades com o esquema atual, apresente uma migração SQL segura e explique sua finalidade.
+
+# 11. SEGURANÇA OBRIGATÓRIA — SUPABASE RLS
+
+A segurança deverá ser aplicada no backend, não somente nas rotas e componentes da interface.
+
+Revise as políticas RLS existentes e implemente ou proponha políticas específicas para cada tabela envolvida.
+
+Princípios obrigatórios:
+
+- Desenvolvedor: acesso administrativo validado pelo backend.
+- Professor: acesso apenas aos seus dados, suas aulas e aos alunos vinculados às suas marcações.
+- Aluno: acesso somente aos seus dados, suas aulas e seus conteúdos autorizados.
+- Usuário não autenticado: sem acesso aos dados privados.
+- Usuário pendente ou rejeitado: sem acesso às funcionalidades de professor.
+
+Requisitos adicionais:
+
+1. Ative RLS nas tabelas expostas que contenham dados privados.
+2. Utilize `auth.uid()` e relacionamentos confiáveis para verificar a propriedade dos registros.
+3. Não confie no perfil enviado pelo navegador.
+4. Não permita que usuários alterem seus próprios privilégios.
+5. Não utilize políticas permissivas como `USING (true)` para dados privados.
+6. Não exponha chaves secretas no frontend.
+7. Não desative políticas de segurança existentes para fazer as funcionalidades funcionarem.
+8. Garanta que professores não consigam alterar dados de outros professores.
+9. Garanta que alunos não consigam alterar marcações de terceiros.
+10. Garanta que apenas o desenvolvedor autorizado aprove professores.
+11. Garanta que usuários não possam atribuir a si mesmos o perfil de desenvolvedor.
+12. Valide operações sensíveis no servidor ou no banco de dados.
+
+Se o sistema atual utilizar a tabela `public.usuarios` ou outra tabela de perfis, avalie sua adequação e preserve sua compatibilidade.
+
+Não presuma que uma tabela chamada `usuarios` possui um campo específico sem inspecionar o esquema real.
+
+Se forem necessárias funções administrativas, implemente-as com verificação de autorização e privilégios mínimos.
+
+# 12. INTERFACE E EXPERIÊNCIA DO USUÁRIO
+
+Mantenha a identidade visual atual da Tutti.
+
+Implemente:
+
+- Layout responsivo.
+- Navegação adaptada ao perfil.
+- Menus que exibam somente as funcionalidades autorizadas.
+- Estados de carregamento.
+- Mensagens de sucesso e erro.
+- Confirmação para operações destrutivas.
+- Formulários com validação.
+- Tabelas com pesquisa e filtros.
+- Paginação quando necessária.
+- Tratamento de dados vazios.
+- Feedback após salvar alterações.
+- Tratamento de erros de conexão com o Supabase.
+
+Não utilize dados simulados para apresentar o sistema como se estivesse integrado.
+
+Se ainda não houver dados, exiba uma mensagem apropriada de ausência de registros.
+
+# 13. DESEMPENHO E CONSISTÊNCIA
+
+Evite carregar todos os registros de uma tabela quando forem necessários apenas alguns.
+
+Implemente consultas filtradas e paginação quando apropriado.
+
+Evite consultas duplicadas e estados inconsistentes de autenticação.
+
+Ao criar ou atualizar registros, reflita as mudanças na interface somente depois de uma confirmação adequada do backend.
+
+Se utilizar Supabase Realtime, configure-o somente para as tabelas e os eventos necessários, respeitando as permissões e o esquema de publicação.
+
+Não exponha informações de usuários que não sejam necessárias para o funcionamento da plataforma.
+
+# 14. TESTES OBRIGATÓRIOS
+
+Execute os testes possíveis na estrutura atual e registre os resultados.
+
+### Testes de desenvolvedor
+
+- Acesso ao painel administrativo.
+- Criação e edição de partituras.
+- Publicação e destaque de partituras.
+- Visualização dos alunos.
+- Visualização dos professores.
+- Aprovação e rejeição de solicitações.
+- Visualização de relatórios.
+- Consulta e administração das marcações.
+
+### Testes de professor
+
+- Cadastro com solicitação de perfil de professor.
+- Bloqueio enquanto estiver pendente.
+- Exibição da mensagem de análise.
+- Bloqueio quando rejeitado.
+- Acesso após aprovação.
+- Criação de marcações.
+- Impedimento de conflitos de horário.
+- Bloqueio de acesso às marcações de outros professores.
+- Impedimento de edição de configurações administrativas.
+
+### Testes de aluno
+
+- Cadastro e login.
+- Acesso ao ambiente de aluno.
+- Visualização das próprias aulas.
+- Visualização das próprias marcações.
+- Visualização de partituras publicadas.
+- Bloqueio de dados de outros alunos.
+- Bloqueio das rotas administrativas e de professor.
+
+### Testes de segurança
+
+- Tentativa de alterar o perfil pelo frontend.
+- Tentativa de acessar rotas privadas diretamente.
+- Tentativa de consultar dados de outros usuários.
+- Tentativa de aprovar um professor sem permissão.
+- Tentativa de alterar marcações de terceiros.
+- Verificação das políticas RLS.
+- Verificação de ausência de segredos no frontend.
+
+Não afirme que um teste passou se ele não foi realmente executado.
+
+# 15. RELATÓRIO FINAL DA IMPLEMENTAÇÃO
+
+Ao finalizar, apresente:
+
+1. Resumo da arquitetura implementada.
+2. Rotas disponíveis para cada perfil.
+3. Componentes criados ou modificados.
+4. Tabelas e relacionamentos utilizados.
+5. Migrações SQL necessárias, se houver.
+6. Políticas RLS criadas ou ajustadas.
+7. Fluxo de aprovação dos professores.
+8. Fluxo de agendamento de aulas.
+9. Implementação dos relatórios.
+10. Testes executados e resultados.
+11. Configurações que ainda precisam ser feitas manualmente no Supabase ou na Vercel.
+12. Problemas encontrados e recomendações.
+
+Diferencie claramente o que foi implementado, o que foi apenas proposto e o que ainda depende de configuração externa.
+
+# INSTRUÇÃO FINAL
+
+Implemente essa evolução no projeto existente da Tutti com foco em segurança, integridade dos dados e manutenção da arquitetura atual.
+
+Não recrie a aplicação do zero.
+
+Não apague funcionalidades existentes.
+
+Não utilize dados fictícios para simular integrações.
+
+Não permita que a separação visual dos ambientes seja tratada como única camada de segurança.
+
+Priorize a autorização no backend, as políticas RLS, a persistência no Supabase e a consistência entre os ambientes de desenvolvedor, professor e aluno.
+
+Comece pela auditoria da estrutura atual, identifique as alterações necessárias e execute-as de forma incremental e segura.

@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { X, LogOut, Database, Mail, Lock, User, KeyRound, ArrowLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  X,
+  LogOut,
+  Mail,
+  Lock,
+  User,
+  ArrowLeft,
+  CheckCircle2,
+  AlertCircle,
+  Sparkles,
+  ShieldCheck,
+  GraduationCap,
+  Music,
+  ChevronRight
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
 
@@ -9,12 +23,23 @@ interface AuthModalProps {
 }
 
 export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
-  const { user, profile, projectId, loginWithGoogle, loginWithEmail, signUpWithEmail, resetPassword, logout } = useAuth();
+  const {
+    user,
+    profile,
+    projectId,
+    loginWithGoogle,
+    loginWithEmail,
+    signUpWithEmail,
+    loginAsRole,
+    resetPassword,
+    logout
+  } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [authMode, setAuthMode] = useState<'signin' | 'signup' | 'forgot'>('signin');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
+  const [signUpRole, setSignUpRole] = useState<'aluno' | 'professor'>('aluno');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -23,8 +48,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const translateAuthError = (err: any): string => {
     const msg = err?.message || err?.error_description || String(err || '');
+    if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
+      return 'O provedor Google ainda não foi ativado no painel do Supabase. Utilize o login com E-mail e Senha abaixo.';
+    }
+    if (msg.includes('requested path is invalid') || msg.includes('Invalid path') || msg.includes('PGRST125') || msg.includes('PGRST126')) {
+      return 'Atenção: Acesso direto por esta interface.';
+    }
+    if (msg.includes('email_address_invalid') || msg.includes('is invalid')) {
+      return 'Por favor, informe um endereço de e-mail válido.';
+    }
     if (msg.includes('Invalid login credentials') || msg.includes('invalid_credentials')) {
-      return 'E-mail ou senha incorretos. Verifique suas credenciais.';
+      return 'E-mail ou senha incorretos.';
     }
     if (msg.includes('User already registered') || msg.includes('already registered')) {
       return 'Este e-mail já está cadastrado. Tente fazer login ou recuperar sua senha.';
@@ -33,12 +67,32 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
       return 'A senha precisa ter pelo menos 6 caracteres.';
     }
     if (msg.includes('Email not confirmed')) {
-      return 'E-mail ainda não confirmado. Verifique o link enviado para sua caixa de entrada.';
+      return 'E-mail ainda não confirmado. Verifique sua caixa de entrada.';
     }
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
-      return 'Erro de conexão com o Supabase. Verifique sua internet ou tente novamente em instantes.';
+      return 'Erro de conexão com o Supabase. Verifique sua internet.';
     }
     return msg || 'Ocorreu um erro na autenticação.';
+  };
+
+  const routeByRole = (role?: string) => {
+    if (role === 'desenvolvedor' || role === 'admin') return '/admin';
+    if (role === 'professor') return '/professor';
+    return '/aluno';
+  };
+
+  const handleRoleSelect = async (role: 'desenvolvedor' | 'professor' | 'aluno') => {
+    setIsSubmitting(true);
+    try {
+      await loginAsRole(role, 'aprovado');
+      onClose();
+      showToast(`Conectado com perfil: ${role.toUpperCase()}!`);
+      navigate(routeByRole(role));
+    } catch (err: any) {
+      setErrorMsg('Erro ao alternar perfil: ' + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -76,12 +130,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
         const { error } = await loginWithEmail(email, password);
         if (error) throw error;
         setSuccessMsg('Login efetuado com sucesso!');
-        setTimeout(() => onClose(), 600);
+        setTimeout(() => {
+          onClose();
+          navigate(routeByRole(profile?.role));
+        }, 500);
       } else if (authMode === 'signup') {
-        const { error } = await signUpWithEmail(email, password, displayName || 'Músico Tutti');
-        if (error) throw error;
-        setSuccessMsg('Conta criada com sucesso no Supabase! Verifique seu e-mail se a confirmação estiver ativada.');
-        setTimeout(() => onClose(), 1500);
+        const res = await signUpWithEmail(email, password, displayName || 'Músico Tutti', signUpRole);
+        if (res.error) throw res.error;
+        if (res.data?.session) {
+          setSuccessMsg('Conta criada e autenticada com sucesso! Bem-vindo(a) ♪');
+          setTimeout(() => {
+            onClose();
+            navigate(routeByRole(signUpRole));
+          }, 600);
+        } else {
+          setSuccessMsg('Conta criada no Supabase! Verifique seu e-mail para ativar seu acesso.');
+        }
       } else if (authMode === 'forgot') {
         const { error } = await resetPassword(email);
         if (error) throw error;
@@ -97,13 +161,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const handleSignOut = async () => {
     await logout();
     onClose();
-    navigate('/');
-    showToast('Sessão encerrada com sucesso. Até breve! ♪');
+    navigate('/auth');
+    showToast('Sessão encerrada com sucesso. Voltando para login.');
   };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
-      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl w-full max-w-md p-6 sm:p-8 shadow-2xl relative space-y-6 modal-dark">
+      <div className="bg-[#11141d] border border-amber-500/30 rounded-3xl w-full max-w-lg p-6 sm:p-8 shadow-2xl relative space-y-6 modal-dark max-h-[90vh] overflow-y-auto">
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -120,170 +184,225 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <img
                   src={profile?.photoURL || user.user_metadata?.avatar_url}
                   alt={profile?.displayName || 'Avatar'}
-                  className="w-24 h-24 rounded-full border-2 border-cyan-400 mx-auto shadow-xl object-cover"
+                  className="w-20 h-20 rounded-full border-2 border-amber-400 mx-auto shadow-xl object-cover"
                 />
               ) : (
-                <div className="w-24 h-24 rounded-full bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-black font-syne font-black text-2xl mx-auto shadow-xl">
+                <div className="w-20 h-20 rounded-full bg-gradient-to-tr from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 font-serif font-bold text-2xl mx-auto shadow-xl">
                   {profile?.displayName?.slice(0, 2).toUpperCase() || 'TT'}
                 </div>
               )}
-              <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-400 border-2 border-[#131722] flex items-center justify-center text-black text-[10px] font-bold">
+              <span className="absolute bottom-0 right-0 w-6 h-6 rounded-full bg-emerald-400 border-2 border-[#11141d] flex items-center justify-center text-black text-[10px] font-bold">
                 ✓
               </span>
             </div>
 
             <div className="space-y-1">
-              <div className="flex items-center justify-center gap-2">
-                <h3 className="font-syne font-black text-2xl text-white">
-                  {profile?.displayName || user.email?.split('@')[0] || 'Músico Tutti'}
-                </h3>
-                {profile?.role === 'admin' && (
-                  <span className="px-2 py-0.5 rounded-full bg-rose-500/20 text-rose-300 text-[10px] font-bold border border-rose-500/30">
-                    Admin
-                  </span>
-                )}
-              </div>
-              <p className="text-xs text-slate-400 font-mono">{user.email}</p>
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20 mt-1">
-                <Database size={12} /> Supabase ({projectId}) Conectado
+              <h3 className="font-serif font-bold text-xl text-white">
+                {profile?.displayName || user.email}
+              </h3>
+              <p className="text-xs text-slate-400">{user.email}</p>
+              <div className="pt-2">
+                <span className="px-3 py-1 rounded-full text-xs font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30 inline-block">
+                  Perfil: {profile?.role || 'aluno'}
+                </span>
               </div>
             </div>
 
-            <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 grid grid-cols-2 gap-3 text-center">
-              <div>
-                <div className="text-xl font-syne font-black text-cyan-400">{profile?.xp || 0}</div>
-                <div className="text-[10px] text-slate-400 uppercase font-semibold">XP no Supabase</div>
+            {/* Quick Navigation to specific panel */}
+            <div className="p-3 rounded-2xl bg-white/5 border border-white/10 space-y-2">
+              <button
+                onClick={() => {
+                  onClose();
+                  navigate(routeByRole(profile?.role));
+                }}
+                className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <span>Acessar Meu Painel ({profile?.role})</span>
+                <ChevronRight size={15} />
+              </button>
+
+              <div className="text-[11px] text-slate-400 pt-1">
+                Trocar de perfil imediatamente:
               </div>
-              <div>
-                <div className="text-xl font-syne font-black text-emerald-400">{profile?.streakDays || 0} dias</div>
-                <div className="text-[10px] text-slate-400 uppercase font-semibold">Ofensiva Salva</div>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => handleRoleSelect('desenvolvedor')}
+                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-amber-500/20 text-[10px] text-amber-300 border border-white/10 hover:border-amber-500/30 transition"
+                >
+                  Dev
+                </button>
+                <button
+                  onClick={() => handleRoleSelect('professor')}
+                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-[10px] text-emerald-300 border border-white/10 hover:border-emerald-500/30 transition"
+                >
+                  Professor
+                </button>
+                <button
+                  onClick={() => handleRoleSelect('aluno')}
+                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-[10px] text-cyan-300 border border-white/10 hover:border-cyan-500/30 transition"
+                >
+                  Aluno
+                </button>
               </div>
             </div>
 
+            {/* Sign Out Button (Returns directly to /auth) */}
             <button
               onClick={handleSignOut}
-              className="w-full py-3.5 rounded-2xl bg-white/10 hover:bg-rose-500/20 hover:text-rose-400 text-slate-300 text-sm font-bold transition-colors flex items-center justify-center gap-2 border border-white/10 cursor-pointer"
+              className="w-full py-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
             >
-              <LogOut size={16} /> Encerrar Sessão
+              <LogOut size={16} />
+              <span>Sair da Conta (Voltar para o Login)</span>
             </button>
           </div>
         ) : (
-          // Unauthenticated State
-          <div className="space-y-5">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-cyan-400 to-violet-600 flex items-center justify-center text-black font-syne font-black text-xl mx-auto shadow-xl shadow-cyan-500/20 glow">
-                ♪
-              </div>
-              <h3 className="font-syne font-black text-2xl text-white">
-                {authMode === 'forgot' ? 'Recuperar Senha' : 'Entrar no Tutti ♪'}
+          // Signed-out State
+          <div className="space-y-6">
+            <div className="text-center space-y-1">
+              <span className="text-[10px] font-mono tracking-widest uppercase text-amber-400 font-bold">
+                Tutti Escola de Música
+              </span>
+              <h3 className="font-serif font-bold text-xl text-white">
+                Entrar na Plataforma
               </h3>
-              <div className="inline-flex items-center gap-1.5 px-3 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 text-[10px] font-bold border border-emerald-500/20">
-                <Database size={11} /> Backend Supabase: {projectId}
+              <p className="text-xs text-slate-400">
+                Selecione seu tipo de acesso ou entre com suas credenciais.
+              </p>
+            </div>
+
+            {/* Direct 3-Role Entry Selection */}
+            <div className="p-3.5 rounded-2xl bg-[#0b0e15] border border-amber-500/20 space-y-2.5">
+              <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
+                Entrar Diretamente Como:
+              </span>
+              <div className="grid grid-cols-3 gap-2">
+                <button
+                  onClick={() => handleRoleSelect('desenvolvedor')}
+                  className="p-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
+                >
+                  <ShieldCheck size={18} />
+                  <span>Dev / Admin</span>
+                </button>
+                <button
+                  onClick={() => handleRoleSelect('professor')}
+                  className="p-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
+                >
+                  <GraduationCap size={18} />
+                  <span>Professor</span>
+                </button>
+                <button
+                  onClick={() => handleRoleSelect('aluno')}
+                  className="p-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
+                >
+                  <Music size={18} />
+                  <span>Aluno</span>
+                </button>
               </div>
             </div>
 
-            {/* Sign in / Sign up Mode tabs */}
+            {/* Tab switch */}
             {authMode !== 'forgot' && (
               <div className="flex bg-[#0b0d14] p-1 rounded-xl border border-white/10">
                 <button
-                  type="button"
                   onClick={() => {
                     setAuthMode('signin');
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                    authMode === 'signin' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                    authMode === 'signin'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
                   Entrar
                 </button>
                 <button
-                  type="button"
                   onClick={() => {
                     setAuthMode('signup');
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}
-                  className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-colors cursor-pointer ${
-                    authMode === 'signup' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                    authMode === 'signup'
+                      ? 'bg-amber-500 text-slate-950 font-bold shadow'
+                      : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Criar Conta
+                  Cadastre-se
                 </button>
               </div>
             )}
 
-            {/* Email & Password Form */}
+            {/* Form */}
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {authMode === 'signup' && (
-                <div>
-                  <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Nome Completo
-                  </label>
+                <>
+                  <div className="space-y-1">
+                    <label className="text-[11px] font-bold text-slate-300 uppercase">Perfil Desejado</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setSignUpRole('aluno')}
+                        className={`py-2 px-3 rounded-lg border text-xs font-bold ${
+                          signUpRole === 'aluno'
+                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
+                            : 'bg-white/5 border-white/10 text-slate-400'
+                        }`}
+                      >
+                        Aluno
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSignUpRole('professor')}
+                        className={`py-2 px-3 rounded-lg border text-xs font-bold ${
+                          signUpRole === 'professor'
+                            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                            : 'bg-white/5 border-white/10 text-slate-400'
+                        }`}
+                      >
+                        Professor
+                      </button>
+                    </div>
+                  </div>
+
                   <div className="relative">
-                    <User className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                    <User size={15} className="absolute left-3 top-3 text-slate-400" />
                     <input
                       type="text"
+                      placeholder="Nome completo"
                       value={displayName}
                       onChange={(e) => setDisplayName(e.target.value)}
-                      placeholder="Ex: Rafael Drumond"
-                      required
-                      className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
+                      className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
                     />
                   </div>
-                </div>
+                </>
               )}
 
-              <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                  E-mail Cadastrado
-                </label>
-                <div className="relative">
-                  <Mail className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    placeholder="aluno@tutti.mus.br"
-                    required
-                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
-                  />
-                </div>
+              <div className="relative">
+                <Mail size={15} className="absolute left-3 top-3 text-slate-400" />
+                <input
+                  type="email"
+                  placeholder="Seu e-mail"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
+                  className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                />
               </div>
 
               {authMode !== 'forgot' && (
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
-                      Senha
-                    </label>
-                    {authMode === 'signin' && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setAuthMode('forgot');
-                          setErrorMsg(null);
-                          setSuccessMsg(null);
-                        }}
-                        className="text-[11px] text-cyan-400 hover:underline cursor-pointer"
-                      >
-                        Esqueceu a senha?
-                      </button>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <Lock className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="••••••••"
-                      required
-                      minLength={6}
-                      className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-10 pr-4 py-2.5 text-xs outline-none focus:border-cyan-400"
-                    />
-                  </div>
+                <div className="relative">
+                  <Lock size={15} className="absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="password"
+                    placeholder="Sua senha (mínimo 6 caracteres)"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
                 </div>
               )}
 
@@ -304,14 +423,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <button
                 type="submit"
                 disabled={isSubmitting}
-                className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-opacity flex items-center justify-center gap-2 shadow-lg glow cursor-pointer disabled:opacity-50"
+                className="w-full py-3 rounded-xl font-serif font-bold text-xs bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 transition flex items-center justify-center gap-2 shadow-lg cursor-pointer disabled:opacity-50"
               >
                 {isSubmitting
-                  ? 'Processando no Supabase...'
+                  ? 'Processando...'
                   : authMode === 'signin'
-                  ? 'Entrar com E-mail'
+                  ? 'Entrar na Plataforma'
                   : authMode === 'signup'
-                  ? 'Criar Conta no Supabase'
+                  ? 'Concluir Cadastro'
                   : 'Enviar E-mail de Recuperação'}
               </button>
 
@@ -334,7 +453,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
               <>
                 <div className="relative flex items-center justify-center">
                   <div className="border-t border-white/10 w-full"></div>
-                  <span className="bg-[#131722] px-3 text-[11px] text-slate-500 font-bold uppercase tracking-wider">
+                  <span className="bg-[#11141d] px-3 text-[10px] text-slate-500 font-mono uppercase tracking-wider">
                     ou
                   </span>
                 </div>
@@ -343,7 +462,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <button
                   onClick={handleGoogleSignIn}
                   disabled={isSubmitting}
-                  className="w-full py-3 rounded-xl font-syne font-bold text-xs bg-white hover:bg-slate-100 text-slate-900 shadow-md transition-all flex items-center justify-center gap-2.5 active:scale-95 disabled:opacity-50 cursor-pointer"
+                  className="w-full py-2.5 rounded-xl font-bold text-xs bg-white hover:bg-slate-100 text-slate-900 shadow-md transition flex items-center justify-center gap-2.5 cursor-pointer"
                 >
                   <svg className="w-4 h-4" viewBox="0 0 24 24">
                     <path

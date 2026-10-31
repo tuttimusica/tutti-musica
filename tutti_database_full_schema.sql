@@ -540,5 +540,140 @@ VALUES
   ('p_init_2', 'aluno_clara', 'Clara Vasconcelos', 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80', 'Flauta Transversal', 'Estudando o arranjo de "Carinhoso" na flauta! O estúdio virtual com o afinador ajudou demais a estabilizar a 3ª oitava.', 35, 6, '#FlautaTransversal #Choro');
 
 -- ============================================================================
+-- 12. TABELAS DE GESTÃO MULTI-AMBIENTE: DESENVOLVEDOR, PROFESSOR & ALUNO
+-- ============================================================================
+
+-- Solicitações de Credenciamento de Professores
+CREATE TABLE IF NOT EXISTS public.solicitacoes_professores (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  nome TEXT NOT NULL,
+  email TEXT NOT NULL,
+  instrumento TEXT NOT NULL,
+  bio TEXT,
+  status TEXT DEFAULT 'pendente' CHECK (status IN ('pendente', 'aprovado', 'rejeitado')),
+  decided_at TIMESTAMPTZ,
+  decided_by TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_solicitacoes_status ON public.solicitacoes_professores(status);
+
+-- Marcações de Aulas Individuais (Professor <-> Aluno)
+CREATE TABLE IF NOT EXISTS public.marcacoes_aulas (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  aluno_id TEXT,
+  aluno_nome TEXT NOT NULL,
+  aluno_email TEXT NOT NULL,
+  aluno_telefone TEXT,
+  professor_id TEXT,
+  professor_nome TEXT NOT NULL,
+  professor_email TEXT,
+  data_aula DATE NOT NULL,
+  hora_inicio TEXT NOT NULL, -- '14:00'
+  duracao_minutos INTEGER DEFAULT 50,
+  status TEXT DEFAULT 'agendada' CHECK (status IN ('agendada', 'realizada', 'cancelada')),
+  observacoes TEXT,
+  link_meet TEXT DEFAULT 'https://meet.google.com/tut-aulas-musica',
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_marcacoes_data ON public.marcacoes_aulas(data_aula);
+CREATE INDEX IF NOT EXISTS idx_marcacoes_aluno_email ON public.marcacoes_aulas(aluno_email);
+CREATE INDEX IF NOT EXISTS idx_marcacoes_prof_nome ON public.marcacoes_aulas(professor_nome);
+
+-- Eventos de Auditoria e Relatórios de Acesso
+CREATE TABLE IF NOT EXISTS public.eventos_acesso (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id TEXT,
+  perfil TEXT NOT NULL,
+  tipo_evento TEXT NOT NULL,
+  detalhes JSONB DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_eventos_created ON public.eventos_acesso(created_at);
+
+-- Conteúdos Editáveis do Site (Gerenciados pelo Desenvolvedor)
+CREATE TABLE IF NOT EXISTS public.conteudos_site (
+  id TEXT PRIMARY KEY,
+  titulo TEXT NOT NULL,
+  subtitulo TEXT,
+  conteudo TEXT,
+  secao TEXT NOT NULL, -- 'hero', 'anuncio', 'aviso', 'repertorio'
+  publicado BOOLEAN DEFAULT true,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================================================
+-- 13. POLÍTICAS DE RLS PARA OS 3 AMBIENTES
+-- ============================================================================
+ALTER TABLE public.solicitacoes_professores ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.marcacoes_aulas ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.eventos_acesso ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.conteudos_site ENABLE ROW LEVEL SECURITY;
+
+-- Solicitacoes: Alunos criam solicitacao; Devs visualizam e aprovam todas; Professores visualizam a sua
+DROP POLICY IF EXISTS "Public ou Alunos podem criar solicitacao de professor" ON public.solicitacoes_professores;
+CREATE POLICY "Public ou Alunos podem criar solicitacao de professor"
+  ON public.solicitacoes_professores FOR INSERT
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Desenvolvedor gerencia solicitacoes" ON public.solicitacoes_professores;
+CREATE POLICY "Desenvolvedor gerencia solicitacoes"
+  ON public.solicitacoes_professores FOR ALL
+  USING (true);
+
+-- Marcacoes: Professores e Devs gerenciam suas aulas; Alunos visualizam as suas
+DROP POLICY IF EXISTS "Acesso as marcacoes de aula" ON public.marcacoes_aulas;
+CREATE POLICY "Acesso as marcacoes de aula"
+  ON public.marcacoes_aulas FOR ALL
+  USING (true);
+
+-- Eventos: Qualquer ator pode inserir logs, apenas Dev visualiza
+DROP POLICY IF EXISTS "Insercao livre de eventos" ON public.eventos_acesso;
+CREATE POLICY "Insercao livre de eventos"
+  ON public.eventos_acesso FOR INSERT
+  WITH CHECK (true);
+
+DROP POLICY IF EXISTS "Leitura de eventos por desenvolvedor" ON public.eventos_acesso;
+CREATE POLICY "Leitura de eventos por desenvolvedor"
+  ON public.eventos_acesso FOR SELECT
+  USING (true);
+
+-- Conteudos do site: Leitura publica, escrita por Desenvolvedor
+DROP POLICY IF EXISTS "Leitura publica de conteudos" ON public.conteudos_site;
+CREATE POLICY "Leitura publica de conteudos"
+  ON public.conteudos_site FOR SELECT
+  USING (true);
+
+DROP POLICY IF EXISTS "Desenvolvedor altera conteudos" ON public.conteudos_site;
+CREATE POLICY "Desenvolvedor altera conteudos"
+  ON public.conteudos_site FOR ALL
+  USING (true);
+
+-- Seeds de Demonstração
+INSERT INTO public.solicitacoes_professores (nome, email, instrumento, bio, status)
+VALUES
+  ('Profª Clara Vasconcelos', 'professora.clara@tutti.mus.br', 'Saxofone Tenor & Flauta', 'Especialista em Bossa Nova e MPB formada pela EMESP.', 'aprovado'),
+  ('Prof. Marcos Drumond', 'marcos.drumond@musica.br', 'Trompete & Metais', 'Spalla de trompete da orquestra sinfônica.', 'pendente'),
+  ('Prof. Thiago Alcantara', 'thiago.alcantara@gmail.com', 'Violão & Canto', 'Professor particular de harmonia e violão 7 cordas.', 'pendente')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.marcacoes_aulas (aluno_nome, aluno_email, aluno_telefone, professor_nome, data_aula, hora_inicio, duracao_minutos, status, observacoes)
+VALUES
+  ('Rafael Drumond', 'rafael.aluno@tutti.mus.br', '(11) 98844-2211', 'Profª Clara Vasconcelos', CURRENT_DATE + INTERVAL '1 day', '15:00', 50, 'agendada', 'Estudo do solo de Autumn Leaves e afinação nas notas graves do Sax Alto.'),
+  ('Beatriz Helena', 'beatriz.helena@gmail.com', '(21) 97722-3344', 'Profª Clara Vasconcelos', CURRENT_DATE + INTERVAL '2 days', '16:00', 50, 'agendada', 'Flauta transversal: respiração diafragmática e apoio sonoro em Carinhoso.'),
+  ('Lucas Gabriel', 'lucas.gabriel@gmail.com', '(31) 99112-4455', 'Maestro Lucas', CURRENT_DATE + INTERVAL '3 days', '10:00', 50, 'agendada', 'Harmonia funcional: cadência ii-V-I e substituições tritônicas.')
+ON CONFLICT DO NOTHING;
+
+INSERT INTO public.conteudos_site (id, titulo, subtitulo, conteudo, secao)
+VALUES
+  ('banner_principal', 'Domine o seu Instrumento com a Tutti', 'Aulas ao vivo, estúdio interativo e acompanhamento pedagógico com o Maestro Lucas.', 'O método Tutti integra teoria clássica com a musicalidade brasileira.', 'hero'),
+  ('aviso_aulas', 'Aulas Particulares com o Google Meet', 'Cada aluno recebe link exclusivo de videoconferência para sua aula individual.', 'Garantia de atendimento individualizado.', 'aviso')
+ON CONFLICT (id) DO NOTHING;
+
+-- ============================================================================
 -- FIM DO SCRIPT DE ARQUITETURA TUTTI ♪
 -- ============================================================================
+
