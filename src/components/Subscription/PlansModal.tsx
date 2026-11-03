@@ -9,18 +9,22 @@ interface PlansModalProps {
 
 export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
   const { userPlan, setUserPlan, showToast } = useAppRouter();
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'yearly'>('monthly');
+  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'trimestral' | 'semestral'>('monthly');
   const [selectedPlanForCheckout, setSelectedPlanForCheckout] = useState<'pro' | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'pix' | 'card'>('pix');
   const [isProcessing, setIsProcessing] = useState(false);
 
   if (!isOpen) return null;
 
-  // WhatsApp company URL with custom message for Ultra plan
+  // WhatsApp company URL with custom message for Ultra plan based on period
   const whatsappNumber = '5511999999999'; // Número comercial da Tutti
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
-    'Olá! Tenho interesse no Plano Ultra da Tutti Escola de Música (aulas individuais ao vivo com professores reais e mentoria VIP). Como funciona para começar?'
-  )}`;
+  const ultraMessage = billingPeriod === 'trimestral'
+    ? 'Olá! Tenho interesse no Plano Tutti Ultra Trimestral (R$ 799,90) da Tutti Escola de Música (aulas individuais ao vivo com professores reais e mentoria VIP). Como funciona para começar?'
+    : billingPeriod === 'semestral'
+    ? 'Olá! Tenho interesse no Plano Tutti Ultra Semestral (R$ 1.649,90) da Tutti Escola de Música (aulas individuais ao vivo com professores reais e mentoria VIP). Como funciona para começar?'
+    : 'Olá! Tenho interesse no Plano Tutti Ultra Mensal (R$ 299,90/mês) da Tutti Escola de Música (aulas individuais ao vivo com professores reais e mentoria VIP). Como funciona para começar?';
+
+  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(ultraMessage)}`;
 
   const handleSelectFree = () => {
     setUserPlan('free');
@@ -78,13 +82,13 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
             Escolha o plano ideal para acelerar seus estudos musicais, seja no saxofone, flauta, trombone, violão ou teclado.
           </p>
 
-          {/* Billing Switch (Mensal / Anual) */}
+          {/* Billing Switch (Mensal / Trimestral / Semestral) - SEM opção anual */}
           <div className="pt-3 flex justify-center items-center">
-            <div className="inline-flex p-1 bg-[#131722] rounded-full border border-white/10 shadow-inner">
+            <div className="inline-flex p-1 bg-[#131722] rounded-full border border-white/10 shadow-inner gap-1">
               <button
                 type="button"
                 onClick={() => setBillingPeriod('monthly')}
-                className={`px-6 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
                   billingPeriod === 'monthly'
                     ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30'
                     : 'text-slate-400 hover:text-white'
@@ -94,293 +98,436 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
               </button>
               <button
                 type="button"
-                onClick={() => setBillingPeriod('yearly')}
-                className={`px-6 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  billingPeriod === 'yearly'
-                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30'
+                onClick={() => setBillingPeriod('trimestral')}
+                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  billingPeriod === 'trimestral'
+                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/30'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                <span>Anual</span>
-                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-extrabold border border-emerald-500/30">
-                  -17% OFF
-                </span>
+                Trimestral
+              </button>
+              <button
+                type="button"
+                onClick={() => setBillingPeriod('semestral')}
+                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                  billingPeriod === 'semestral'
+                    ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-lg shadow-amber-500/30'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Semestral
               </button>
             </div>
           </div>
         </div>
 
-        {/* 3 Plans Grid (Grátis / Pro / Ultra) */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch relative z-10 pt-2">
-          {/* PLAN 1: GRÁTIS */}
-          <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border transition-all duration-300 ${
-            userPlan === 'free'
-              ? 'bg-[#18130e] border-amber-500/40 shadow-xl'
-              : 'bg-[#18130e]/70 hover:bg-[#18130e] border-amber-900/30'
-          }`}>
-            <div className="space-y-5">
-              <div>
-                <h3 className="text-xl font-syne font-bold text-white">Grátis</h3>
-                <div className="flex items-baseline gap-1 mt-3">
-                  <span className="text-4xl sm:text-5xl font-syne font-black text-white">R$ 0,00</span>
-                </div>
-                <span className="text-[10px] uppercase font-bold text-slate-500 block tracking-wider mt-1">
-                  Acesso Gratuito
+        {/* CONDITIONAL PLANS DISPLAY */}
+        {billingPeriod === 'trimestral' ? (
+          /* EXCLUSIVO TRIMESTRAL: TUTTI ULTRA R$ 799,90 */
+          <div className="max-w-xl mx-auto w-full relative z-10 pt-2 animate-in fade-in duration-200">
+            <div className="rounded-3xl p-6 sm:p-10 flex flex-col justify-between border-2 border-emerald-500/80 bg-[#18130e] shadow-2xl shadow-emerald-500/20 relative">
+              <div className="absolute -top-3.5 right-6 z-20">
+                <span className="px-4 py-1 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-1.5 border border-emerald-300/40">
+                  <Crown size={13} className="text-black" /> Plano Trimestral Exclusivo
                 </span>
               </div>
 
-              <div className="h-px bg-white/10" />
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-2xl font-syne font-black text-white flex items-center gap-2">
+                      <span>Tutti Ultra</span>
+                      <Crown size={22} className="text-amber-400" />
+                    </h3>
+                    <span className="text-xs bg-emerald-500/20 text-emerald-300 px-3 py-1 rounded-full font-bold border border-emerald-500/30">
+                      Período Trimestral
+                    </span>
+                  </div>
 
-              {/* Features List */}
-              <ul className="space-y-3 text-xs leading-relaxed">
-                {/* Active items */}
-                <li className="flex items-start gap-2.5 text-slate-200">
-                  <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>30 partituras aleatórias</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-200">
-                  <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>Acordes maiores/menores violão e teclado</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-200">
-                  <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>Desenhos de notas saxofone</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-200">
-                  <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>Metrônomo / afinador</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-200">
-                  <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
-                  <span>Maestro IA limitada (5 perguntas/semana)</span>
-                </li>
+                  <div className="flex items-baseline gap-1 mt-4">
+                    <span className="text-4xl sm:text-5xl font-syne font-black text-emerald-400">R$ 799,90</span>
+                    <span className="text-sm font-semibold text-slate-300 ml-1">/ trimestre</span>
+                  </div>
+                  <span className="text-xs uppercase font-bold text-amber-400 block tracking-wider mt-1.5">
+                    COBRANÇA TRIMESTRAL • ACOMPANHAMENTO VIP COM PROFESSORES
+                  </span>
+                </div>
 
-                {/* Strikethrough items */}
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Aulas iniciantes</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Suporte</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Acesso a todas as partituras</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>IA Maestro ilimitada</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Aulas virtuais com professores reais</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Suporte VIP</span>
-                </li>
-              </ul>
-            </div>
+                <div className="h-px bg-white/10" />
 
-            {/* Bottom Button */}
-            <div className="pt-6">
-              <button
-                type="button"
-                onClick={handleSelectFree}
-                className="w-full py-3.5 rounded-2xl bg-[#08090e] hover:bg-white/10 text-white font-syne font-bold text-xs border border-white/15 transition-all shadow-md active:scale-98 cursor-pointer"
-              >
-                {userPlan === 'free' ? 'Plano Atual (Começar Agora)' : 'Começar Agora'}
-              </button>
+                <ul className="space-y-3.5 text-xs sm:text-sm leading-relaxed">
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Aulas virtuais e individuais com professores reais</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Mentoria personalizada e suporte pedagógico VIP</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Acesso a todas as partituras em PDF da biblioteca</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Maestro IA ilimitado para tirar dúvidas 24h</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Estúdio completo (Saxofone, Teclado, Violão, Afinador e Metrônomo)</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-8">
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 hover:opacity-95 text-black font-syne font-black text-sm transition-all shadow-xl shadow-emerald-500/20 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+                >
+                  <MessageCircle size={18} />
+                  <span>Contratar Tutti Ultra Trimestral (R$ 799,90)</span>
+                  <ExternalLink size={14} />
+                </a>
+              </div>
             </div>
           </div>
-
-          {/* PLAN 2: PRO (Featured / Acesso Vitalício) */}
-          <div className="rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative bg-[#1c1611] border-2 border-amber-500/80 shadow-2xl shadow-amber-500/20 transform lg:-translate-y-2">
-            {/* Top Badge: "mais popular" */}
-            <div className="absolute -top-3.5 right-6">
-              <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 text-black text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1">
-                <Sparkles size={11} className="text-black" /> mais popular
-              </span>
-            </div>
-
-            <div className="space-y-5">
-              <div>
-                <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
-                  <span>Pro</span>
-                  <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
-                    Acesso Vitalício
-                  </span>
-                </h3>
-                <div className="flex items-baseline gap-1 mt-3">
-                  <span className="text-4xl sm:text-5xl font-syne font-black text-white">
-                    R$ 49,90
-                  </span>
-                  <span className="text-xs font-bold text-amber-300 ml-1">único</span>
-                </div>
-                <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider mt-1">
-                  PAGAMENTO ÚNICO • ACESSO VITALÍCIO
+        ) : billingPeriod === 'semestral' ? (
+          /* EXCLUSIVO SEMESTRAL: TUTTI ULTRA R$ 1.649,90 */
+          <div className="max-w-xl mx-auto w-full relative z-10 pt-2 animate-in fade-in duration-200">
+            <div className="rounded-3xl p-6 sm:p-10 flex flex-col justify-between border-2 border-amber-500/80 bg-[#18130e] shadow-2xl shadow-amber-500/20 relative">
+              <div className="absolute -top-3.5 right-6 z-20">
+                <span className="px-4 py-1 rounded-full bg-gradient-to-r from-amber-500 via-yellow-500 to-amber-600 text-black text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-1.5 border border-amber-300/40">
+                  <Crown size={13} className="text-black" /> Plano Semestral Exclusivo
                 </span>
               </div>
 
-              <div className="h-px bg-amber-900/40" />
+              <div className="space-y-6">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-2xl font-syne font-black text-white flex items-center gap-2">
+                      <span>Tutti Ultra</span>
+                      <Crown size={22} className="text-amber-400" />
+                    </h3>
+                    <span className="text-xs bg-amber-500/20 text-amber-300 px-3 py-1 rounded-full font-bold border border-amber-500/30">
+                      Período Semestral
+                    </span>
+                  </div>
 
-              {/* Features List */}
-              <ul className="space-y-3 text-xs leading-relaxed">
-                <li className="flex items-start gap-2.5 text-white font-semibold">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Mais de 1000 partituras</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Acordes maiores/menores violão e teclado</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Desenhos de notas saxofone</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Metrônomo / afinador</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white font-semibold">
-                  <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <span>Aulas iniciantes</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white font-semibold">
-                  <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <span>Suporte</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white font-semibold">
-                  <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
-                  <span>Acesso a todas as partituras</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white font-bold text-amber-300">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>IA Maestro ilimitada</span>
-                </li>
+                  <div className="flex items-baseline gap-1 mt-4">
+                    <span className="text-4xl sm:text-5xl font-syne font-black text-amber-400">R$ 1.649,90</span>
+                    <span className="text-sm font-semibold text-slate-300 ml-1">/ semestre</span>
+                  </div>
+                  <span className="text-xs uppercase font-bold text-amber-300 block tracking-wider mt-1.5">
+                    COBRANÇA SEMESTRAL • FORMAÇÃO COMPLETA COM MAESTROS E PROFESSORES
+                  </span>
+                </div>
 
-                {/* Strikethrough items */}
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Aulas virtuais com professores reais</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
-                  <span className="w-4 text-center font-bold text-slate-600">-</span>
-                  <span>Suporte VIP</span>
-                </li>
-              </ul>
-            </div>
+                <div className="h-px bg-white/10" />
 
-            {/* Bottom Button */}
-            <div className="pt-6">
-              <button
-                type="button"
-                onClick={() => setSelectedPlanForCheckout('pro')}
-                className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white font-syne font-black text-sm hover:opacity-95 transition-all shadow-xl shadow-violet-600/30 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
-              >
-                <Zap size={16} />
-                <span>{userPlan === 'pro' ? 'Seu Plano Atual (Vitalício)' : 'Garantir Acesso Vitalício (Pro)'}</span>
-              </button>
+                <ul className="space-y-3.5 text-xs sm:text-sm leading-relaxed">
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Aulas virtuais e individuais com professores reais</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={18} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Mentoria personalizada e suporte pedagógico VIP</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Acesso a todas as partituras em PDF da biblioteca</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Maestro IA ilimitado para tirar dúvidas 24h</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Estúdio completo (Saxofone, Teclado, Violão, Afinador e Metrônomo)</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-8">
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-amber-500 via-yellow-400 to-amber-600 hover:opacity-95 text-black font-syne font-black text-sm transition-all shadow-xl shadow-amber-500/20 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+                >
+                  <MessageCircle size={18} />
+                  <span>Contratar Tutti Ultra Semestral (R$ 1.649,90)</span>
+                  <ExternalLink size={14} />
+                </a>
+              </div>
             </div>
           </div>
+        ) : (
+          /* MENSAL: MANTÉM OS 3 PLANOS EXISTENTES (Grátis, Pro Vitalício, Ultra Mensal R$ 299,90) */
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-stretch relative z-10 pt-2 animate-in fade-in duration-200">
+            {/* PLAN 1: GRÁTIS */}
+            <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border transition-all duration-300 ${
+              userPlan === 'free'
+                ? 'bg-[#18130e] border-amber-500/40 shadow-xl'
+                : 'bg-[#18130e]/70 hover:bg-[#18130e] border-amber-900/30'
+            }`}>
+              <div className="space-y-5">
+                <div>
+                  <h3 className="text-xl font-syne font-bold text-white">Grátis</h3>
+                  <div className="flex items-baseline gap-1 mt-3">
+                    <span className="text-4xl sm:text-5xl font-syne font-black text-white">R$ 0,00</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-slate-500 block tracking-wider mt-1">
+                    Acesso Gratuito
+                  </span>
+                </div>
 
-          {/* PLAN 3: ULTRA (Com Selo de Maior Indicação) */}
-          <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 transition-all duration-300 relative ${
-            userPlan === 'ultra'
-              ? 'bg-[#18130e] border-emerald-400 shadow-2xl shadow-emerald-500/20'
-              : 'bg-[#18130e] hover:bg-[#1c1611] border-emerald-500/70 shadow-xl shadow-emerald-500/10'
-          }`}>
-            {/* Top Badge: "Maior Indicação" */}
-            <div className="absolute -top-3.5 right-6 z-20">
-              <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 flex items-center gap-1.5 border border-emerald-300/40">
-                <Crown size={12} className="text-black" /> Maior Indicação
-              </span>
+                <div className="h-px bg-white/10" />
+
+                {/* Features List */}
+                <ul className="space-y-3 text-xs leading-relaxed">
+                  <li className="flex items-start gap-2.5 text-slate-200">
+                    <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                    <span>30 partituras aleatórias</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-200">
+                    <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                    <span>Acordes maiores/menores violão e teclado</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-200">
+                    <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                    <span>Desenhos de notas saxofone</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-200">
+                    <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                    <span>Metrônomo / afinador</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-200">
+                    <Check size={16} className="text-slate-300 flex-shrink-0 mt-0.5" />
+                    <span>Maestro IA limitada (5 perguntas/semana)</span>
+                  </li>
+
+                  {/* Strikethrough items */}
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Aulas iniciantes</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Suporte</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Acesso a todas as partituras</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>IA Maestro ilimitada</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Aulas virtuais com professores reais</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Suporte VIP</span>
+                  </li>
+                </ul>
+              </div>
+
+              {/* Bottom Button */}
+              <div className="pt-6">
+                <button
+                  type="button"
+                  onClick={handleSelectFree}
+                  className="w-full py-3.5 rounded-2xl bg-[#08090e] hover:bg-white/10 text-white font-syne font-bold text-xs border border-white/15 transition-all shadow-md active:scale-98 cursor-pointer"
+                >
+                  {userPlan === 'free' ? 'Plano Atual (Começar Agora)' : 'Começar Agora'}
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-5">
-              <div>
-                <div className="flex items-center justify-between gap-2">
+            {/* PLAN 2: PRO (Featured / Acesso Vitalício) */}
+            <div className="rounded-3xl p-6 sm:p-8 flex flex-col justify-between relative bg-[#1c1611] border-2 border-amber-500/80 shadow-2xl shadow-amber-500/20 transform lg:-translate-y-2">
+              <div className="absolute -top-3.5 right-6">
+                <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-amber-500 via-amber-600 to-amber-700 text-black text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1">
+                  <Sparkles size={11} className="text-black" /> mais popular
+                </span>
+              </div>
+
+              <div className="space-y-5">
+                <div>
                   <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
-                    <span>Ultra</span>
-                    <Crown size={18} className="text-amber-400" />
+                    <span>Pro</span>
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-bold border border-amber-500/30">
+                      Acesso Vitalício
+                    </span>
                   </h3>
-                  <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-bold border border-emerald-500/30 flex items-center gap-1">
-                    ★ Maior Indicação
+                  <div className="flex items-baseline gap-1 mt-3">
+                    <span className="text-4xl sm:text-5xl font-syne font-black text-white">
+                      R$ 49,90
+                    </span>
+                    <span className="text-xs font-bold text-amber-300 ml-1">único</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider mt-1">
+                    PAGAMENTO ÚNICO • ACESSO VITALÍCIO
                   </span>
                 </div>
-                <div className="flex items-baseline gap-1 mt-3">
-                  <span className="text-xs text-slate-400 uppercase font-bold mr-1">a partir de</span>
-                  <span className="text-3xl sm:text-4xl font-syne font-black text-white">R$ 299,90</span>
-                  <span className="text-xs font-semibold text-slate-400">/mês</span>
-                </div>
-                <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider mt-1">
-                  COBRANÇA MENSAL
+
+                <div className="h-px bg-amber-900/40" />
+
+                <ul className="space-y-3 text-xs leading-relaxed">
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Mais de 1000 partituras</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Acordes maiores/menores violão e teclado</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Desenhos de notas saxofone</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Metrônomo / afinador</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Aulas iniciantes</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Suporte</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={16} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+                    <span>Acesso a todas as partituras</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white font-bold text-amber-300">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>IA Maestro ilimitada</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Aulas virtuais com professores reais</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-slate-500 line-through decoration-slate-600">
+                    <span className="w-4 text-center font-bold text-slate-600">-</span>
+                    <span>Suporte VIP</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-6">
+                <button
+                  type="button"
+                  onClick={() => setSelectedPlanForCheckout('pro')}
+                  className="w-full py-4 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white font-syne font-black text-sm hover:opacity-95 transition-all shadow-xl shadow-violet-600/30 flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+                >
+                  <Zap size={16} />
+                  <span>{userPlan === 'pro' ? 'Seu Plano Atual (Vitalício)' : 'Garantir Acesso Vitalício (Pro)'}</span>
+                </button>
+              </div>
+            </div>
+
+            {/* PLAN 3: ULTRA MENSAL */}
+            <div className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 transition-all duration-300 relative ${
+              userPlan === 'ultra'
+                ? 'bg-[#18130e] border-emerald-400 shadow-2xl shadow-emerald-500/20'
+                : 'bg-[#18130e] hover:bg-[#1c1611] border-emerald-500/70 shadow-xl shadow-emerald-500/10'
+            }`}>
+              <div className="absolute -top-3.5 right-6 z-20">
+                <span className="px-3.5 py-1 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black text-[10px] font-black uppercase tracking-wider shadow-lg shadow-emerald-500/30 flex items-center gap-1.5 border border-emerald-300/40">
+                  <Crown size={12} className="text-black" /> Maior Indicação
                 </span>
               </div>
 
-              <div className="h-px bg-white/10" />
+              <div className="space-y-5">
+                <div>
+                  <div className="flex items-center justify-between gap-2">
+                    <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
+                      <span>Ultra</span>
+                      <Crown size={18} className="text-amber-400" />
+                    </h3>
+                    <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2.5 py-0.5 rounded-full font-bold border border-emerald-500/30 flex items-center gap-1">
+                      ★ Maior Indicação
+                    </span>
+                  </div>
+                  <div className="flex items-baseline gap-1 mt-3">
+                    <span className="text-3xl sm:text-4xl font-syne font-black text-white">R$ 299,90</span>
+                    <span className="text-xs font-semibold text-slate-400">/mês</span>
+                  </div>
+                  <span className="text-[10px] uppercase font-bold text-amber-400 block tracking-wider mt-1">
+                    COBRANÇA MENSAL
+                  </span>
+                </div>
 
-              {/* Features List (100% liberated) */}
-              <ul className="space-y-3 text-xs leading-relaxed">
-                <li className="flex items-start gap-2.5 text-white font-semibold">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Mais de 1000 partituras</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Acordes maiores/menores violão e teclado</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Desenhos de notas saxofone</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Metrônomo / afinador</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Aulas iniciantes</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Suporte</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Acesso a todas as partituras</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-white">
-                  <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>IA Maestro ilimitada</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-amber-300 font-bold bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/20">
-                  <Crown size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Aulas virtuais com professores reais</span>
-                </li>
-                <li className="flex items-start gap-2.5 text-amber-300 font-bold bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/20">
-                  <Sparkles size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
-                  <span>Suporte VIP e acompanhamento individual</span>
-                </li>
-              </ul>
-            </div>
+                <div className="h-px bg-white/10" />
 
-            {/* Bottom Button: Direct WhatsApp link */}
-            <div className="pt-6">
-              <a
-                href={whatsappUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-3.5 rounded-2xl bg-[#08090e] hover:bg-emerald-600 text-white hover:text-white font-syne font-bold text-xs border border-emerald-500/40 transition-all shadow-md flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
-              >
-                <MessageCircle size={16} className="text-emerald-400" />
-                <span>Quero acessar</span>
-                <ExternalLink size={13} />
-              </a>
+                <ul className="space-y-3 text-xs leading-relaxed">
+                  <li className="flex items-start gap-2.5 text-white font-semibold">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Mais de 1000 partituras</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Acordes maiores/menores violão e teclado</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Desenhos de notas saxofone</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Metrônomo / afinador</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Aulas iniciantes</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Suporte</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Acesso a todas as partituras</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-white">
+                    <Check size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>IA Maestro ilimitada</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-amber-300 font-bold bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/20">
+                    <Crown size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Aulas virtuais com professores reais</span>
+                  </li>
+                  <li className="flex items-start gap-2.5 text-amber-300 font-bold bg-amber-500/10 p-1.5 rounded-lg border border-amber-500/20">
+                    <Sparkles size={16} className="text-amber-400 flex-shrink-0 mt-0.5" />
+                    <span>Suporte VIP e acompanhamento individual</span>
+                  </li>
+                </ul>
+              </div>
+
+              <div className="pt-6">
+                <a
+                  href={whatsappUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3.5 rounded-2xl bg-[#08090e] hover:bg-emerald-600 text-white hover:text-white font-syne font-bold text-xs border border-emerald-500/40 transition-all shadow-md flex items-center justify-center gap-2 active:scale-98 cursor-pointer"
+                >
+                  <MessageCircle size={16} className="text-emerald-400" />
+                  <span>Quero acessar</span>
+                  <ExternalLink size={13} />
+                </a>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Footer info & Security note */}
         <div className="pt-4 border-t border-white/10 flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-400 relative z-10">

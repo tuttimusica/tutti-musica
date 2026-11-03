@@ -35,6 +35,13 @@ export interface SheetMusic {
   youtubeUrl?: string;
   youtubeId?: string;
   viewsCount?: number;
+  pdfUrl?: string;
+  storagePath?: string;
+  isFeatured?: boolean;
+  featuredOrder?: number;
+  fileSizeBytes?: number;
+  createdAt?: string;
+  createdBy?: string;
 }
 
 export interface Lesson {

@@ -7,7 +7,7 @@ import {
   Volume2, VolumeX, Activity, Radio, Award,
   Flame, Clock, Check, Layers, ChevronRight,
   Folder, HardDrive, Sun, Moon, Video, Edit3, Image as ImageIcon, ExternalLink,
-  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn, GraduationCap
+  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn, GraduationCap, Download
 } from 'lucide-react';
 
 import { 
@@ -65,7 +65,7 @@ const Header: React.FC = () => {
 
   const baseNavLinks: { path: string; label: string; badge?: string }[] = [
     { path: '/', label: 'Início' },
-    { path: '/aulas', label: 'Aulas' },
+    ...(userRole !== 'professor' ? [{ path: '/aulas', label: 'Aulas' }] : []),
     { path: '/partituras', label: 'Partituras' },
     { path: '/estudio', label: 'Estúdio & Instrumentos' },
     { path: '/agenda', label: 'Agenda de Aula' },
@@ -74,7 +74,7 @@ const Header: React.FC = () => {
 
   const roleNavLinks = user ? [
     ...(userRole === 'desenvolvedor' ? [{ path: '/admin', label: 'Painel Dev', badge: 'Admin' }] : []),
-    ...(userRole === 'professor' ? [{ path: '/professor', label: 'Área Professor', badge: 'Docente' }] : []),
+    ...(userRole === 'professor' ? [{ path: '/professor', label: 'Painel de Controle', badge: 'Docente' }] : []),
     ...(userRole === 'aluno' ? [{ path: '/aluno', label: 'Área do Aluno', badge: 'Aluno' }] : []),
   ] : [];
 
@@ -177,15 +177,17 @@ const Header: React.FC = () => {
           <span>Afinador</span>
         </button>
 
-        {/* Assinatura Tutti Pro button */}
-        <button
-          onClick={openPlansModal}
-          className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-violet-500/20 active:scale-95 cursor-pointer border border-violet-400/30"
-          title="Conhecer Assinatura Tutti Pro"
-        >
-          <Sparkles size={14} className="text-amber-300" />
-          <span>{userPlan === 'pro' ? 'Tutti Pro' : userPlan === 'ultra' ? 'Tutti Ultra' : 'Planos Pro'}</span>
-        </button>
+        {/* Assinatura Tutti Pro button (oculto para professores conforme Item 12) */}
+        {userRole !== 'professor' && (
+          <button
+            onClick={openPlansModal}
+            className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white text-xs font-bold transition-all shadow-md shadow-violet-500/20 active:scale-95 cursor-pointer border border-violet-400/30"
+            title="Conhecer Assinatura Tutti Pro"
+          >
+            <Sparkles size={14} className="text-amber-300" />
+            <span>{userPlan === 'pro' ? 'Tutti Pro' : userPlan === 'ultra' ? 'Tutti Ultra' : 'Planos Pro'}</span>
+          </button>
+        )}
 
         {/* Cart button */}
         <button
@@ -280,7 +282,7 @@ const Header: React.FC = () => {
 
           <button
             onClick={openAuthModal}
-            title={user ? "Gerenciar Perfil e Trocar Ambiente" : "Entrar ou Criar Conta"}
+            title={user ? "Meu Perfil" : "Entrar ou Criar Conta"}
             className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-amber-400 border border-white/10 text-xs font-bold transition-colors cursor-pointer"
           >
             <User size={16} />
@@ -299,11 +301,11 @@ const MobileNav: React.FC = () => {
   const userRole = profile?.role || 'aluno';
   const rolePath = userRole === 'desenvolvedor' ? '/admin' : userRole === 'professor' ? '/professor' : '/aluno';
   const roleIcon = userRole === 'desenvolvedor' ? ShieldCheck : userRole === 'professor' ? GraduationCap : User;
-  const roleLabel = userRole === 'desenvolvedor' ? 'Dev/Admin' : userRole === 'professor' ? 'Professor' : 'Aluno';
+  const roleLabel = userRole === 'desenvolvedor' ? 'Dev/Admin' : userRole === 'professor' ? 'Painel Controle' : 'Aluno';
 
   const items = [
     { path: '/', icon: Home, label: 'Início' },
-    { path: '/aulas', icon: Play, label: 'Aulas' },
+    ...(userRole !== 'professor' ? [{ path: '/aulas', icon: Play, label: 'Aulas' }] : []),
     { path: '/partituras', icon: Music, label: 'Partituras' },
     { path: '/estudio', icon: Headphones, label: 'Estúdio' },
     ...(user
@@ -552,22 +554,16 @@ const HomePage: React.FC = () => {
       <section className="space-y-8">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-end gap-4">
           <div>
-            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Acervo Musical</span>
+            <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">Acervo Musical Oficial</span>
             <h2 className="text-3xl sm:text-4xl font-syne font-black text-white">Partituras em Destaque</h2>
-            <p className="text-slate-400 text-sm">Com áudio interativo, transposição de tom e integração da pasta do computador.</p>
+            <p className="text-slate-400 text-sm">Com áudio interativo, transposição de tom e visualização integrada de PDF.</p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => navigate('/partituras', { tab: 'local' })}
-              className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500 hover:text-black text-cyan-300 text-xs font-bold transition-all flex items-center gap-1.5 border border-cyan-500/30"
+              onClick={() => navigate('/partituras')}
+              className="text-sm font-bold text-cyan-400 hover:underline flex items-center gap-1 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
             >
-              <Folder size={14} /> Pasta Local (Área de Trabalho/música)
-            </button>
-            <button
-              onClick={() => navigate('/partituras', { tab: 'online' })}
-              className="text-sm font-bold text-cyan-400 hover:underline flex items-center gap-1 px-2 py-1"
-            >
-              Ver acervo online ({SHEETS_CATALOG.length}) <ChevronRight size={16} />
+              Ver acervo completo ({SHEETS_CATALOG.length}) <ChevronRight size={16} />
             </button>
           </div>
         </div>
@@ -620,29 +616,6 @@ const HomePage: React.FC = () => {
         </div>
       </section>
 
-      {/* Local Folder Music Integration Banner */}
-      <section className="banner-dark bg-gradient-to-r from-[#131722] via-[#161f30] to-[#131722] p-8 sm:p-10 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden flex flex-col md:flex-row items-center justify-between gap-6">
-        <div className="space-y-3 max-w-2xl">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-cyan-500/10 border border-cyan-400/30 text-cyan-300 text-xs font-bold">
-            <HardDrive size={14} className="text-cyan-400" />
-            <span>Biblioteca de Partituras do Computador</span>
-          </div>
-          <h3 className="text-2xl sm:text-3xl font-syne font-black text-white">
-            Suas Partituras Locais integradas ao Tutti ♪
-          </h3>
-          <p className="text-slate-300 text-sm leading-relaxed">
-            Selecione a pasta <code className="text-cyan-300 font-mono text-xs bg-[#0b0d14] px-2 py-0.5 rounded border border-white/10">Área de Trabalho/música</code> para visualizar, exportar e organizar instantaneamente seus arquivos de <strong>Sax Alto</strong>, <strong>Sax Tenor</strong>, <strong>Flauta</strong>, <strong>Trompete</strong> e <strong>Trombone</strong> com segurança 100% local e sem envio para servidores externos.
-          </p>
-        </div>
-        <button
-          onClick={() => navigate('/partituras', { tab: 'local' })}
-          className="px-6 py-3.5 rounded-2xl font-syne font-black text-sm bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-600 text-black hover:opacity-90 transition-all flex items-center gap-2 flex-shrink-0 shadow-lg glow"
-        >
-          <Folder size={18} />
-          <span>Acessar Biblioteca Local</span>
-        </button>
-      </section>
-
       {/* Masterclass Banner */}
       <section className="banner-dark bg-gradient-to-r from-violet-950/60 via-[#131722] to-cyan-950/60 p-8 sm:p-12 rounded-3xl border border-cyan-500/30 shadow-2xl relative overflow-hidden">
         <div className="relative z-10 max-w-2xl space-y-4">
@@ -677,8 +650,8 @@ const HomePage: React.FC = () => {
 
 // 2. AULAS PAGE
 const AulasPage: React.FC = () => {
-  const { queryParams, navigate, completeTask, showToast, openPlansModal } = useAppRouter();
-  const { saveLessonProgressToDb, addXp } = useAuth();
+  const { queryParams, navigate, completeTask, showToast, openPlansModal, userPlan } = useAppRouter();
+  const { user, profile, saveLessonProgressToDb, addXp } = useAuth();
   const currentInstId = queryParams.instrument || 'sax';
   const instrument = INSTRUMENTS.find(i => i.id === currentInstId) || INSTRUMENTS[0];
   const lessons = LESSONS_DATABASE[instrument.id] || LESSONS_DATABASE.sax;
@@ -689,6 +662,8 @@ const AulasPage: React.FC = () => {
   const [completedTaskIds, setCompletedTaskIds] = useState<string[]>([]);
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(1);
   const [videoProgress, setVideoProgress] = useState<number>(35);
+
+  const hasActiveSubscription = userPlan === 'pro' || userPlan === 'ultra' || profile?.role === 'desenvolvedor';
 
   useSEO(`Aulas de ${instrument.name}`, `Aprenda ${instrument.name} do zero ao avançado com o Tutti.`);
 
@@ -750,191 +725,252 @@ const AulasPage: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         {/* Main Lesson Player & Tabs */}
-        <div className="lg:col-span-2 space-y-6">
-          {/* Simulated Video Player */}
-          <div className="aspect-video bg-[#0b0d14] rounded-3xl border border-cyan-500/30 overflow-hidden relative shadow-2xl flex flex-col justify-between p-6">
-            <div className="flex justify-between items-center z-10">
-              <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-bold text-white border border-white/10 flex items-center gap-1.5">
-                <span>{instrument.emoji}</span> {activeLesson.module}
-              </span>
-              <span className="text-xs bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded-full font-bold">
-                HD 1080p
-              </span>
-            </div>
+        {!hasActiveSubscription ? (
+          /* LOCKED STATE (Item 19) */
+          <div className="lg:col-span-2 space-y-6">
+            <div className="aspect-video bg-[#0b0d14] rounded-3xl border border-amber-500/30 overflow-hidden relative shadow-2xl flex flex-col items-center justify-center p-8 text-center relative group">
+              <div className="absolute inset-0 bg-radial from-amber-500/10 via-transparent to-black pointer-events-none"></div>
 
-            {/* Center Play Button & Poster */}
-            <div className="flex flex-col items-center justify-center space-y-3 z-10">
-              <div 
-                onClick={playLessonDemoMelody}
-                className="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-400 to-cyan-400 flex items-center justify-center text-black cursor-pointer hover:scale-110 active:scale-95 transition-all shadow-xl shadow-cyan-500/30 glow"
-              >
-                {isPlayingDemo ? <Square size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
+              <div className="w-20 h-20 rounded-3xl bg-amber-500/15 border border-amber-500/40 text-amber-400 flex items-center justify-center shadow-lg shadow-amber-500/20 mb-4 z-10 animate-pulse">
+                <Lock size={36} />
               </div>
-              <p className="text-xs font-bold text-slate-300 bg-black/60 px-4 py-1.5 rounded-full border border-white/10">
-                {isPlayingDemo ? 'Tocando áudio da lição...' : 'Clique para ouvir o trecho prático da aula'}
-              </p>
+
+              <div className="z-10 max-w-md space-y-2">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold border border-amber-500/30">
+                  <Lock size={12} />
+                  <span>Conteúdo Bloqueado por Assinatura</span>
+                </div>
+                <h2 className="text-2xl sm:text-3xl font-syne font-black text-white">
+                  {activeLesson.title}
+                </h2>
+                <p className="text-xs font-semibold text-cyan-400 uppercase tracking-wider">
+                  Instrumento: {instrument.name} • Nível: {activeLesson.level}
+                </p>
+                <p className="text-xs text-slate-300 line-clamp-3 leading-relaxed pt-1">
+                  {activeLesson.summary}
+                </p>
+              </div>
+
+              <div className="mt-6 z-10 flex flex-col sm:flex-row items-center gap-3">
+                <button
+                  onClick={openPlansModal}
+                  className="px-6 py-3.5 rounded-2xl font-syne font-black text-xs bg-gradient-to-r from-amber-400 via-amber-500 to-yellow-500 text-slate-950 hover:opacity-95 transition-all shadow-xl shadow-amber-500/25 flex items-center gap-2 cursor-pointer active:scale-95"
+                >
+                  <Sparkles size={16} />
+                  <span>Conhecer Planos & Assinar (Tutti Pro ou Ultra)</span>
+                </button>
+              </div>
             </div>
 
-            {/* Bottom Scrub Bar & Controls */}
-            <div className="z-10 bg-black/70 backdrop-blur-md p-3 rounded-2xl border border-white/10 space-y-2">
-              <div className="flex items-center gap-3">
-                <input
-                  type="range"
-                  min="0"
-                  max="100"
-                  value={videoProgress}
-                  onChange={(e) => setVideoProgress(Number(e.target.value))}
-                  className="flex-1 accent-cyan-400 cursor-pointer h-1.5 bg-white/20 rounded"
-                />
-                <span className="text-[11px] font-mono text-slate-300 font-bold">
-                  {Math.floor((videoProgress / 100) * 14)}:32 / {activeLesson.duration}
+            {/* Notice card */}
+            <div className="bg-[#131722] p-6 rounded-3xl border border-white/10 space-y-3 text-center sm:text-left">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="space-y-1">
+                  <h3 className="font-syne font-bold text-white text-base">
+                    Acesso Exclusivo para Assinantes Tutti
+                  </h3>
+                  <p className="text-xs text-slate-400 max-w-xl leading-relaxed">
+                    É necessária a assinatura Tutti Pro ou Tutti Ultra para acessar o conteúdo, assistir aos vídeos em alta definição e praticar com os exercícios interativos.
+                  </p>
+                </div>
+                <button
+                  onClick={openPlansModal}
+                  className="px-4 py-2.5 rounded-xl bg-violet-600/30 hover:bg-violet-600/50 text-violet-300 hover:text-white border border-violet-400/40 text-xs font-bold transition-all flex items-center justify-center gap-2 flex-shrink-0 cursor-pointer"
+                >
+                  <Sparkles size={14} className="text-amber-300" />
+                  <span>Ver Opções de Assinatura</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* UNLOCKED STATE */
+          <div className="lg:col-span-2 space-y-6">
+            {/* Simulated Video Player */}
+            <div className="aspect-video bg-[#0b0d14] rounded-3xl border border-cyan-500/30 overflow-hidden relative shadow-2xl flex flex-col justify-between p-6">
+              <div className="flex justify-between items-center z-10">
+                <span className="px-3 py-1 rounded-full bg-black/60 backdrop-blur-md text-xs font-bold text-white border border-white/10 flex items-center gap-1.5">
+                  <span>{instrument.emoji}</span> {activeLesson.module}
+                </span>
+                <span className="text-xs bg-cyan-500/20 text-cyan-300 px-3 py-1 rounded-full font-bold">
+                  HD 1080p
                 </span>
               </div>
 
-              <div className="flex justify-between items-center text-xs">
-                <div className="flex items-center gap-2">
-                  <button 
-                    onClick={playLessonDemoMelody}
-                    className="text-cyan-400 hover:text-white font-bold"
-                  >
-                    {isPlayingDemo ? 'Pausar Áudio' : 'Ouvir Frase'}
-                  </button>
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-slate-400 text-[10px]">Velocidade:</span>
-                  {[0.75, 1, 1.25].map((speed) => (
-                    <button
-                      key={speed}
-                      onClick={() => setPlaybackSpeed(speed)}
-                      className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                        playbackSpeed === speed ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-                      }`}
-                    >
-                      {speed}x
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Lesson Title & Module Info */}
-          <div>
-            <div className="flex items-center gap-2 text-xs font-bold text-cyan-400 mb-1">
-              <span>{instrument.name}</span> • <span>Nível: {activeLesson.level}</span> • <span>Instrutor: {activeLesson.teacher}</span>
-            </div>
-            <h1 className="text-3xl font-syne font-black text-white mb-2">{activeLesson.title}</h1>
-            <p className="text-sm text-slate-300 leading-relaxed">{activeLesson.summary}</p>
-          </div>
-
-          {/* Lesson Sub-tabs */}
-          <div className="space-y-4">
-            <div className="flex gap-2 border-b border-white/10 pb-2">
-              {[
-                { id: 'video', label: '📖 Pontos Chave' },
-                { id: 'tab', label: '🎼 Tablatura & Cifras' },
-                { id: 'exercises', label: `✅ Exercícios (${completedTaskIds.length}/${activeLesson.practiceTasks.length})` },
-                { id: 'maestro', label: '🤖 Maestro IA' },
-              ].map(tab => (
-                <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id as any)}
-                  className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
-                    activeTab === tab.id
-                      ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50'
-                      : 'text-slate-400 hover:text-white hover:bg-white/5'
-                  }`}
+              {/* Center Play Button & Poster */}
+              <div className="flex flex-col items-center justify-center space-y-3 z-10">
+                <div 
+                  onClick={playLessonDemoMelody}
+                  className="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-400 to-cyan-400 flex items-center justify-center text-black cursor-pointer hover:scale-110 active:scale-95 transition-all shadow-xl shadow-cyan-500/30 glow"
                 >
-                  {tab.label}
-                </button>
-              ))}
-            </div>
-
-            {/* Tab: Pontos Chave */}
-            {activeTab === 'video' && (
-              <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-3">
-                <h4 className="font-syne font-bold text-white text-base">Orientações do Professor</h4>
-                <ul className="space-y-2">
-                  {activeLesson.keyPoints.map((pt, idx) => (
-                    <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
-                      <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
-                        {idx + 1}
-                      </div>
-                      <span>{pt}</span>
-                    </li>
-                  ))}
-                </ul>
+                  {isPlayingDemo ? <Square size={28} fill="currentColor" /> : <Play size={28} fill="currentColor" className="ml-1" />}
+                </div>
+                <p className="text-xs font-bold text-slate-300 bg-black/60 px-4 py-1.5 rounded-full border border-white/10">
+                  {isPlayingDemo ? 'Tocando áudio da lição...' : 'Clique para ouvir o trecho prático da aula'}
+                </p>
               </div>
-            )}
 
-            {/* Tab: Tablatura / Cifras */}
-            {activeTab === 'tab' && (
-              <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-4">
-                <div className="flex justify-between items-center">
-                  <h4 className="font-syne font-bold text-white text-base">Digitação & Acordes</h4>
-                  <button
-                    onClick={playLessonDemoMelody}
-                    className="px-3 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-bold flex items-center gap-1.5"
-                  >
-                    <Volume2 size={14} /> Ouvir Digitação
-                  </button>
+              {/* Bottom Scrub Bar & Controls */}
+              <div className="z-10 bg-black/70 backdrop-blur-md p-3 rounded-2xl border border-white/10 space-y-2">
+                <div className="flex items-center gap-3">
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={videoProgress}
+                    onChange={(e) => setVideoProgress(Number(e.target.value))}
+                    className="flex-1 accent-cyan-400 cursor-pointer h-1.5 bg-white/20 rounded"
+                  />
+                  <span className="text-[11px] font-mono text-slate-300 font-bold">
+                    {Math.floor((videoProgress / 100) * 14)}:32 / {activeLesson.duration}
+                  </span>
                 </div>
-                <div className="bg-[#0b0d14] p-4 rounded-xl border border-white/10 font-mono text-cyan-400 text-sm whitespace-pre-wrap">
-                  {activeLesson.tabSnippet}
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {activeLesson.chords.map((ch, idx) => (
-                    <span key={idx} className="px-3 py-1 rounded-xl bg-white/5 text-slate-200 text-xs font-bold border border-white/10">
-                      {ch}
-                    </span>
-                  ))}
-                </div>
-              </div>
-            )}
 
-            {/* Tab: Exercícios */}
-            {activeTab === 'exercises' && (
-              <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-3">
-                <h4 className="font-syne font-bold text-white text-base">Desafios de Fixação</h4>
-                <div className="space-y-2">
-                  {activeLesson.practiceTasks.map((task) => {
-                    const isDone = completedTaskIds.includes(task.id);
-                    return (
-                      <div
-                        key={task.id}
-                        onClick={() => toggleTask(task.id)}
-                        className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
-                          isDone
-                            ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
-                            : 'bg-[#0b0d14] border-white/10 text-slate-300 hover:border-white/20'
+                <div className="flex justify-between items-center text-xs">
+                  <div className="flex items-center gap-2">
+                    <button 
+                      onClick={playLessonDemoMelody}
+                      className="text-cyan-400 hover:text-white font-bold"
+                    >
+                      {isPlayingDemo ? 'Pausar Áudio' : 'Ouvir Frase'}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-slate-400 text-[10px]">Velocidade:</span>
+                    {[0.75, 1, 1.25].map((speed) => (
+                      <button
+                        key={speed}
+                        onClick={() => setPlaybackSpeed(speed)}
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          playbackSpeed === speed ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
                         }`}
                       >
-                        <div className="flex items-center gap-3">
-                          <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isDone ? 'bg-emerald-400 text-black' : 'border border-white/20'}`}>
-                            {isDone && <Check size={16} />}
-                          </div>
-                          <span className={`text-sm ${isDone ? 'line-through text-slate-400' : 'font-medium'}`}>
-                            {task.text}
-                          </span>
-                        </div>
-                        <span className="text-xs font-bold text-cyan-400">+25 XP</span>
-                      </div>
-                    );
-                  })}
+                        {speed}x
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </div>
-            )}
+            </div>
 
-            {/* Tab: Maestro IA */}
-            {activeTab === 'maestro' && (
-              <MaestroPanel
-                currentInstrument={instrument.name}
-                currentLessonContext={`${activeLesson.title} (${activeLesson.module})`}
-                compact
-              />
-            )}
+            {/* Lesson Title & Module Info */}
+            <div>
+              <div className="flex items-center gap-2 text-xs font-bold text-cyan-400 mb-1">
+                <span>{instrument.name}</span> • <span>Nível: {activeLesson.level}</span> • <span>Instrutor: {activeLesson.teacher}</span>
+              </div>
+              <h1 className="text-3xl font-syne font-black text-white mb-2">{activeLesson.title}</h1>
+              <p className="text-sm text-slate-300 leading-relaxed">{activeLesson.summary}</p>
+            </div>
+
+            {/* Lesson Sub-tabs */}
+            <div className="space-y-4">
+              <div className="flex gap-2 border-b border-white/10 pb-2">
+                {[
+                  { id: 'video', label: '📖 Pontos Chave' },
+                  { id: 'tab', label: '🎼 Tablatura & Cifras' },
+                  { id: 'exercises', label: `✅ Exercícios (${completedTaskIds.length}/${activeLesson.practiceTasks.length})` },
+                  { id: 'maestro', label: '🤖 Maestro IA' },
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    onClick={() => setActiveTab(tab.id as any)}
+                    className={`px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                      activeTab === tab.id
+                        ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-400/50'
+                        : 'text-slate-400 hover:text-white hover:bg-white/5'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Tab: Pontos Chave */}
+              {activeTab === 'video' && (
+                <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-3">
+                  <h4 className="font-syne font-bold text-white text-base">Orientações do Professor</h4>
+                  <ul className="space-y-2">
+                    {activeLesson.keyPoints.map((pt, idx) => (
+                      <li key={idx} className="flex items-start gap-2.5 text-sm text-slate-300">
+                        <div className="w-5 h-5 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">
+                          {idx + 1}
+                        </div>
+                        <span>{pt}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {/* Tab: Tablatura / Cifras */}
+              {activeTab === 'tab' && (
+                <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-4">
+                  <div className="flex justify-between items-center">
+                    <h4 className="font-syne font-bold text-white text-base">Digitação & Acordes</h4>
+                    <button
+                      onClick={playLessonDemoMelody}
+                      className="px-3 py-1 rounded-lg bg-cyan-500/20 text-cyan-300 text-xs font-bold flex items-center gap-1.5"
+                    >
+                      <Volume2 size={14} /> Ouvir Digitação
+                    </button>
+                  </div>
+                  <div className="bg-[#0b0d14] p-4 rounded-xl border border-white/10 font-mono text-cyan-400 text-sm whitespace-pre-wrap">
+                    {activeLesson.tabSnippet}
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {activeLesson.chords.map((ch, idx) => (
+                      <span key={idx} className="px-3 py-1 rounded-xl bg-white/5 text-slate-200 text-xs font-bold border border-white/10">
+                        {ch}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Exercícios */}
+              {activeTab === 'exercises' && (
+                <div className="bg-[#131722] p-5 rounded-2xl border border-white/10 space-y-3">
+                  <h4 className="font-syne font-bold text-white text-base">Desafios de Fixação</h4>
+                  <div className="space-y-2">
+                    {activeLesson.practiceTasks.map((task) => {
+                      const isDone = completedTaskIds.includes(task.id);
+                      return (
+                        <div
+                          key={task.id}
+                          onClick={() => toggleTask(task.id)}
+                          className={`p-3.5 rounded-xl border flex items-center justify-between cursor-pointer transition-all ${
+                            isDone
+                              ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-300'
+                              : 'bg-[#0b0d14] border-white/10 text-slate-300 hover:border-white/20'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3">
+                            <div className={`w-6 h-6 rounded-lg flex items-center justify-center ${isDone ? 'bg-emerald-400 text-black' : 'border border-white/20'}`}>
+                              {isDone && <Check size={16} />}
+                            </div>
+                            <span className={`text-sm ${isDone ? 'line-through text-slate-400' : 'font-medium'}`}>
+                              {task.text}
+                            </span>
+                          </div>
+                          <span className="text-xs font-bold text-cyan-400">+25 XP</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab: Maestro IA */}
+              {activeTab === 'maestro' && (
+                <MaestroPanel
+                  currentInstrument={instrument.name}
+                  currentLessonContext={`${activeLesson.title} (${activeLesson.module})`}
+                  compact
+                />
+              )}
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Sidebar: Lessons Playlist */}
         <div className="space-y-6">
@@ -962,12 +998,15 @@ const AulasPage: React.FC = () => {
                     <div className={`w-7 h-7 rounded-xl flex items-center justify-center text-xs font-black flex-shrink-0 mt-0.5 ${
                       isActive ? 'bg-cyan-400 text-black' : 'bg-white/10 text-slate-400'
                     }`}>
-                      {idx + 1}
+                      {!hasActiveSubscription ? <Lock size={12} className="text-amber-400" /> : idx + 1}
                     </div>
                     <div className="flex-1">
                       <div className="text-sm font-bold line-clamp-1">{lesson.title}</div>
                       <div className="text-xs text-slate-400 flex items-center gap-2 mt-1">
                         <Clock size={12} /> {lesson.duration} • <span className="text-cyan-400">{lesson.level}</span>
+                        {!hasActiveSubscription && (
+                          <span className="text-[10px] text-amber-400 font-bold ml-auto">Bloqueada</span>
+                        )}
                       </div>
                     </div>
                   </button>
@@ -996,184 +1035,225 @@ const AulasPage: React.FC = () => {
   );
 };
 
-// 3. PARTITURAS PAGE
+// 3. PARTITURAS PAGE (Item 11 & Item 20)
 const PartiturasPage: React.FC = () => {
-  const { openSheetViewer, queryParams } = useAppRouter();
-  const [activeTab, setActiveTab] = useState<'local' | 'online'>(
-    queryParams?.tab === 'online' ? 'online' : 'local'
-  );
+  const { openSheetViewer } = useAppRouter();
   const [searchTerm, setSearchTerm] = useState('');
-  const [filterFamily, setFilterFamily] = useState('Todas');
+  const [selectedInstrument, setSelectedInstrument] = useState('Todos');
   const [filterLevel, setFilterLevel] = useState('Todos');
-  const [filterGenre, setFilterGenre] = useState('Todos');
+  const [dbSheets, setDbSheets] = useState<SheetMusic[]>([]);
+  const [loading, setLoading] = useState(false);
 
   useSEO(
-    activeTab === 'local' ? "Biblioteca de Partituras Locais" : "Partituras Interativas",
-    "Acesse partituras de Sax Alto, Sax Tenor, Flauta, Trompete e Trombone da pasta Área de Trabalho/música ou explore nosso acervo online."
+    "Biblioteca de Partituras Tutti",
+    "Consulte, visualize e baixe partituras em formato PDF com áudio interativo e transposição."
   );
 
-  const families = ['Todas', 'Metais', 'Teclas', 'Cordas', 'Voz'];
+  const instrumentOptions = [
+    'Todos',
+    'Saxofone Alto',
+    'Saxofone Tenor',
+    'Saxofone Soprano',
+    'Clarinete',
+    'Trombone',
+    'Trompete',
+    'Teclado',
+    'Contrabaixo',
+    'Guitarra',
+    'Outros'
+  ];
+
   const levels = ['Todos', 'Iniciante', 'Intermediário', 'Avançado'];
-  const genres = ['Todos', 'Bossa Nova', 'Jazz Standard', 'Baião', 'Choro', 'Impressionismo', 'MPB'];
+
+  // Load real sheet music from Supabase
+  useEffect(() => {
+    async function loadSheets() {
+      setLoading(true);
+      try {
+        const { data, error } = await supabase
+          .from('partituras')
+          .select('*')
+          .order('id', { ascending: false });
+
+        if (!error && data && data.length > 0) {
+          const mapped: SheetMusic[] = data.map((item: any) => ({
+            id: Number(item.id),
+            title: item.titulo,
+            composer: item.compositor,
+            instrument: item.instrumento,
+            family: item.instrumento?.toLowerCase().includes('sax') || item.instrumento?.toLowerCase().includes('tromp') || item.instrumento?.toLowerCase().includes('tromb') || item.instrumento?.toLowerCase().includes('clar') ? 'Metais' : 'Teclas',
+            tonality: item.tonalidade || 'C',
+            originalKey: item.tom_original || item.tonalidade || 'C',
+            level: (item.nivel || 'Intermediário') as any,
+            genre: item.genero || 'Geral',
+            tempo: item.tempo_bpm || 120,
+            timeSignature: item.compasso || '4/4',
+            description: item.descricao || '',
+            sheetUrl: item.arquivo_pdf_url || '',
+            pdfUrl: item.arquivo_pdf_url || '',
+            storagePath: item.storage_path,
+            isFeatured: item.is_featured,
+            cifras: Array.isArray(item.cifras) ? item.cifras : [],
+            chords: Array.isArray(item.cifras) ? item.cifras : [],
+            melodyNotes: Array.isArray(item.melodia_notas) ? item.melodia_notas : [],
+            audioUrl: item.audio_playalong_url,
+            youtubeUrl: item.youtube_url,
+          }));
+
+          // Merge with catalog to ensure user always has the complete baseline music library
+          const existingIds = new Set(mapped.map(m => m.id));
+          const merged = [...mapped, ...SHEETS_CATALOG.filter(c => !existingIds.has(c.id))];
+          setDbSheets(merged);
+        } else {
+          setDbSheets(SHEETS_CATALOG);
+        }
+      } catch (e) {
+        console.debug('Using fallback sheets catalog:', e);
+        setDbSheets(SHEETS_CATALOG);
+      } finally {
+        setLoading(false);
+      }
+    }
+    loadSheets();
+  }, []);
 
   const filteredSheets = useMemo(() => {
-    return SHEETS_CATALOG.filter(sheet => {
+    return dbSheets.filter(sheet => {
       const matchSearch = sheet.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           sheet.composer.toLowerCase().includes(searchTerm.toLowerCase()) ||
                           sheet.instrument.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchFamily = filterFamily === 'Todas' || sheet.family === filterFamily;
+      const matchInstrument = selectedInstrument === 'Todos' || sheet.instrument.toLowerCase().includes(selectedInstrument.toLowerCase());
       const matchLevel = filterLevel === 'Todos' || sheet.level === filterLevel;
-      const matchGenre = filterGenre === 'Todos' || sheet.genre === filterGenre;
-      return matchSearch && matchFamily && matchLevel && matchGenre;
+      return matchSearch && matchInstrument && matchLevel;
     });
-  }, [searchTerm, filterFamily, filterLevel, filterGenre]);
+  }, [dbSheets, searchTerm, selectedInstrument, filterLevel]);
 
   return (
     <div className="animate-in fade-in duration-500 space-y-8">
       {/* Header */}
       <div className="text-center space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">Biblioteca de Partituras</span>
+        <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">Acervo Musical Oficial</span>
         <h1 className="text-4xl sm:text-5xl font-syne font-black text-white">
-          Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Partituras & Acervo</span>
+          Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Partituras Tutti</span>
         </h1>
         <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Acesse partituras do seu computador (<code className="text-cyan-300 font-mono text-xs bg-[#131722] px-2 py-0.5 rounded border border-white/10">Área de Trabalho/música</code>) organizadas por instrumento ou estude com nosso acervo digital com áudio e transposição.
+          Consulte, visualize em tela cheia com zoom e navegação de páginas e baixe partituras oficiais em PDF com áudio interativo e transposição.
         </p>
       </div>
 
-      {/* Mode Switcher Tabs */}
-      <div className="flex justify-center">
-        <div className="bg-[#131722] p-1.5 rounded-2xl border border-white/10 inline-flex flex-wrap gap-2 shadow-xl">
-          <button
-            onClick={() => setActiveTab('local')}
-            className={`px-5 py-2.5 rounded-xl font-syne font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
-              activeTab === 'local'
-                ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black shadow-lg shadow-cyan-500/20 font-black'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Folder size={16} />
-            <span>Biblioteca do Computador (Área de Trabalho/música)</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('online')}
-            className={`px-5 py-2.5 rounded-xl font-syne font-bold text-xs sm:text-sm flex items-center gap-2 transition-all ${
-              activeTab === 'online'
-                ? 'bg-gradient-to-r from-cyan-400 to-violet-600 text-black shadow-lg shadow-cyan-500/20 font-black'
-                : 'text-slate-400 hover:text-white hover:bg-white/5'
-            }`}
-          >
-            <Music size={16} />
-            <span>Acervo Digital Tutti ({SHEETS_CATALOG.length} Partituras)</span>
-          </button>
+      {/* Filter and Search Bar */}
+      <div className="bg-[#131722] p-4 sm:p-6 rounded-3xl border border-white/10 shadow-xl space-y-4">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar por música, compositor (ex: Tom Jobim, Pixinguinha) ou instrumento..."
+            className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 text-sm outline-none focus:border-cyan-400 transition-colors"
+          />
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+              Filtrar por Instrumento
+            </label>
+            <select
+              value={selectedInstrument}
+              onChange={(e) => setSelectedInstrument(e.target.value)}
+              className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400 cursor-pointer"
+            >
+              {instrumentOptions.map(inst => (
+                <option key={inst} value={inst}>{inst}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
+              Nível de Dificuldade
+            </label>
+            <select
+              value={filterLevel}
+              onChange={(e) => setFilterLevel(e.target.value)}
+              className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400 cursor-pointer"
+            >
+              {levels.map(l => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
         </div>
       </div>
 
-      {/* Tab Content */}
-      {activeTab === 'local' ? (
-        <LocalSheetLibrary />
-      ) : (
-        <div className="space-y-8 animate-in fade-in duration-300">
-          {/* Filter and Search Bar */}
-          <div className="bg-[#131722] p-4 sm:p-5 rounded-3xl border border-white/10 shadow-xl space-y-4">
-            <div className="relative">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-              <input
-                type="text"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Buscar por música, compositor (ex: Tom Jobim, Pixinguinha) ou instrumento..."
-                className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 text-sm outline-none focus:border-cyan-400 transition-colors"
-              />
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+      {/* Sheets Grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {filteredSheets.length > 0 ? (
+          filteredSheets.map((sheet) => (
+            <div
+              key={sheet.id}
+              className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 shadow-xl flex flex-col justify-between group"
+            >
               <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Família</label>
-                <select
-                  value={filterFamily}
-                  onChange={(e) => setFilterFamily(e.target.value)}
-                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-cyan-400"
-                >
-                  {families.map(f => <option key={f} value={f}>{f}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Nível de Dificuldade</label>
-                <select
-                  value={filterLevel}
-                  onChange={(e) => setFilterLevel(e.target.value)}
-                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-cyan-400"
-                >
-                  {levels.map(l => <option key={l} value={l}>{l}</option>)}
-                </select>
-              </div>
-
-              <div>
-                <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Gênero Musical</label>
-                <select
-                  value={filterGenre}
-                  onChange={(e) => setFilterGenre(e.target.value)}
-                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5 text-xs outline-none focus:border-cyan-400"
-                >
-                  {genres.map(g => <option key={g} value={g}>{g}</option>)}
-                </select>
-              </div>
-            </div>
-          </div>
-
-          {/* Sheets Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {filteredSheets.length > 0 ? (
-              filteredSheets.map((sheet) => (
-                <div
-                  key={sheet.id}
-                  onClick={() => openSheetViewer(sheet)}
-                  className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 cursor-pointer shadow-xl flex flex-col justify-between group"
-                >
-                  <div>
-                    <div className="flex justify-between items-start mb-4">
-                      <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
-                        𝄞
-                      </div>
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                        sheet.level === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-400' :
-                        sheet.level === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
-                      }`}>
-                        {sheet.level}
-                      </span>
-                    </div>
-
-                    <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
-                      {sheet.title}
-                    </h3>
-                    <p className="text-xs text-slate-400 font-semibold mb-2">
-                      {sheet.composer} • {sheet.instrument}
-                    </p>
-                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                      {sheet.description}
-                    </p>
+                <div className="flex justify-between items-start mb-4">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
+                    𝄞
                   </div>
-
-                  <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
-                    <div className="text-xs text-slate-400 font-mono">
-                      <strong className="text-white">{sheet.tonality}</strong> • {sheet.tempo} BPM
-                    </div>
-                    <button className="px-4 py-2 rounded-xl bg-cyan-500/20 group-hover:bg-cyan-400 text-cyan-300 group-hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors">
-                      <Play size={12} fill="currentColor" /> Abrir Partitura
-                    </button>
-                  </div>
+                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                    sheet.level === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-400' :
+                    sheet.level === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
+                  }`}>
+                    {sheet.level}
+                  </span>
                 </div>
-              ))
-            ) : (
-              <div className="col-span-full py-16 text-center text-slate-400 bg-[#131722] rounded-3xl border border-white/10">
-                Nenhuma partitura encontrada com esses filtros. Tente pesquisar por outro título ou limpar as seleções.
+
+                <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
+                  {sheet.title}
+                </h3>
+                <p className="text-xs text-slate-400 font-semibold mb-2">
+                  {sheet.composer} • {sheet.instrument}
+                </p>
+                <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                  {sheet.description || 'Arranjo completo para estudo individual e apresentações.'}
+                </p>
               </div>
-            )}
+
+              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-2">
+                <div className="text-xs text-slate-400 font-mono">
+                  <strong className="text-white">{sheet.tonality}</strong> • {sheet.tempo} BPM
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => openSheetViewer(sheet)}
+                    className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-400 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                  >
+                    <Play size={12} fill="currentColor" /> Visualizar
+                  </button>
+                  {sheet.pdfUrl && (
+                    <a
+                      href={sheet.pdfUrl}
+                      download={`${sheet.title}.pdf`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                      title="Baixar Partitura em PDF"
+                    >
+                      <Download size={14} />
+                    </a>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="col-span-full py-16 text-center text-slate-400 bg-[#131722] rounded-3xl border border-white/10 space-y-2">
+            <Music size={32} className="mx-auto text-slate-500" />
+            <p className="text-base font-semibold text-white">Nenhuma partitura encontrada.</p>
+            <p className="text-xs text-slate-400">Tente buscar por outro termo ou alterar o filtro de instrumento.</p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 };
@@ -1337,6 +1417,18 @@ interface StudentLesson {
   instructor: string;
 }
 
+// 5. AGENDA DE AULA PAGE (Item 21: Agenda do Aluno com Google Meet)
+interface StudentLesson {
+  id: string;
+  studentName: string;
+  instrument: string;
+  topic: string;
+  date: string;
+  time: string;
+  googleMeetUrl: string;
+  instructor: string;
+}
+
 const AgendaPage: React.FC = () => {
   const { showToast, openPlansModal } = useAppRouter();
   const { user, profile } = useAuth();
@@ -1351,53 +1443,38 @@ const AgendaPage: React.FC = () => {
     }
   });
 
-  const [showProgrammerPanel, setShowProgrammerPanel] = useState<boolean>(false);
-  const [newTopic, setNewTopic] = useState('');
-  const [newInstrument, setNewInstrument] = useState('Saxofone Alto');
-  const [newDate, setNewDate] = useState('25 de Outubro, 2026');
-  const [newTime, setNewTime] = useState('19:30');
-  const [newMeetCode, setNewMeetCode] = useState('https://meet.google.com/tut-musi-sax');
-
   const studentName = profile?.displayName || user?.user_metadata?.full_name || 'Aluno(a) Tutti';
 
-  const handleGenerateMeetLink = () => {
-    const chars = 'abcdefghijklmnopqrstuvwxyz';
-    const p1 = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const p2 = Array.from({ length: 4 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const p3 = Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join('');
-    const generated = `https://meet.google.com/${p1}-${p2}-${p3}`;
-    setNewMeetCode(generated);
-    showToast('Novo link do Google Meet gerado com sucesso! 📹');
-  };
+  // Sincroniza marcações reais de aula do aluno a partir do Supabase
+  useEffect(() => {
+    async function fetchBookings() {
+      if (!user?.email) return;
+      try {
+        const { data } = await supabase
+          .from('marcacoes_aulas')
+          .select('*')
+          .eq('aluno_email', user.email)
+          .order('data_aula', { ascending: true });
 
-  const handleAddLesson = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newTopic.trim()) {
-      showToast('Por favor, informe o conteúdo ou tema da aula.');
-      return;
+        if (data && data.length > 0) {
+          const mapped: StudentLesson[] = data.map((b: any) => ({
+            id: b.id,
+            studentName: b.aluno_nome,
+            instrument: b.instrumento || 'Instrumento Principal',
+            topic: b.observacoes || 'Aula Prática Individual',
+            date: b.data_aula,
+            time: b.hora_inicio,
+            googleMeetUrl: b.link_meet || 'https://meet.google.com/new',
+            instructor: b.professor_nome || 'Professor Tutti'
+          }));
+          setLessons(mapped);
+        }
+      } catch (err) {
+        console.debug('Usando cache local da agenda do aluno:', err);
+      }
     }
-
-    const created: StudentLesson = {
-      id: `lesson_${Date.now()}`,
-      studentName,
-      instrument: newInstrument,
-      topic: newTopic.trim(),
-      date: newDate,
-      time: newTime,
-      googleMeetUrl: newMeetCode.startsWith('http') ? newMeetCode : `https://${newMeetCode}`,
-      instructor: 'Programador / Professor Maestro'
-    };
-
-    const updated = [created, ...lessons];
-    setLessons(updated);
-    try {
-      localStorage.setItem('tutti_student_lessons', JSON.stringify(updated));
-    } catch (err) {
-      console.warn('LocalStorage error:', err);
-    }
-    setNewTopic('');
-    showToast('Aula adicionada pelo programador à sua agenda com Google Meet! 🎵');
-  };
+    fetchBookings();
+  }, [user?.email]);
 
   const handleRemoveLesson = (id: string) => {
     const updated = lessons.filter(l => l.id !== id);
@@ -1407,7 +1484,7 @@ const AgendaPage: React.FC = () => {
     } catch (err) {
       console.warn('LocalStorage error:', err);
     }
-    showToast('Aula removida da sua agenda.');
+    showToast('Aula removida da sua visualização local.');
   };
 
   return (
@@ -1421,13 +1498,13 @@ const AgendaPage: React.FC = () => {
           Agenda de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Aula</span>
         </h1>
         <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Esta agenda de aula é própria e individual de <strong>{studentName}</strong>. Suas aulas são adicionadas pelo programador/professor de acordo com a sua necessidade, com acesso direto via Google Meet.
+          Esta agenda de aula é própria e individual de <strong>{studentName}</strong>. Suas aulas são organizadas com acesso direto e seguro via Google Meet.
         </p>
       </div>
 
       {/* Main Student Lessons Section */}
       {lessons.length === 0 ? (
-        /* Empty State: Requested Message */
+        /* Empty State: Requested Message (Item 21) */
         <div className="bg-[#131722] p-10 sm:p-14 rounded-3xl border border-white/10 shadow-2xl text-center space-y-5 animate-in fade-in">
           <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto text-4xl shadow-inner border border-cyan-500/20">
             📅
@@ -1437,20 +1514,14 @@ const AgendaPage: React.FC = () => {
               Você ainda não possui aulas
             </h3>
             <p className="text-sm text-slate-400 leading-relaxed">
-              No momento você ainda não possui aulas agendadas. As aulas serão adicionadas pelo programador de acordo com a sua necessidade pedagógica, com um link exclusivo do Google Meet gerado para você entrar ao vivo.
+              No momento você ainda não possui aulas agendadas. Seus horários serão agendados pelo seu professor com um link exclusivo do Google Meet gerado para você entrar ao vivo.
             </p>
           </div>
 
           <div className="pt-2 flex flex-wrap justify-center gap-3">
             <button
-              onClick={() => setShowProgrammerPanel(prev => !prev)}
-              className="px-5 py-2.5 rounded-2xl bg-white/5 hover:bg-white/10 text-cyan-300 hover:text-white text-xs font-bold border border-white/10 transition-colors inline-flex items-center gap-2"
-            >
-              <span>{showProgrammerPanel ? 'Ocultar Painel do Programador' : 'Área do Programador (Adicionar Aula)'}</span>
-            </button>
-            <button
               onClick={openPlansModal}
-              className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 hover:opacity-90 text-white text-xs font-bold transition-all shadow-md shadow-violet-500/20 inline-flex items-center gap-2 cursor-pointer border border-violet-400/30"
+              className="px-6 py-3 rounded-2xl bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 hover:opacity-90 text-white text-xs font-bold transition-all shadow-md shadow-violet-500/20 inline-flex items-center gap-2 cursor-pointer border border-violet-400/30 active:scale-95"
             >
               <Sparkles size={14} className="text-amber-300" />
               <span>Conhecer Assinatura Tutti Pro</span>
@@ -1464,21 +1535,13 @@ const AgendaPage: React.FC = () => {
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
               Suas Aulas Agendadas ({lessons.length})
             </span>
-            <div className="flex items-center gap-3">
-              <button
-                onClick={openPlansModal}
-                className="text-xs text-violet-400 hover:text-violet-300 hover:underline font-bold flex items-center gap-1"
-              >
-                <Sparkles size={13} className="text-amber-300" />
-                <span>Conhecer Assinatura Tutti Pro</span>
-              </button>
-              <button
-                onClick={() => setShowProgrammerPanel(prev => !prev)}
-                className="text-xs text-cyan-400 hover:underline font-bold"
-              >
-                {showProgrammerPanel ? 'Fechar Painel' : '+ Adicionar Nova Aula (Programador)'}
-              </button>
-            </div>
+            <button
+              onClick={openPlansModal}
+              className="text-xs text-violet-400 hover:text-violet-300 hover:underline font-bold flex items-center gap-1 cursor-pointer"
+            >
+              <Sparkles size={13} className="text-amber-300" />
+              <span>Conhecer Assinatura Tutti Pro</span>
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -1496,7 +1559,7 @@ const AgendaPage: React.FC = () => {
                       {lesson.topic}
                     </h3>
                     <p className="text-xs text-slate-400">
-                      Instrumento: <strong className="text-cyan-300">{lesson.instrument}</strong> • Aluno: {lesson.studentName}
+                      Instrumento: <strong className="text-cyan-300">{lesson.instrument}</strong> • Professor: {lesson.instructor}
                     </p>
                   </div>
 
@@ -1537,135 +1600,6 @@ const AgendaPage: React.FC = () => {
               </div>
             ))}
           </div>
-        </div>
-      )}
-
-      {/* Programmer Panel: To add lessons as needed with generated Google Meet links */}
-      {showProgrammerPanel && (
-        <div className="bg-[#0b0d14] p-6 sm:p-8 rounded-3xl border border-cyan-500/40 shadow-2xl space-y-5 animate-in slide-in-from-top-4">
-          <div className="flex items-center justify-between border-b border-white/10 pb-4">
-            <div className="flex items-center gap-2.5">
-              <span className="w-8 h-8 rounded-xl bg-cyan-500/20 text-cyan-400 flex items-center justify-center font-bold text-xs">
-                💻
-              </span>
-              <div>
-                <h3 className="font-syne font-bold text-lg text-white">
-                  Painel do Programador / Professor: Adicionar Aula
-                </h3>
-                <p className="text-xs text-slate-400">
-                  Adicione uma aula sob medida para a agenda de <strong>{studentName}</strong> com link oficial do Google Meet.
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() => setShowProgrammerPanel(false)}
-              className="p-1 rounded-lg text-slate-400 hover:text-white"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <form onSubmit={handleAddLesson} className="space-y-4 text-xs">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                  Tema / Conteúdo da Aula:
-                </label>
-                <input
-                  type="text"
-                  value={newTopic}
-                  onChange={(e) => setNewTopic(e.target.value)}
-                  placeholder="Ex: Aula de Embocadura e Digitação de Sax Alto"
-                  className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                  Instrumento:
-                </label>
-                <select
-                  value={newInstrument}
-                  onChange={(e) => setNewInstrument(e.target.value)}
-                  className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
-                >
-                  <option value="Saxofone Alto">Saxofone Alto</option>
-                  <option value="Saxofone Tenor">Saxofone Tenor</option>
-                  <option value="Flauta Transversal">Flauta Transversal</option>
-                  <option value="Trombone de Vara">Trombone de Vara</option>
-                  <option value="Trompete">Trompete</option>
-                  <option value="Violão">Violão</option>
-                  <option value="Teclado / Piano">Teclado / Piano</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                  Data:
-                </label>
-                <input
-                  type="text"
-                  value={newDate}
-                  onChange={(e) => setNewDate(e.target.value)}
-                  placeholder="Ex: 28 de Outubro, 2026"
-                  className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
-                />
-              </div>
-
-              <div>
-                <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                  Horário:
-                </label>
-                <input
-                  type="text"
-                  value={newTime}
-                  onChange={(e) => setNewTime(e.target.value)}
-                  placeholder="Ex: 19:30 BRT"
-                  className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
-                />
-              </div>
-            </div>
-
-            {/* Google Meet Link Generator */}
-            <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="text-slate-300 font-bold uppercase tracking-wider text-[10px]">
-                  Link do Google Meet:
-                </label>
-                <button
-                  type="button"
-                  onClick={handleGenerateMeetLink}
-                  className="text-cyan-400 hover:underline text-[11px] font-bold flex items-center gap-1"
-                >
-                  <span>🎲 Gerar Novo Código Meet</span>
-                </button>
-              </div>
-              <input
-                type="text"
-                value={newMeetCode}
-                onChange={(e) => setNewMeetCode(e.target.value)}
-                placeholder="https://meet.google.com/..."
-                className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400 font-mono"
-              />
-            </div>
-
-            <div className="flex justify-end gap-3 pt-2">
-              <button
-                type="button"
-                onClick={() => setShowProgrammerPanel(false)}
-                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold"
-              >
-                Cancelar
-              </button>
-              <button
-                type="submit"
-                className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black text-xs font-black shadow-lg hover:opacity-90"
-              >
-                + Adicionar Aula à Agenda do Aluno
-              </button>
-            </div>
-          </form>
         </div>
       )}
     </div>
@@ -2565,7 +2499,11 @@ export default function App() {
             )}
             {visitedTabs.has('/admin') && (
               <div style={{ display: currentPath === '/admin' ? 'block' : 'none' }}>
-                <ProtectedRoute isActive={currentPath === '/admin'} routeName="o Painel de Desenvolvedor e Administrador">
+                <ProtectedRoute 
+                  isActive={currentPath === '/admin'} 
+                  routeName="o Painel de Desenvolvedor e Administrador"
+                  requiredRole="desenvolvedor"
+                >
                   <DeveloperPanel
                     onLogoutToAuth={() => navigate('/auth')}
                     onNavigateHome={() => navigate('/')}
@@ -2575,7 +2513,11 @@ export default function App() {
             )}
             {visitedTabs.has('/professor') && (
               <div style={{ display: currentPath === '/professor' ? 'block' : 'none' }}>
-                <ProtectedRoute isActive={currentPath === '/professor'} routeName="o Painel do Professor">
+                <ProtectedRoute 
+                  isActive={currentPath === '/professor'} 
+                  routeName="o Painel do Professor"
+                  requiredRole="professor"
+                >
                   <TeacherPanel
                     onLogoutToAuth={() => navigate('/auth')}
                     onNavigateHome={() => navigate('/')}
@@ -2585,7 +2527,11 @@ export default function App() {
             )}
             {visitedTabs.has('/aluno') && (
               <div style={{ display: currentPath === '/aluno' ? 'block' : 'none' }}>
-                <ProtectedRoute isActive={currentPath === '/aluno'} routeName="a Área do Aluno">
+                <ProtectedRoute 
+                  isActive={currentPath === '/aluno'} 
+                  routeName="a Área do Aluno"
+                  requiredRole="aluno"
+                >
                   <StudentPanel
                     onLogoutToAuth={() => navigate('/auth')}
                     onNavigateHome={() => navigate('/')}

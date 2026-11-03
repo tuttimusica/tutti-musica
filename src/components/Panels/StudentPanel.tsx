@@ -34,57 +34,83 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'aulas' | 'marcacoes' | 'partituras' | 'professores' | 'perfil'>('dashboard');
   const [searchPartituras, setSearchPartituras] = useState('');
-  const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([
-    {
-      id: 'sb_1',
-      aluno_nome: profile?.displayName || 'Rafael Drumond',
-      aluno_email: user?.email || 'rafael.aluno@tutti.mus.br',
-      professor_nome: 'Profª Clara Vasconcelos',
-      professor_email: 'professora.clara@tutti.mus.br',
-      data_aula: '2026-11-02',
-      hora_inicio: '15:00',
-      duracao_minutos: 50,
-      status: 'agendada',
-      observacoes: 'Estudo do solo de Autumn Leaves e afinação nas notas graves do Sax Alto.',
-      link_meet: 'https://meet.google.com/tut-sax-autumn',
-      created_at: '2026-10-29T10:00:00Z'
-    },
-    {
-      id: 'sb_2',
-      aluno_nome: profile?.displayName || 'Rafael Drumond',
-      aluno_email: user?.email || 'rafael.aluno@tutti.mus.br',
-      professor_nome: 'Prof. Carlos Rossi',
-      professor_email: 'carlos.rossi@tutti.mus.br',
-      data_aula: '2026-11-06',
-      hora_inicio: '14:00',
-      duracao_minutos: 50,
-      status: 'agendada',
-      observacoes: 'Harmonia funcional e leitura à primeira vista no teclado/piano.',
-      link_meet: 'https://meet.google.com/tut-piano-rossi',
-      created_at: '2026-10-29T11:00:00Z'
-    }
-  ]);
+  const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
+  const [studyMaterials, setStudyMaterials] = useState<any[]>([]);
+  const [teachers, setTeachers] = useState<any[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
 
-  // Load real student bookings from Supabase
+  // Load real student bookings, study materials, and approved teachers from Supabase
   useEffect(() => {
-    async function loadBookings() {
-      if (!user?.email) return;
+    async function loadData() {
+      setLoading(true);
       try {
-        const { data } = await supabase
-          .from('marcacoes_aulas')
-          .select('*')
-          .eq('aluno_email', user.email)
-          .order('data_aula', { ascending: true });
+        // 1. Real bookings for this student
+        if (user?.email) {
+          const { data: bookingsData } = await supabase
+            .from('marcacoes_aulas')
+            .select('*')
+            .or(`aluno_email.eq.${user.email},aluno_id.eq.${user.id}`)
+            .order('data_aula', { ascending: true });
 
-        if (data && data.length > 0) {
-          setStudentBookings(data as LessonBooking[]);
+          if (bookingsData) {
+            setStudentBookings(bookingsData as LessonBooking[]);
+          }
+        }
+
+        // 2. Real study materials (partituras / apostilas)
+        const { data: materialsData } = await supabase
+          .from('partituras')
+          .select('*')
+          .order('id', { ascending: false })
+          .limit(8);
+
+        if (materialsData && materialsData.length > 0) {
+          setStudyMaterials(materialsData);
+        } else {
+          setStudyMaterials([]);
+        }
+
+        // 3. Real approved teachers
+        const { data: teachersData } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('role', 'teacher')
+          .eq('approval_status', 'aprovado');
+
+        if (teachersData && teachersData.length > 0) {
+          setTeachers(teachersData.map((t: any) => ({
+            name: t.nome || t.displayName || t.email?.split('@')[0] || 'Professor Tutti',
+            instrument: t.instrumento || t.current_instrument || 'Diversos Instrumentos',
+            bio: t.bio || 'Professor integrante do corpo docente oficial da Escola Tutti de Música.',
+            rating: '5.0',
+            avatar: t.photo_url || t.photoURL
+          })));
+        } else {
+          // Check approved requests in solicitacoes_professores
+          const { data: solData } = await supabase
+            .from('solicitacoes_professores')
+            .select('*')
+            .eq('status', 'aprovado');
+
+          if (solData && solData.length > 0) {
+            setTeachers(solData.map((s: any) => ({
+              name: s.nome,
+              instrument: s.instrumento,
+              bio: s.bio || 'Professor credenciado pela Escola Tutti de Música.',
+              rating: '5.0'
+            })));
+          } else {
+            setTeachers([]);
+          }
         }
       } catch (e) {
-        console.debug('Using local student bookings cache:', e);
+        console.debug('Erro ao carregar dados do aluno no Supabase:', e);
+      } finally {
+        setLoading(false);
       }
     }
-    loadBookings();
-  }, [user?.email]);
+    loadData();
+  }, [user?.email, user?.id]);
 
   const handleLogout = async () => {
     await logout();
@@ -336,38 +362,36 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     </button>
                   </div>
                   <div className="space-y-3">
-                    <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-4 h-4 text-amber-400" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">Exercícios de Hanon - Piano Clássico</p>
-                          <p className="text-xs text-slate-400">Técnica e coordenação motora</p>
+                    {studyMaterials.length > 0 ? (
+                      studyMaterials.slice(0, 4).map((mat: any) => (
+                        <div key={mat.id} className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
+                          <div className="flex items-center gap-3">
+                            <FileText className="w-4 h-4 text-amber-400" />
+                            <div>
+                              <p className="text-sm font-semibold text-white">{mat.titulo}</p>
+                              <p className="text-xs text-slate-400">{mat.compositor} • {mat.instrumento}</p>
+                            </div>
+                          </div>
+                          {mat.arquivo_pdf_url ? (
+                            <a
+                              href={mat.arquivo_pdf_url}
+                              download
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-xs font-mono text-cyan-400 hover:underline flex items-center gap-1"
+                            >
+                              <Download className="w-3 h-3" /> PDF
+                            </a>
+                          ) : (
+                            <span className="text-xs font-mono text-cyan-400">PDF</span>
+                          )}
                         </div>
+                      ))
+                    ) : (
+                      <div className="p-6 text-center rounded-xl bg-white/[0.02] border border-white/5">
+                        <p className="text-xs text-slate-400 font-medium">Nenhum material encontrado.</p>
                       </div>
-                      <span className="text-xs font-mono text-cyan-400">PDF</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-4 h-4 text-amber-400" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">Escalas Maiores e Menores - Violão</p>
-                          <p className="text-xs text-slate-400">Fundamentos de harmonia funcional</p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-mono text-cyan-400">PDF</span>
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <FileText className="w-4 h-4 text-amber-400" />
-                        <div>
-                          <p className="text-sm font-semibold text-white">Método Suzuki Vol 1 - Violino</p>
-                          <p className="text-xs text-slate-400">Repertório inicial guiado</p>
-                        </div>
-                      </div>
-                      <span className="text-xs font-mono text-cyan-400">PDF</span>
-                    </div>
+                    )}
                   </div>
                 </div>
 
@@ -452,10 +476,10 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 ))}
 
                 {studentBookings.length === 0 && (
-                  <div className="col-span-2 p-12 text-center rounded-2xl bg-[#0e141f] border border-white/10">
-                    <Video className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                    <h4 className="text-white font-bold">Nenhuma aula ao vivo no momento</h4>
-                    <p className="text-xs text-slate-400 mt-1">
+                  <div className="col-span-2 p-12 text-center rounded-2xl bg-[#0e141f] border border-white/10 space-y-2">
+                    <Video className="w-12 h-12 text-slate-600 mx-auto mb-2" />
+                    <h4 className="text-white font-bold text-base">Nenhuma aula encontrada.</h4>
+                    <p className="text-xs text-slate-400">
                       Suas aulas aparecerão aqui assim que seu professor registrar os horários na agenda Tutti.
                     </p>
                   </div>
@@ -664,42 +688,37 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {[
-                  {
-                    name: 'Prof. Carlos Rossi',
-                    instrument: 'Piano Clássico & Teclado',
-                    bio: 'Mais de 15 anos de experiência, formado pelo Conservatório Dramático e Musical de SP.',
-                    rating: '5.0',
-                  },
-                  {
-                    name: 'Profa. Sofia Mendes',
-                    instrument: 'Violino & Viola de Arco',
-                    bio: 'Mestrado em Práticas Interpretativas pela UNESP, spalla convidada em orquestras sinfônicas.',
-                    rating: '4.9',
-                  },
-                  {
-                    name: 'Prof. Lucas Alvarez',
-                    instrument: 'Violão Erudito & Guitarra',
-                    bio: 'Especialista em Harmonia Funcional e Improvisação, arranjador e concertista atuante.',
-                    rating: '5.0',
-                  },
-                ].map((prof, i) => (
-                  <div key={i} className="p-6 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-amber-500/30 transition">
-                    <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-serif font-bold text-xl mb-4">
-                      {prof.name.split(' ')[1]?.charAt(0) || 'P'}
-                    </div>
-                    <h3 className="font-serif font-bold text-lg text-white">{prof.name}</h3>
-                    <p className="text-xs text-amber-400 font-medium mt-0.5">{prof.instrument}</p>
-                    <p className="text-xs text-slate-400 mt-3 leading-relaxed">{prof.bio}</p>
+              {teachers.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  {teachers.map((prof, i) => (
+                    <div key={i} className="p-6 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-amber-500/30 transition">
+                      <div className="w-14 h-14 rounded-full bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-300 font-serif font-bold text-xl mb-4 overflow-hidden">
+                        {prof.avatar ? (
+                          <img src={prof.avatar} alt={prof.name} className="w-full h-full object-cover" />
+                        ) : (
+                          <span>{prof.name.split(' ')[0]?.charAt(0) || 'P'}</span>
+                        )}
+                      </div>
+                      <h3 className="font-serif font-bold text-lg text-white">{prof.name}</h3>
+                      <p className="text-xs text-amber-400 font-medium mt-0.5">{prof.instrument}</p>
+                      <p className="text-xs text-slate-400 mt-3 leading-relaxed">{prof.bio}</p>
 
-                    <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between text-xs">
-                      <span className="text-slate-400">Avaliação Média</span>
-                      <span className="text-amber-300 font-bold">★ {prof.rating} / 5.0</span>
+                      <div className="mt-5 pt-4 border-t border-white/10 flex items-center justify-between text-xs">
+                        <span className="text-slate-400">Corpo Docente</span>
+                        <span className="text-amber-300 font-bold">★ {prof.rating || '5.0'} / 5.0</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-12 text-center rounded-2xl bg-[#0e141f] border border-white/10 space-y-2">
+                  <GraduationCap className="w-12 h-12 text-slate-600 mx-auto mb-2" />
+                  <h4 className="text-white font-bold text-base">Nenhum professor disponível no momento.</h4>
+                  <p className="text-xs text-slate-400">
+                    Novos professores credenciados serão disponibilizados aqui assim que forem aprovados pela coordenação.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 

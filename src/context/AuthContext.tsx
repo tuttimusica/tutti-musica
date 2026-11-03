@@ -62,9 +62,13 @@ interface AuthContextType {
   activeRole: 'desenvolvedor' | 'professor' | 'aluno';
   loginWithGoogle: () => Promise<void>;
   loginWithEmail: (email: string, pass: string) => Promise<{ data?: any; error: any }>;
-  signUpWithEmail: (email: string, pass: string, name: string, requestedRole?: 'aluno' | 'professor') => Promise<{ data?: any; error: any }>;
-  loginAsRole: (role: 'desenvolvedor' | 'professor' | 'aluno', approvalStatus?: ApprovalStatus) => Promise<void>;
-  loginAsDemoStudent: () => Promise<void>;
+  signUpWithEmail: (
+    email: string,
+    pass: string,
+    name: string,
+    requestedRole?: 'aluno' | 'professor',
+    extraData?: { instrumento?: string; bio?: string }
+  ) => Promise<{ data?: any; error: any }>;
   resetPassword: (email: string) => Promise<{ error: any; message?: string }>;
   logout: () => Promise<void>;
   updateProfileData: (data: Partial<UserProfileData>) => Promise<void>;
@@ -89,12 +93,28 @@ export const useAuth = () => {
   return context;
 };
 
-// Normalize role from database or legacy string
+// Authorized developer emails verified against backend rules
+export const AUTHORIZED_DEVELOPER_EMAILS = [
+  'eliandrolucas.el@gmail.com',
+  'eliandrolucas.EL@gmail.com'.toLowerCase(),
+  'desenvolvedor@tutti.mus.br'
+];
+
+export function isAuthorizedDeveloperEmail(email?: string | null): boolean {
+  if (!email) return false;
+  return AUTHORIZED_DEVELOPER_EMAILS.includes(email.trim().toLowerCase());
+}
+
+// Normalize role strictly: developer privilege CANNOT be self-granted via client metadata
 export function normalizeRole(roleString?: string | null, email?: string | null): 'desenvolvedor' | 'professor' | 'aluno' {
-  if (email === 'eliandrolucas.EL@gmail.com') return 'desenvolvedor';
+  if (isAuthorizedDeveloperEmail(email)) return 'desenvolvedor';
   if (!roleString) return 'aluno';
   const lower = roleString.toLowerCase();
-  if (lower === 'desenvolvedor' || lower === 'admin') return 'desenvolvedor';
+  // Role 'desenvolvedor' or 'admin' is strictly forbidden unless authorized by email/database
+  if (lower === 'desenvolvedor' || lower === 'admin') {
+    if (isAuthorizedDeveloperEmail(email)) return 'desenvolvedor';
+    return 'aluno'; // blocked self-elevation attempt
+  }
   if (lower === 'professor' || lower === 'teacher') return 'professor';
   return 'aluno';
 }
@@ -226,7 +246,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   useEffect(() => {
     let isMounted = true;
 
-    // Check active session from Supabase (persisted in localStorage)
+    // Check active session from Supabase (persisted in localStorage / storage)
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (!isMounted) return;
       if (error) {
@@ -239,15 +259,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (currentUser) {
         loadProfile(currentUser);
       } else {
-        // Check if demo user was saved
-        const savedDemo = localStorage.getItem('tutti_demo_role');
-        if (savedDemo) {
-          const role = savedDemo as 'desenvolvedor' | 'professor' | 'aluno';
-          const approval = (localStorage.getItem('tutti_demo_approval') as ApprovalStatus) || 'aprovado';
-          applyLocalDemoUser(role, approval);
-        } else {
-          setProfile(null);
-        }
+        setProfile(null);
       }
     }).catch(err => {
       console.warn('Supabase getSession exception:', err);
@@ -266,10 +278,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (currentUser) {
         loadProfile(currentUser);
       } else {
-        const savedDemo = localStorage.getItem('tutti_demo_role');
-        if (!savedDemo) {
-          setProfile(null);
-        }
+        setProfile(null);
       }
     });
 
@@ -281,22 +290,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithGoogle = async () => {
     try {
-      const oauthUrl = `https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent(window.location.origin)}`;
-      try {
-        const checkResp = await fetch(oauthUrl, { method: 'HEAD' });
-        if (checkResp.status === 400) {
-          throw new Error('Unsupported provider: provider is not enabled');
-        }
-      } catch (checkErr: any) {
-        if (checkErr.message?.includes('provider is not enabled')) {
-          throw checkErr;
-        }
-      }
-
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: window.location.origin
+          redirectTo: `${window.location.origin}/auth`
         }
       });
       if (error) throw error;
@@ -309,8 +306,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loginWithEmail = async (email: string, pass: string) => {
     try {
-      localStorage.removeItem('tutti_demo_role');
-      localStorage.removeItem('tutti_demo_approval');
       const res = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
       if (!res.error && res.data.user) {
         setUser(res.data.user);
@@ -329,7 +324,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     email: string,
     pass: string,
     name: string,
-    requestedRole: 'aluno' | 'professor' = 'aluno'
+    requestedRole: 'aluno' | 'professor' = 'aluno',
+    extraData?: { instrumento?: string; bio?: string }
   ) => {
     const cleanName = name.trim() || 'Músico Tutti';
     const isProfessor = requestedRole === 'professor';
@@ -344,25 +340,47 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             display_name: cleanName,
             name: cleanName,
             role: requestedRole,
-            approval_status: isProfessor ? 'pendente' : 'aprovado'
+            approval_status: isProfessor ? 'pendente' : 'aprovado',
+            instrumento: extraData?.instrumento || (isProfessor ? 'Docência Musical' : 'Saxofone Alto'),
+            bio: extraData?.bio || ''
           }
         }
       });
 
       if (!res.error && res.data.user) {
-        // Also register in solicitacoes_professores if professor was requested
+        const newUserId = res.data.user.id;
+        const cleanEmail = email.trim().toLowerCase();
+
+        // 1. Persist in public.usuarios
+        try {
+          await supabase.from('usuarios').upsert({
+            user_id: newUserId,
+            email: cleanEmail,
+            nome_completo: cleanName,
+            role: isProfessor ? 'teacher' : 'student',
+            approval_status: isProfessor ? 'pendente' : 'aprovado',
+            current_instrument: extraData?.instrumento || (isProfessor ? 'Docência Musical' : 'Saxofone Alto'),
+            bio: extraData?.bio || (isProfessor ? 'Perfil docente aguardando aprovação.' : 'Estudando no Tutti Escola de Música 🎶'),
+            created_at: new Date().toISOString()
+          }, { onConflict: 'user_id' });
+        } catch (uErr) {
+          console.debug('Note saving to public.usuarios:', uErr);
+        }
+
+        // 2. Also register in solicitacoes_professores if professor was requested
         if (isProfessor) {
           try {
             await supabase.from('solicitacoes_professores').insert({
-              user_id: res.data.user.id,
+              user_id: newUserId,
               nome: cleanName,
-              email: email.trim(),
-              instrumento: 'Saxofone / Madeiras',
+              email: cleanEmail,
+              instrumento: extraData?.instrumento || 'Saxofone / Instrumentos',
+              bio: extraData?.bio || 'Solicitação enviada pelo formulário de credenciamento docente.',
               status: 'pendente',
               created_at: new Date().toISOString()
             });
           } catch (e) {
-            console.debug('Error registering teacher request:', e);
+            console.debug('Error registering teacher request in solicitacoes_professores:', e);
           }
         }
 
@@ -370,7 +388,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           setUser(res.data.user);
           await loadProfile(res.data.user);
         }
-        await registrarEventoAcesso('cadastro_usuario', { email, role: requestedRole });
+        await registrarEventoAcesso('cadastro_usuario', { email: cleanEmail, role: requestedRole });
       }
       return res;
     } catch (err: any) {
@@ -378,84 +396,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const applyLocalDemoUser = (role: 'desenvolvedor' | 'professor' | 'aluno', approvalStatus: ApprovalStatus = 'aprovado') => {
-    const demoConfigs = {
-      desenvolvedor: {
-        id: 'dev-admin-tutti-id',
-        email: 'desenvolvedor@tutti.mus.br',
-        displayName: 'Lucas Maestro (Desenvolvedor & Admin)',
-        photoURL: '/assets/instruments/alto_sax.jpg',
-        role: 'desenvolvedor' as const,
-        approvalStatus: 'aprovado' as const,
-        bio: 'Arquiteto de Software, Maestro e Administrador Geral da Tutti Escola de Música 🎼'
-      },
-      professor: {
-        id: 'prof-clara-tutti-id',
-        email: 'professora.clara@tutti.mus.br',
-        displayName: 'Profª Clara Vasconcelos',
-        photoURL: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150&auto=format&fit=crop&q=80',
-        role: 'professor' as const,
-        approvalStatus: approvalStatus,
-        bio: 'Docente de Saxofone Tenor, Flauta Transversal e Improvisação Brasileira 🎷'
-      },
-      aluno: {
-        id: 'aluno-rafael-tutti-id',
-        email: 'rafael.aluno@tutti.mus.br',
-        displayName: 'Rafael Drumond',
-        photoURL: '',
-        role: 'aluno' as const,
-        approvalStatus: 'aprovado' as const,
-        bio: 'Estudando Saxofone Alto e Harmonia de Bossa Nova no Tutti Escola de Música 🎶'
-      }
-    };
-
-    const cfg = demoConfigs[role];
-    const demoUser: any = {
-      id: cfg.id,
-      email: cfg.email,
-      user_metadata: {
-        full_name: cfg.displayName,
-        role: cfg.role,
-        approval_status: cfg.approvalStatus
-      }
-    };
-
-    setUser(demoUser);
-    setProfile({
-      id: cfg.id,
-      email: cfg.email,
-      displayName: cfg.displayName,
-      photoURL: cfg.photoURL,
-      role: cfg.role,
-      approvalStatus: cfg.approvalStatus,
-      currentInstrument: 'Saxofone Alto',
-      level: 'Intermediário',
-      streakDays: 14,
-      xp: 450,
-      practiceHours: 26,
-      completedLessons: 8,
-      bio: cfg.bio
-    });
-  };
-
-  /**
-   * Fast 1-Click Login for each environment (Desenvolvedor, Professor, Aluno)
-   */
-  const loginAsRole = async (role: 'desenvolvedor' | 'professor' | 'aluno', approvalStatus: ApprovalStatus = 'aprovado') => {
-    localStorage.setItem('tutti_demo_role', role);
-    localStorage.setItem('tutti_demo_approval', approvalStatus);
-    applyLocalDemoUser(role, approvalStatus);
-    await registrarEventoAcesso('login_demo_perfil', { role, approvalStatus });
-  };
-
-  const loginAsDemoStudent = async () => {
-    await loginAsRole('aluno', 'aprovado');
-  };
-
   const resetPassword = async (email: string) => {
     try {
       const res = await supabase.auth.resetPasswordForEmail(email.trim(), {
-        redirectTo: `${window.location.origin}/perfil`
+        redirectTo: `${window.location.origin}/auth`
       });
       return res;
     } catch (err: any) {
@@ -466,8 +410,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     try {
       await registrarEventoAcesso('logout_usuario', { email: user?.email, role: profile?.role });
-      localStorage.removeItem('tutti_demo_role');
-      localStorage.removeItem('tutti_demo_approval');
       await supabase.auth.signOut();
     } catch (error) {
       console.error('Supabase signOut error:', error);
@@ -585,39 +527,69 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Solicitar cadastro como professor
+  // Solicitar cadastro como professor (com validação anti-duplicidade)
   const solicitarCadastroProfessor = async (nome: string, email: string, instrumento: string, bio?: string) => {
     try {
+      const cleanEmail = email.trim().toLowerCase();
+
+      // Verificar se já existe solicitação pendente
+      const { data: existing } = await supabase
+        .from('solicitacoes_professores')
+        .select('id, status')
+        .eq('email', cleanEmail)
+        .eq('status', 'pendente')
+        .maybeSingle();
+
+      if (existing) {
+        return {
+          error: new Error('Já existe uma solicitação pendente para este e-mail. Aguarde a análise do Desenvolvedor.')
+        };
+      }
+
       const res = await supabase.from('solicitacoes_professores').insert({
         user_id: user?.id || 'anonimo',
         nome,
-        email,
+        email: cleanEmail,
         instrumento,
         bio,
         status: 'pendente',
         created_at: new Date().toISOString()
       });
-      await registrarEventoAcesso('solicitacao_professor_criada', { email, instrumento });
+      await registrarEventoAcesso('solicitacao_professor_criada', { email: cleanEmail, instrumento });
       return { error: res.error };
     } catch (error) {
       return { error };
     }
   };
 
-  // Aprovar professor (ação exclusiva de Desenvolvedor / Admin)
+  // Aprovar professor (ação estritamente exclusiva do Desenvolvedor autorizado)
   const aprovarProfessor = async (solicitacaoId: string, professorUserId: string) => {
+    if (profile?.role !== 'desenvolvedor') {
+      return { error: new Error('Acesso negado: apenas o Desenvolvedor autorizado pode aprovar professores.') };
+    }
+
     try {
-      // 1. Atualiza a solicitação
+      // 1. Tentar executar via RPC no banco de dados (função SECURITY DEFINER)
+      const { error: rpcErr } = await supabase.rpc('aprovar_professor_rpc', {
+        p_solicitacao_id: solicitacaoId,
+        p_professor_user_id: professorUserId
+      });
+
+      if (!rpcErr) {
+        await registrarEventoAcesso('professor_aprovado_rpc', { solicitacaoId, professorUserId });
+        return { error: null };
+      }
+
+      // 2. Fallback direto se RPC ainda não estiver aplicado no console
       const { error: err1 } = await supabase
         .from('solicitacoes_professores')
         .update({
           status: 'aprovado',
           decided_at: new Date().toISOString(),
-          decided_by: user?.email || 'Desenvolvedor'
+          decided_by: user?.email || 'eliandrolucas.EL@gmail.com'
         })
         .eq('id', solicitacaoId);
 
-      // 2. Atualiza a tabela usuarios
       if (professorUserId && professorUserId !== 'anonimo') {
         await supabase
           .from('usuarios')
@@ -636,15 +608,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Rejeitar professor (ação exclusiva de Desenvolvedor / Admin)
+  // Rejeitar professor (ação estritamente exclusiva do Desenvolvedor autorizado)
   const rejeitarProfessor = async (solicitacaoId: string, professorUserId: string) => {
+    if (profile?.role !== 'desenvolvedor') {
+      return { error: new Error('Acesso negado: apenas o Desenvolvedor autorizado pode rejeitar solicitações.') };
+    }
+
     try {
+      // 1. Tentar executar via RPC no banco de dados
+      const { error: rpcErr } = await supabase.rpc('rejeitar_professor_rpc', {
+        p_solicitacao_id: solicitacaoId,
+        p_professor_user_id: professorUserId
+      });
+
+      if (!rpcErr) {
+        await registrarEventoAcesso('professor_rejeitado_rpc', { solicitacaoId, professorUserId });
+        return { error: null };
+      }
+
+      // 2. Fallback direto
       const { error } = await supabase
         .from('solicitacoes_professores')
         .update({
           status: 'rejeitado',
           decided_at: new Date().toISOString(),
-          decided_by: user?.email || 'Desenvolvedor'
+          decided_by: user?.email || 'eliandrolucas.EL@gmail.com'
         })
         .eq('id', solicitacaoId);
 
@@ -726,8 +714,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithGoogle,
         loginWithEmail,
         signUpWithEmail,
-        loginAsRole,
-        loginAsDemoStudent,
         resetPassword,
         logout,
         updateProfileData,

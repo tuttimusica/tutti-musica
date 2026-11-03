@@ -8,11 +8,9 @@ import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
-  Sparkles,
-  ShieldCheck,
-  GraduationCap,
-  Music,
-  ChevronRight
+  ChevronRight,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
@@ -26,11 +24,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const {
     user,
     profile,
-    projectId,
     loginWithGoogle,
     loginWithEmail,
     signUpWithEmail,
-    loginAsRole,
     resetPassword,
     logout
   } = useAuth();
@@ -39,7 +35,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
-  const [signUpRole, setSignUpRole] = useState<'aluno' | 'professor'>('aluno');
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -49,10 +45,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const translateAuthError = (err: any): string => {
     const msg = err?.message || err?.error_description || String(err || '');
     if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
-      return 'O provedor Google ainda não foi ativado no painel do Supabase. Utilize o login com E-mail e Senha abaixo.';
-    }
-    if (msg.includes('requested path is invalid') || msg.includes('Invalid path') || msg.includes('PGRST125') || msg.includes('PGRST126')) {
-      return 'Atenção: Acesso direto por esta interface.';
+      return 'O provedor Google OAuth está sendo configurado no Supabase. Por favor, utilize o login com E-mail e Senha.';
     }
     if (msg.includes('email_address_invalid') || msg.includes('is invalid')) {
       return 'Por favor, informe um endereço de e-mail válido.';
@@ -79,20 +72,6 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     if (role === 'desenvolvedor' || role === 'admin') return '/admin';
     if (role === 'professor') return '/professor';
     return '/aluno';
-  };
-
-  const handleRoleSelect = async (role: 'desenvolvedor' | 'professor' | 'aluno') => {
-    setIsSubmitting(true);
-    try {
-      await loginAsRole(role, 'aprovado');
-      onClose();
-      showToast(`Conectado com perfil: ${role.toUpperCase()}!`);
-      navigate(routeByRole(role));
-    } catch (err: any) {
-      setErrorMsg('Erro ao alternar perfil: ' + err.message);
-    } finally {
-      setIsSubmitting(false);
-    }
   };
 
   const handleGoogleSignIn = async () => {
@@ -127,24 +106,26 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     try {
       if (authMode === 'signin') {
-        const { error } = await loginWithEmail(email, password);
+        const { error, data } = await loginWithEmail(email, password);
         if (error) throw error;
         setSuccessMsg('Login efetuado com sucesso!');
+        showToast('Login realizado com sucesso! Bem-vindo(a) ♪');
         setTimeout(() => {
           onClose();
-          navigate(routeByRole(profile?.role));
-        }, 500);
+          const role = profile?.role || data?.user?.user_metadata?.role;
+          navigate(routeByRole(role));
+        }, 400);
       } else if (authMode === 'signup') {
-        const res = await signUpWithEmail(email, password, displayName || 'Músico Tutti', signUpRole);
+        const res = await signUpWithEmail(email, password, displayName || 'Músico Tutti', 'aluno');
         if (res.error) throw res.error;
         if (res.data?.session) {
           setSuccessMsg('Conta criada e autenticada com sucesso! Bem-vindo(a) ♪');
           setTimeout(() => {
             onClose();
-            navigate(routeByRole(signUpRole));
-          }, 600);
+            navigate('/aluno');
+          }, 500);
         } else {
-          setSuccessMsg('Conta criada no Supabase! Verifique seu e-mail para ativar seu acesso.');
+          setSuccessMsg('Conta criada no Supabase! Verifique seu e-mail para confirmar seu acesso.');
         }
       } else if (authMode === 'forgot') {
         const { error } = await resetPassword(email);
@@ -162,7 +143,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     await logout();
     onClose();
     navigate('/auth');
-    showToast('Sessão encerrada com sucesso. Voltando para login.');
+    showToast('Sessão encerrada com sucesso.');
   };
 
   return (
@@ -217,42 +198,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 }}
                 className="w-full py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-md transition flex items-center justify-center gap-2 cursor-pointer"
               >
-                <span>Acessar Meu Painel ({profile?.role})</span>
+                <span>Acessar Meu Painel</span>
                 <ChevronRight size={15} />
               </button>
-
-              <div className="text-[11px] text-slate-400 pt-1">
-                Trocar de perfil imediatamente:
-              </div>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => handleRoleSelect('desenvolvedor')}
-                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-amber-500/20 text-[10px] text-amber-300 border border-white/10 hover:border-amber-500/30 transition"
-                >
-                  Dev
-                </button>
-                <button
-                  onClick={() => handleRoleSelect('professor')}
-                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-emerald-500/20 text-[10px] text-emerald-300 border border-white/10 hover:border-emerald-500/30 transition"
-                >
-                  Professor
-                </button>
-                <button
-                  onClick={() => handleRoleSelect('aluno')}
-                  className="py-1.5 px-2 rounded-lg bg-white/5 hover:bg-cyan-500/20 text-[10px] text-cyan-300 border border-white/10 hover:border-cyan-500/30 transition"
-                >
-                  Aluno
-                </button>
-              </div>
             </div>
 
-            {/* Sign Out Button (Returns directly to /auth) */}
+            {/* Sign Out Button */}
             <button
               onClick={handleSignOut}
               className="w-full py-3 rounded-2xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <LogOut size={16} />
-              <span>Sair da Conta (Voltar para o Login)</span>
+              <span>Sair da Conta</span>
             </button>
           </div>
         ) : (
@@ -266,38 +223,8 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 Entrar na Plataforma
               </h3>
               <p className="text-xs text-slate-400">
-                Selecione seu tipo de acesso ou entre com suas credenciais.
+                Acesse suas aulas, partituras e estúdio com suas credenciais.
               </p>
-            </div>
-
-            {/* Direct 3-Role Entry Selection */}
-            <div className="p-3.5 rounded-2xl bg-[#0b0e15] border border-amber-500/20 space-y-2.5">
-              <span className="text-[10px] font-mono uppercase text-slate-400 font-bold block">
-                Entrar Diretamente Como:
-              </span>
-              <div className="grid grid-cols-3 gap-2">
-                <button
-                  onClick={() => handleRoleSelect('desenvolvedor')}
-                  className="p-2.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
-                >
-                  <ShieldCheck size={18} />
-                  <span>Dev / Admin</span>
-                </button>
-                <button
-                  onClick={() => handleRoleSelect('professor')}
-                  className="p-2.5 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
-                >
-                  <GraduationCap size={18} />
-                  <span>Professor</span>
-                </button>
-                <button
-                  onClick={() => handleRoleSelect('aluno')}
-                  className="p-2.5 rounded-xl bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 text-cyan-300 text-xs font-bold flex flex-col items-center gap-1.5 transition text-center"
-                >
-                  <Music size={18} />
-                  <span>Aluno</span>
-                </button>
-              </div>
             </div>
 
             {/* Tab switch */}
@@ -309,7 +236,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signin'
                       ? 'bg-amber-500 text-slate-950 font-bold shadow'
                       : 'text-slate-400 hover:text-white'
@@ -323,13 +250,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                     setErrorMsg(null);
                     setSuccessMsg(null);
                   }}
-                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all ${
+                  className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all cursor-pointer ${
                     authMode === 'signup'
                       ? 'bg-amber-500 text-slate-950 font-bold shadow'
                       : 'text-slate-400 hover:text-white'
                   }`}
                 >
-                  Cadastre-se
+                  Cadastre-se como Aluno
                 </button>
               </div>
             )}
@@ -337,46 +264,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
             {/* Form */}
             <form onSubmit={handleEmailAuth} className="space-y-3">
               {authMode === 'signup' && (
-                <>
-                  <div className="space-y-1">
-                    <label className="text-[11px] font-bold text-slate-300 uppercase">Perfil Desejado</label>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setSignUpRole('aluno')}
-                        className={`py-2 px-3 rounded-lg border text-xs font-bold ${
-                          signUpRole === 'aluno'
-                            ? 'bg-cyan-500/20 border-cyan-400 text-cyan-300'
-                            : 'bg-white/5 border-white/10 text-slate-400'
-                        }`}
-                      >
-                        Aluno
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => setSignUpRole('professor')}
-                        className={`py-2 px-3 rounded-lg border text-xs font-bold ${
-                          signUpRole === 'professor'
-                            ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
-                            : 'bg-white/5 border-white/10 text-slate-400'
-                        }`}
-                      >
-                        Professor
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <User size={15} className="absolute left-3 top-3 text-slate-400" />
-                    <input
-                      type="text"
-                      placeholder="Nome completo"
-                      value={displayName}
-                      onChange={(e) => setDisplayName(e.target.value)}
-                      className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
-                    />
-                  </div>
-                </>
+                <div className="relative">
+                  <User size={15} className="absolute left-3 top-3 text-slate-400" />
+                  <input
+                    type="text"
+                    placeholder="Nome completo"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    required
+                    className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
               )}
 
               <div className="relative">
@@ -395,14 +293,21 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                 <div className="relative">
                   <Lock size={15} className="absolute left-3 top-3 text-slate-400" />
                   <input
-                    type="password"
+                    type={showPassword ? 'text' : 'password'}
                     placeholder="Sua senha (mínimo 6 caracteres)"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     required
                     minLength={6}
-                    className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
+                    className="w-full bg-[#0b0d14] border border-white/10 rounded-xl pl-9 pr-9 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-amber-400"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-2.5 text-slate-400 hover:text-white cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                  </button>
                 </div>
               )}
 
@@ -430,23 +335,48 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
                   : authMode === 'signin'
                   ? 'Entrar na Plataforma'
                   : authMode === 'signup'
-                  ? 'Concluir Cadastro'
+                  ? 'Concluir Cadastro de Aluno'
                   : 'Enviar E-mail de Recuperação'}
               </button>
 
-              {authMode === 'forgot' && (
+              <div className="flex items-center justify-between pt-1">
+                {authMode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('forgot');
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-[11px] text-amber-400 hover:underline cursor-pointer"
+                  >
+                    Esqueceu sua senha?
+                  </button>
+                )}
+                {authMode === 'forgot' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setAuthMode('signin');
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="text-[11px] text-slate-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                  >
+                    <ArrowLeft size={12} /> Voltar para o Login
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => {
-                    setAuthMode('signin');
-                    setErrorMsg(null);
-                    setSuccessMsg(null);
+                    onClose();
+                    navigate('/auth');
                   }}
-                  className="w-full py-2 text-xs text-slate-400 hover:text-white flex items-center justify-center gap-1.5 transition-colors cursor-pointer"
+                  className="text-[11px] text-slate-400 hover:text-emerald-400 cursor-pointer ml-auto"
                 >
-                  <ArrowLeft size={14} /> Voltar para o Login
+                  É professor? Ir para portal completo
                 </button>
-              )}
+              </div>
             </form>
 
             {authMode !== 'forgot' && (

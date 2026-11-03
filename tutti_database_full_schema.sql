@@ -102,10 +102,10 @@ CREATE TABLE IF NOT EXISTS public.profiles (
 -- 2. PLANOS DE ASSINATURA & ASSINATURAS DE ALUNOS
 -- ============================================================================
 CREATE TABLE IF NOT EXISTS public.planos (
-  id TEXT PRIMARY KEY, -- 'free', 'pro', 'ultra'
+  id TEXT PRIMARY KEY, -- 'free', 'pro', 'ultra', 'ultra_trimestral', 'ultra_semestral'
   nome TEXT NOT NULL,
   preco NUMERIC(10, 2) NOT NULL,
-  recorrencia TEXT NOT NULL, -- 'gratis', 'vitalicio', 'anual'
+  recorrencia TEXT NOT NULL CHECK (recorrencia IN ('gratis', 'vitalicio', 'mensal', 'trimestral', 'semestral')),
   descricao TEXT,
   beneficios JSONB DEFAULT '[]'::jsonb,
   badge TEXT,
@@ -204,6 +204,11 @@ CREATE TABLE IF NOT EXISTS public.partituras (
   compasso TEXT DEFAULT '4/4',
   descricao TEXT,
   arquivo_pdf_url TEXT,
+  storage_path TEXT,
+  is_featured BOOLEAN DEFAULT false,
+  featured_order INTEGER DEFAULT 0,
+  file_size_bytes BIGINT DEFAULT 0,
+  created_by TEXT,
   audio_playalong_url TEXT,
   youtube_url TEXT,
   cifras JSONB DEFAULT '[]'::jsonb,
@@ -543,6 +548,54 @@ VALUES
 -- 12. TABELAS DE GESTÃO MULTI-AMBIENTE: DESENVOLVEDOR, PROFESSOR & ALUNO
 -- ============================================================================
 
+-- Tabela de Administradores / Desenvolvedores Autorizados
+-- Apenas contas explicitamente listadas aqui podem exercer privilégios de desenvolvedor.
+CREATE TABLE IF NOT EXISTS public.administradores_autorizados (
+  email TEXT PRIMARY KEY,
+  descricao TEXT DEFAULT 'Desenvolvedor & Administrador Oficial Tutti',
+  criado_em TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed do Desenvolvedor Principal Autorizado
+INSERT INTO public.administradores_autorizados (email, descricao)
+VALUES ('eliandrolucas.el@gmail.com', 'Desenvolvedor Autorizado e Arquiteto de Software')
+ON CONFLICT (email) DO NOTHING;
+
+-- Função de Segurança no Backend para Identificação do Desenvolvedor
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN AS $$
+BEGIN
+  RETURN (
+    LOWER(COALESCE(auth.jwt() ->> 'email', '')) IN (
+      SELECT LOWER(email) FROM public.administradores_autorizados
+    ) OR LOWER(COALESCE(auth.jwt() ->> 'email', '')) = 'eliandrolucas.el@gmail.com'
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- Trigger de Proteção de Perfis: impede auto-promoção de role e approval_status
+CREATE OR REPLACE FUNCTION public.protect_user_roles()
+RETURNS TRIGGER AS $$
+BEGIN
+  -- Se quem está atualizando NÃO é administrador autorizado, mantém o role e o approval_status anteriores
+  IF NOT public.is_admin() THEN
+    NEW.role := OLD.role;
+    NEW.approval_status := OLD.approval_status;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+DROP TRIGGER IF EXISTS trg_protect_user_roles ON public.usuarios;
+CREATE TRIGGER trg_protect_user_roles
+  BEFORE UPDATE ON public.usuarios
+  FOR EACH ROW EXECUTE FUNCTION public.protect_user_roles();
+
+DROP TRIGGER IF EXISTS trg_protect_profiles_role ON public.profiles;
+CREATE TRIGGER trg_protect_profiles_role
+  BEFORE UPDATE ON public.profiles
+  FOR EACH ROW EXECUTE FUNCTION public.protect_user_roles();
+
 -- Solicitações de Credenciamento de Professores
 CREATE TABLE IF NOT EXISTS public.solicitacoes_professores (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
@@ -558,6 +611,9 @@ CREATE TABLE IF NOT EXISTS public.solicitacoes_professores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_solicitacoes_status ON public.solicitacoes_professores(status);
+CREATE INDEX IF NOT EXISTS idx_solicitacoes_email ON public.solicitacoes_professores(email);
+-- Impede solicitações pendentes duplicadas para o mesmo e-mail
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solicitacao_pendente_unica ON public.solicitacoes_professores(email) WHERE status = 'pendente';
 
 -- Marcações de Aulas Individuais (Professor <-> Aluno)
 CREATE TABLE IF NOT EXISTS public.marcacoes_aulas (
@@ -606,31 +662,81 @@ CREATE TABLE IF NOT EXISTS public.conteudos_site (
 );
 
 -- ============================================================================
--- 13. POLÍTICAS DE RLS PARA OS 3 AMBIENTES
+-- 13. POLÍTICAS DE RLS GRANULARES PARA OS 3 AMBIENTES
 -- ============================================================================
+ALTER TABLE public.administradores_autorizados ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.solicitacoes_professores ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.marcacoes_aulas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.eventos_acesso ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.conteudos_site ENABLE ROW LEVEL SECURITY;
 
--- Solicitacoes: Alunos criam solicitacao; Devs visualizam e aprovam todas; Professores visualizam a sua
+-- 13.1 Administradores Autorizados
+DROP POLICY IF EXISTS "Leitura de administradores por admin" ON public.administradores_autorizados;
+CREATE POLICY "Leitura de administradores por admin"
+  ON public.administradores_autorizados FOR SELECT
+  USING (public.is_admin());
+
+-- 13.2 Solicitações de Professores
+-- Alunos só podem criar solicitação para si próprios e sempre com status inicial 'pendente'
 DROP POLICY IF EXISTS "Public ou Alunos podem criar solicitacao de professor" ON public.solicitacoes_professores;
 CREATE POLICY "Public ou Alunos podem criar solicitacao de professor"
   ON public.solicitacoes_professores FOR INSERT
-  WITH CHECK (true);
+  WITH CHECK (
+    status = 'pendente'
+    AND (auth.uid() IS NULL OR auth.uid()::text = user_id)
+  );
 
+-- Consulta de solicitações: Admin vê todas; o solicitante vê apenas a sua própria
 DROP POLICY IF EXISTS "Desenvolvedor gerencia solicitacoes" ON public.solicitacoes_professores;
 CREATE POLICY "Desenvolvedor gerencia solicitacoes"
-  ON public.solicitacoes_professores FOR ALL
-  USING (true);
+  ON public.solicitacoes_professores FOR SELECT
+  USING (
+    public.is_admin()
+    OR auth.uid()::text = user_id
+    OR LOWER(email) = LOWER(auth.jwt() ->> 'email')
+  );
 
--- Marcacoes: Professores e Devs gerenciam suas aulas; Alunos visualizam as suas
+-- Atualização e Decisão (Aprovar / Rejeitar): EXCLUSIVA DO DESENVOLVEDOR
+-- Usuários comuns NUNCA podem alterar o status de sua própria solicitação!
+CREATE POLICY "Apenas desenvolvedor decide solicitacoes"
+  ON public.solicitacoes_professores FOR UPDATE
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+-- 13.3 Marcações de Aulas (Privacidade estrita entre Professores e Alunos)
+-- Visualização: Desenvolvedor vê todas; Professor vê apenas as suas; Aluno vê apenas as suas
 DROP POLICY IF EXISTS "Acesso as marcacoes de aula" ON public.marcacoes_aulas;
 CREATE POLICY "Acesso as marcacoes de aula"
-  ON public.marcacoes_aulas FOR ALL
-  USING (true);
+  ON public.marcacoes_aulas FOR SELECT
+  USING (
+    public.is_admin()
+    OR (auth.uid() IS NOT NULL AND (professor_id = auth.uid()::text OR LOWER(professor_email) = LOWER(auth.jwt() ->> 'email')))
+    OR (auth.uid() IS NOT NULL AND (aluno_id = auth.uid()::text OR LOWER(aluno_email) = LOWER(auth.jwt() ->> 'email')))
+  );
 
--- Eventos: Qualquer ator pode inserir logs, apenas Dev visualiza
+-- Inserção: Apenas Desenvolvedor ou Professor autenticado agendando com seus alunos
+CREATE POLICY "Professores criam marcacoes autorizadas"
+  ON public.marcacoes_aulas FOR INSERT
+  WITH CHECK (
+    public.is_admin()
+    OR (
+      auth.uid() IS NOT NULL 
+      AND (professor_id = auth.uid()::text OR LOWER(professor_email) = LOWER(auth.jwt() ->> 'email'))
+    )
+  );
+
+-- Atualização: Apenas Desenvolvedor ou o Professor responsável pela aula
+CREATE POLICY "Professores atualizam apenas suas aulas"
+  ON public.marcacoes_aulas FOR UPDATE
+  USING (
+    public.is_admin()
+    OR (
+      auth.uid() IS NOT NULL 
+      AND (professor_id = auth.uid()::text OR LOWER(professor_email) = LOWER(auth.jwt() ->> 'email'))
+    )
+  );
+
+-- 13.4 Auditoria e Eventos de Acesso
 DROP POLICY IF EXISTS "Insercao livre de eventos" ON public.eventos_acesso;
 CREATE POLICY "Insercao livre de eventos"
   ON public.eventos_acesso FOR INSERT
@@ -639,18 +745,123 @@ CREATE POLICY "Insercao livre de eventos"
 DROP POLICY IF EXISTS "Leitura de eventos por desenvolvedor" ON public.eventos_acesso;
 CREATE POLICY "Leitura de eventos por desenvolvedor"
   ON public.eventos_acesso FOR SELECT
-  USING (true);
+  USING (public.is_admin());
 
--- Conteudos do site: Leitura publica, escrita por Desenvolvedor
+-- 13.5 Conteúdos Editáveis do Site
 DROP POLICY IF EXISTS "Leitura publica de conteudos" ON public.conteudos_site;
 CREATE POLICY "Leitura publica de conteudos"
   ON public.conteudos_site FOR SELECT
-  USING (true);
+  USING (publicado = true OR public.is_admin());
 
 DROP POLICY IF EXISTS "Desenvolvedor altera conteudos" ON public.conteudos_site;
 CREATE POLICY "Desenvolvedor altera conteudos"
   ON public.conteudos_site FOR ALL
-  USING (true);
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
+
+-- ============================================================================
+-- 14. FUNÇÕES RPC SEGURAS (BACKEND STORED PROCEDURES)
+-- ============================================================================
+
+-- RPC: Aprovação de Professor pelo Desenvolvedor
+CREATE OR REPLACE FUNCTION public.aprovar_professor_rpc(p_solicitacao_id UUID)
+RETURNS JSONB AS $$
+DECLARE
+  v_user_id TEXT;
+  v_email TEXT;
+  v_nome TEXT;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Acesso negado: apenas o desenvolvedor autorizado pode aprovar professores.';
+  END IF;
+
+  UPDATE public.solicitacoes_professores
+  SET status = 'aprovado',
+      decided_at = NOW(),
+      decided_by = COALESCE(auth.jwt() ->> 'email', 'Desenvolvedor Autorizado')
+  WHERE id = p_solicitacao_id
+  RETURNING user_id, email, nome INTO v_user_id, v_email, v_nome;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitação de professor não encontrada.';
+  END IF;
+
+  -- Promove o usuário na tabela usuarios
+  IF v_user_id IS NOT NULL AND v_user_id <> 'anonimo' THEN
+    UPDATE public.usuarios
+    SET role = 'teacher',
+        approval_status = 'aprovado',
+        updated_at = NOW()
+    WHERE user_id::text = v_user_id;
+
+    UPDATE public.profiles
+    SET role = 'teacher',
+        approval_status = 'aprovado',
+        updated_at = NOW()
+    WHERE id::text = v_user_id;
+  END IF;
+
+  -- Registra na auditoria
+  INSERT INTO public.eventos_acesso (user_id, perfil, tipo_evento, detalhes)
+  VALUES (
+    auth.uid()::text,
+    'desenvolvedor',
+    'professor_aprovado',
+    jsonb_build_object('solicitacao_id', p_solicitacao_id, 'email_professor', v_email, 'nome', v_nome)
+  );
+
+  RETURN jsonb_build_object('success', true, 'status', 'aprovado', 'professor_email', v_email);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- RPC: Rejeição de Professor pelo Desenvolvedor
+CREATE OR REPLACE FUNCTION public.rejeitar_professor_rpc(p_solicitacao_id UUID)
+RETURNS JSONB AS $$
+DECLARE
+  v_user_id TEXT;
+  v_email TEXT;
+BEGIN
+  IF NOT public.is_admin() THEN
+    RAISE EXCEPTION 'Acesso negado: apenas o desenvolvedor autorizado pode rejeitar professores.';
+  END IF;
+
+  UPDATE public.solicitacoes_professores
+  SET status = 'rejeitado',
+      decided_at = NOW(),
+      decided_by = COALESCE(auth.jwt() ->> 'email', 'Desenvolvedor Autorizado')
+  WHERE id = p_solicitacao_id
+  RETURNING user_id, email INTO v_user_id, v_email;
+
+  IF NOT FOUND THEN
+    RAISE EXCEPTION 'Solicitação de professor não encontrada.';
+  END IF;
+
+  -- Mantém o usuário como aluno regular
+  IF v_user_id IS NOT NULL AND v_user_id <> 'anonimo' THEN
+    UPDATE public.usuarios
+    SET role = 'student',
+        approval_status = 'rejeitado',
+        updated_at = NOW()
+    WHERE user_id::text = v_user_id;
+
+    UPDATE public.profiles
+    SET role = 'student',
+        approval_status = 'rejeitado',
+        updated_at = NOW()
+    WHERE id::text = v_user_id;
+  END IF;
+
+  INSERT INTO public.eventos_acesso (user_id, perfil, tipo_evento, detalhes)
+  VALUES (
+    auth.uid()::text,
+    'desenvolvedor',
+    'professor_rejeitado',
+    jsonb_build_object('solicitacao_id', p_solicitacao_id, 'email_professor', v_email)
+  );
+
+  RETURN jsonb_build_object('success', true, 'status', 'rejeitado', 'professor_email', v_email);
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Seeds de Demonstração
 INSERT INTO public.solicitacoes_professores (nome, email, instrumento, bio, status)
