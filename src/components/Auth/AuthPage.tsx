@@ -127,7 +127,7 @@ export const AuthPage: React.FC = () => {
 
   // When user is already authenticated or becomes authenticated via OAuth on /auth, redirect seamlessly
   useEffect(() => {
-    if (!loading && user) {
+    if (!loading && user && profile) {
       const dest = queryParams.redirectTo || routeByRole(profile?.role);
       // Small timeout to allow state to settle
       const timer = setTimeout(() => {
@@ -136,7 +136,7 @@ export const AuthPage: React.FC = () => {
       }, 350);
       return () => clearTimeout(timer);
     }
-  }, [user, loading, profile?.role, queryParams.redirectTo, navigate, showToast]);
+  }, [user, loading, profile, queryParams.redirectTo, navigate, showToast]);
 
   // Translate Supabase and OAuth errors to Portuguese
   const translateAuthError = (err: any): string => {

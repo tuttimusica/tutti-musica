@@ -44,6 +44,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
   const translateAuthError = (err: any): string => {
     const msg = err?.message || err?.error_description || String(err || '');
+    if (msg.includes('redirect_uri_mismatch')) {
+      return 'Erro 400 (redirect_uri_mismatch): A URL de redirecionamento no Google Cloud Console deve ser exatamente: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback';
+    }
+    if (msg.includes('deleted_client') || msg.includes('client was deleted')) {
+      return 'O Cliente OAuth do Google configurado no Supabase foi excluído no Google Cloud. É necessário cadastrar um novo Client ID.';
+    }
     if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
       return 'O provedor Google OAuth está sendo configurado no Supabase. Por favor, utilize o login com E-mail e Senha.';
     }
