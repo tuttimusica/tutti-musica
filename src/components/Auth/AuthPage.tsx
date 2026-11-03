@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Mail,
   Lock,
@@ -17,7 +17,9 @@ import {
   Clock,
   Shield,
   FileText,
-  X
+  X,
+  HelpCircle,
+  AlertTriangle
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
@@ -26,6 +28,7 @@ export const AuthPage: React.FC = () => {
   const {
     user,
     profile,
+    loading,
     loginWithEmail,
     signUpWithEmail,
     resetPassword,
@@ -55,17 +58,97 @@ export const AuthPage: React.FC = () => {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [oauthDiagnosticInfo, setOauthDiagnosticInfo] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [pendingTeacherNotice, setPendingTeacherNotice] = useState(false);
   
   // Terms & Privacy Modals
   const [activeLegalModal, setActiveLegalModal] = useState<'terms' | 'privacy' | null>(null);
 
-  // Friendly error translation to Brazilian Portuguese
+  const routeByRole = (role?: string) => {
+    if (role === 'desenvolvedor' || role === 'admin') return '/admin';
+    if (role === 'professor') return '/professor';
+    return '/aluno';
+  };
+
+  // Inspect URL parameters and Hash on component mount for OAuth errors or callbacks
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    try {
+      // 1. Check URL query string
+      const searchParams = new URLSearchParams(window.location.search);
+      const searchError = searchParams.get('error');
+      const searchErrorDesc = searchParams.get('error_description');
+
+      // 2. Check URL hash (Supabase Auth returns errors and tokens in hash)
+      let hashError: string | null = null;
+      let hashErrorDesc: string | null = null;
+      if (window.location.hash && window.location.hash.includes('error=')) {
+        const hashString = window.location.hash.substring(1);
+        const hashParams = new URLSearchParams(hashString);
+        hashError = hashParams.get('error');
+        hashErrorDesc = hashParams.get('error_description');
+      }
+
+      const rawError = searchError || hashError;
+      const rawDesc = searchErrorDesc || hashErrorDesc;
+
+      if (rawError || rawDesc) {
+        const combined = `${rawError || ''}: ${rawDesc || ''}`.toLowerCase();
+        
+        if (combined.includes('deleted_client') || combined.includes('client was deleted')) {
+          setOauthDiagnosticInfo(
+            'O Cliente OAuth do Google configurado no provedor Supabase foi excluído ou desativado no Google Cloud Console (Erro 401: deleted_client). É necessário criar um novo Client ID e atualizar as credenciais no painel do Supabase.'
+          );
+          setErrorMsg('O login com Google está temporariamente indisponível devido a credenciais desatualizadas no servidor. Por favor, utilize seu E-mail e Senha abaixo.');
+        } else if (combined.includes('access_denied')) {
+          setErrorMsg('A autenticação com o Google foi cancelada por você.');
+        } else if (combined.includes('unsupported_provider') || combined.includes('provider is not enabled')) {
+          setErrorMsg('O provedor Google ainda não está habilitado no painel do Supabase. Utilize o login convencional.');
+        } else if (combined.includes('redirect_uri_mismatch')) {
+          setOauthDiagnosticInfo(
+            'A URL de redirecionamento autorizada não coincide com a cadastrada no Google Cloud Console. A URL obrigatória é: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback'
+          );
+          setErrorMsg('Erro de configuração de URL no Google OAuth.');
+        } else {
+          setErrorMsg(rawDesc || rawError || 'Falha na autenticação via Google.');
+        }
+
+        // Clean up hash to prevent stale errors on page refresh
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState({}, document.title, window.location.pathname);
+        }
+      }
+    } catch (e) {
+      console.debug('OAuth URL inspection notice:', e);
+    }
+  }, []);
+
+  // When user is already authenticated or becomes authenticated via OAuth on /auth, redirect seamlessly
+  useEffect(() => {
+    if (!loading && user) {
+      const dest = queryParams.redirectTo || routeByRole(profile?.role);
+      // Small timeout to allow state to settle
+      const timer = setTimeout(() => {
+        showToast('Login realizado com sucesso! Bem-vindo(a) à Tutti ♪');
+        navigate(dest);
+      }, 350);
+      return () => clearTimeout(timer);
+    }
+  }, [user, loading, profile?.role, queryParams.redirectTo, navigate, showToast]);
+
+  // Translate Supabase and OAuth errors to Portuguese
   const translateAuthError = (err: any): string => {
     const msg = err?.message || err?.error_description || String(err || '');
+    if (msg.includes('deleted_client') || msg.includes('client was deleted')) {
+      setOauthDiagnosticInfo(
+        'O Client ID do Google configurado no Supabase não existe mais no Google Cloud. O administrador precisa gerar um novo Client ID e atualizar o Supabase.'
+      );
+      return 'O provedor Google OAuth está com credenciais excluídas no Google Cloud (Erro 401: deleted_client). Por favor, use login com E-mail e Senha.';
+    }
     if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
-      return 'O provedor Google OAuth está sendo configurado no Supabase. Por favor, utilize o login com E-mail e Senha.';
+      return 'O provedor Google OAuth está sendo ativado no painel do Supabase. Por favor, utilize o login com E-mail e Senha.';
     }
     if (msg.includes('email_address_invalid') || msg.includes('is invalid')) {
       return 'Por favor, informe um endereço de e-mail com formato válido (ex: seu-nome@exemplo.com).';
@@ -86,12 +169,6 @@ export const AuthPage: React.FC = () => {
       return 'Falha de comunicação com o servidor de autenticação. Verifique sua conexão com a internet.';
     }
     return msg || 'Ocorreu uma falha no processamento da autenticação. Tente novamente.';
-  };
-
-  const routeByRole = (role?: string) => {
-    if (role === 'desenvolvedor' || role === 'admin') return '/admin';
-    if (role === 'professor') return '/professor';
-    return '/aluno';
   };
 
   // Reset errors when changing modes
@@ -125,7 +202,6 @@ export const AuthPage: React.FC = () => {
 
       showToast('Login realizado com sucesso! Bem-vindo(a) à Tutti ♪');
 
-      // Check role from session / profile to redirect properly
       const userRole = profile?.role || data?.user?.user_metadata?.role;
       const targetPath = routeByRole(userRole);
       navigate(queryParams.redirectTo || targetPath);
@@ -266,6 +342,7 @@ export const AuthPage: React.FC = () => {
     try {
       setIsSubmitting(true);
       setErrorMsg(null);
+      setOauthDiagnosticInfo(null);
       await loginWithGoogle();
     } catch (err: any) {
       setErrorMsg(translateAuthError(err));
@@ -288,7 +365,10 @@ export const AuthPage: React.FC = () => {
 
         {/* Brand Header */}
         <div className="text-center space-y-3 relative z-10">
-          <div className="w-20 h-20 mx-auto rounded-full overflow-hidden p-1 bg-gradient-to-tr from-amber-400 via-amber-600 to-yellow-500 shadow-xl shadow-amber-500/15 cursor-pointer" onClick={() => navigate('/')}>
+          <div
+            className="w-20 h-20 mx-auto rounded-full overflow-hidden p-1 bg-gradient-to-tr from-amber-400 via-amber-600 to-yellow-500 shadow-xl shadow-amber-500/15 cursor-pointer"
+            onClick={() => navigate('/')}
+          >
             <img
               src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif"
               alt="Logo Tutti Escola de Música"
@@ -307,6 +387,29 @@ export const AuthPage: React.FC = () => {
             </p>
           </div>
         </div>
+
+        {/* Diagnostic Banner if Google OAuth Error 401: deleted_client is detected */}
+        {oauthDiagnosticInfo && (
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 relative z-10 animate-in fade-in">
+            <div className="flex items-center gap-2 font-bold text-amber-400">
+              <AlertTriangle size={16} />
+              <span>Diagnóstico de Autenticação Google (Erro 401: deleted_client)</span>
+            </div>
+            <p className="leading-relaxed text-slate-300">
+              {oauthDiagnosticInfo}
+            </p>
+            <div className="text-[11px] text-slate-400 pt-1 border-t border-white/10 flex items-center justify-between">
+              <span>Alternativa imediata: Utilize seu <strong>E-mail e Senha</strong> abaixo para entrar.</span>
+              <button
+                type="button"
+                onClick={() => setOauthDiagnosticInfo(null)}
+                className="text-amber-400 hover:text-white transition font-semibold"
+              >
+                Dispensar aviso
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Current Active Session Banner (if already logged in) */}
         {user && (

@@ -2230,7 +2230,11 @@ export default function App() {
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const p = window.location.pathname;
-      const validPaths = ['/', '/aulas', '/partituras', '/estudio', '/agenda', '/comunidade', '/loja', '/perfil', '/auth', '/login'];
+      const validPaths = [
+        '/', '/aulas', '/partituras', '/estudio', '/agenda', 
+        '/comunidade', '/loja', '/perfil', '/auth', '/login', 
+        '/admin', '/professor', '/aluno'
+      ];
       if (validPaths.includes(p)) return p;
     }
     return '/';
