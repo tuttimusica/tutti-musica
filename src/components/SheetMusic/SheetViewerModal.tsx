@@ -19,6 +19,7 @@ export interface SheetViewerModalProps {
   file?: File | Blob | null;
   pdfUrl?: string | null;
   title?: string;
+  isPaidProtected?: boolean;
   isOpen: boolean;
   onClose: () => void;
 }
@@ -28,6 +29,7 @@ export const SheetViewerModal: React.FC<SheetViewerModalProps> = ({
   file, 
   pdfUrl, 
   title, 
+  isPaidProtected = false,
   isOpen, 
   onClose 
 }) => {
@@ -200,8 +202,25 @@ export const SheetViewerModal: React.FC<SheetViewerModalProps> = ({
     setTimeout(() => setCopiedLink(false), 2000);
   };
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (pdfBlobUrl) {
+      try {
+        if (isPaidProtected && !pdfBlobUrl.startsWith('blob:')) {
+          const response = await fetch(pdfBlobUrl);
+          const blob = await response.blob();
+          const safeUrl = URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
+          const a = document.createElement('a');
+          a.href = safeUrl;
+          a.download = `${displayTitle.replace(/\s+/g, '_')}.pdf`;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          URL.revokeObjectURL(safeUrl);
+          return;
+        }
+      } catch {
+        // Fallback to direct link below
+      }
       const a = document.createElement('a');
       a.href = pdfBlobUrl;
       a.download = `${displayTitle.replace(/\s+/g, '_')}.pdf`;
@@ -240,13 +259,18 @@ export const SheetViewerModal: React.FC<SheetViewerModalProps> = ({
               {activeTab === 'pdf' ? <FileText size={20} /> : <Music size={20} />}
             </div>
             <div className="min-w-0">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="font-syne font-bold text-base sm:text-lg text-white truncate max-w-md sm:max-w-xl">
                   {displayTitle}
                 </h3>
                 {sheet && (
                   <span className="text-xs bg-white/10 text-slate-300 px-2 py-0.5 rounded-full font-medium hidden sm:inline">
                     {sheet.genre}
+                  </span>
+                )}
+                {(isPaidProtected || sheet?.categoria === 'paga') && (
+                  <span className="text-[10px] bg-amber-500/20 text-amber-300 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
+                    Partitura Paga Liberada (Acesso Protegido)
                   </span>
                 )}
               </div>

@@ -7,7 +7,10 @@ export interface RouterContextType {
   navigate: (path: string, params?: Record<string, string>) => void;
   openMetronome: () => void;
   openTuner: () => void;
-  openSheetViewer: (sheet: SheetMusic) => void;
+  openSheetViewer: (
+    sheet: SheetMusic,
+    options?: { pdfUrl?: string | null; isPaidProtected?: boolean }
+  ) => void;
   openAuthModal: () => void;
   openPlansModal: () => void;
   openSocialModal: () => void;

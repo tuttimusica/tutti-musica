@@ -1,14 +1,25 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { 
-  LayoutDashboard, BookOpen, Calendar, Clock, Users, User, 
-  Plus, CheckCircle2, AlertCircle, Clock3, Video, Phone, Mail, 
-  Search, ShieldAlert, LogOut, Sparkles, ChevronRight, Check
+  LayoutDashboard, BookOpen, Calendar, Users, User, 
+  Plus, CheckCircle2, AlertCircle, Video, 
+  Search, ShieldAlert, LogOut, ChevronRight, Check,
+  FileText, Lock, Star, Eye, Loader2
 } from 'lucide-react';
 import { useAuth, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
 import { supabase } from '../../lib/supabase';
+import { OfficialContacts } from '../Common/OfficialContacts';
+import {
+  DbPartitura,
+  fetchPublishedPartituras,
+  fetchUnlockedPartituraIds,
+  resolvePartituraPdfUrl,
+  createPaidSheetCheckout
+} from '../../services/partiturasService';
+import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
+import { SheetMusic } from '../../data/musicData';
 
-type TeacherTab = 'dashboard' | 'aulas' | 'agenda' | 'alunos' | 'perfil';
+type TeacherTab = 'dashboard' | 'aulas' | 'agenda' | 'alunos' | 'partituras' | 'perfil';
 
 export interface TeacherPanelProps {
   onLogoutToAuth?: () => void;
@@ -36,11 +47,29 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [partituras, setPartituras] = useState<DbPartitura[]>([]);
+  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
+  const [searchPartitura, setSearchPartitura] = useState('');
+  const [openingId, setOpeningId] = useState<number | null>(null);
+  const [viewerData, setViewerData] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
 
   const teacherDisplayName = profile?.displayName || user?.user_metadata?.full_name || 'Professor(a) Tutti';
   const teacherEmail = profile?.email || user?.email || 'professor@tutti.mus.br';
 
-  // Load bookings for current teacher from Supabase
+  const loadSheets = useCallback(async () => {
+    try {
+      const [sheets, unlocked] = await Promise.all([
+        fetchPublishedPartituras(),
+        fetchUnlockedPartituraIds(user?.id)
+      ]);
+      setPartituras(sheets);
+      setUnlockedIds(unlocked);
+    } catch (e) {
+      console.debug('Teacher partituras load note:', e);
+    }
+  }, [user?.id]);
+
+  // Load bookings for current teacher and partituras from Supabase
   useEffect(() => {
     async function loadTeacherData() {
       if (!teacherDisplayName) return;
@@ -55,6 +84,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         if (!error && data) {
           setTeacherBookings(data as LessonBooking[]);
         }
+        await loadSheets();
       } catch (e) {
         console.debug('Supabase teacher sync note:', e);
       } finally {
@@ -62,7 +92,51 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
       }
     }
     loadTeacherData();
-  }, [teacherDisplayName, teacherEmail]);
+
+    const ch = supabase
+      .channel('teacher-partituras-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => loadSheets())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(ch);
+    };
+  }, [teacherDisplayName, teacherEmail, loadSheets]);
+
+  const handleOpenTeacherSheet = async (item: DbPartitura) => {
+    try {
+      setOpeningId(item.id);
+      const { url, protected: isProtected } = await resolvePartituraPdfUrl(item);
+      setViewerData({
+        sheet: {
+          id: Number(item.id),
+          title: item.titulo,
+          composer: item.compositor || 'Compositor Tutti',
+          instrument: item.instrumento || 'Instrumento Tutti',
+          tonality: item.tonalidade || 'C',
+          originalKey: item.tom_original || item.tonalidade || 'C',
+          family: 'Tutti',
+          level: (item.nivel as any) || 'Intermediário',
+          genre: item.genero || 'Geral',
+          tempo: item.tempo_bpm || 120,
+          timeSignature: item.compasso || '4/4',
+          melodyNotes: Array.isArray(item.melodia_notas) ? item.melodia_notas : [],
+          chords: Array.isArray(item.cifras) ? item.cifras : [],
+          description: item.descricao || '',
+          youtubeUrl: item.youtube_url || undefined,
+          pdfUrl: item.categoria === 'paga' ? undefined : (item.arquivo_pdf_url || undefined),
+          categoria: item.categoria || 'gratuita',
+          preco: item.preco,
+        },
+        pdfUrl: url,
+        isPaidProtected: isProtected,
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Acesso protegido: solicite liberação ou adquira a partitura.');
+    } finally {
+      setOpeningId(null);
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -287,6 +361,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
             { id: 'aulas', label: 'Minhas Aulas', icon: BookOpen, badge: teacherBookings.filter(b => b.status === 'agendada').length },
             { id: 'agenda', label: 'Agenda de Aulas (Marcar)', icon: Calendar },
             { id: 'alunos', label: 'Meus Alunos', icon: Users, badge: uniqueLinkedStudents.length },
+            { id: 'partituras', label: 'Acervo de Partituras', icon: FileText, badge: partituras.length },
             { id: 'perfil', label: 'Meu Perfil', icon: User },
           ].map(tab => {
             const Icon = tab.icon;
@@ -365,6 +440,11 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                     <ChevronRight size={16} />
                   </button>
                 </div>
+              </div>
+              {/* Support Contacts */}
+              <div className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-3">
+                <h3 className="font-syne font-bold text-sm text-white">Atendimento & Secretaria Tutti</h3>
+                <OfficialContacts />
               </div>
             </div>
           )}
@@ -531,7 +611,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                       type="tel"
                       value={formData.alunoTelefone}
                       onChange={e => setFormData({ ...formData, alunoTelefone: e.target.value })}
-                      placeholder="(11) 99999-9999"
+                      placeholder="(21) 92037-5422"
                       className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-3 outline-none focus:border-emerald-400 text-xs"
                     />
                   </div>
@@ -652,7 +732,111 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
             </div>
           )}
 
-          {/* TAB 5: MEU PERFIL */}
+          {/* TAB 5: ACERVO DE PARTITURAS (GRATUITAS VS PAGAS) */}
+          {activeTab === 'partituras' && (
+            <div className="space-y-6">
+              <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <h2 className="text-xl sm:text-2xl font-syne font-black text-white">Acervo de Partituras</h2>
+                  <p className="text-xs text-slate-400">Partituras em destaque, gratuitas e pagas disponíveis para suas aulas.</p>
+                </div>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={searchPartitura}
+                    onChange={(e) => setSearchPartitura(e.target.value)}
+                    placeholder="Buscar partitura..."
+                    className="bg-[#0b0d14] text-white pl-9 pr-3 py-2 rounded-xl border border-white/10 text-xs outline-none focus:border-emerald-400 w-56"
+                  />
+                </div>
+              </div>
+
+              {(() => {
+                const t = searchPartitura.trim().toLowerCase();
+                const list = partituras.filter(p => !t || p.titulo.toLowerCase().includes(t) || (p.compositor || '').toLowerCase().includes(t) || (p.instrumento || '').toLowerCase().includes(t));
+                const freeList = list.filter(p => p.categoria !== 'paga');
+                const paidList = list.filter(p => p.categoria === 'paga');
+
+                const renderTeacherCard = (p: DbPartitura) => {
+                  const isPaid = p.categoria === 'paga';
+                  const unlocked = !isPaid || unlockedIds.has(p.id);
+                  return (
+                    <div key={p.id} className={`bg-[#0b0d14] p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isPaid ? 'border-amber-500/30' : 'border-white/10'}`}>
+                      <div>
+                        <div className="flex items-center justify-between gap-2 text-[11px]">
+                          <span className="text-cyan-300 font-semibold truncate">{p.instrumento}</span>
+                          <div className="flex items-center gap-1">
+                            {p.is_featured && <Star size={12} className="text-amber-400 fill-amber-400" />}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
+                              {isPaid ? `Paga • R$ ${Number(p.preco || 0).toFixed(2).replace('.', ',')}` : 'Gratuita'}
+                            </span>
+                          </div>
+                        </div>
+                        <h4 className="font-syne font-bold text-white text-sm mt-1.5">{p.titulo}</h4>
+                        <p className="text-xs text-slate-400">{p.compositor} • {p.nivel}</p>
+                      </div>
+                      <div className="pt-2 border-t border-white/5 flex justify-end">
+                        {unlocked ? (
+                          <button
+                            type="button"
+                            disabled={openingId === p.id}
+                            onClick={() => handleOpenTeacherSheet(p)}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            {openingId === p.id ? <Loader2 size={13} className="animate-spin" /> : <Eye size={13} />}
+                            <span>Abrir PDF</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={openingId === p.id}
+                            onClick={async () => {
+                              try {
+                                setOpeningId(p.id);
+                                const { url } = await createPaidSheetCheckout(p.id);
+                                window.location.href = url;
+                              } catch (err: any) {
+                                showToast(err?.message || 'Partitura protegida: adquira pelo checkout.');
+                                setOpeningId(null);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Lock size={13} />
+                            <span>Adquirir</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                };
+
+                return (
+                  <div className="space-y-6">
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-emerald-300">Partituras Gratuitas ({freeList.length})</h3>
+                      {freeList.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{freeList.map(renderTeacherCard)}</div>
+                      ) : (
+                        <p className="text-xs text-slate-500">Nenhuma partitura gratuita cadastrada.</p>
+                      )}
+                    </div>
+                    <div className="space-y-3">
+                      <h3 className="text-xs font-bold uppercase tracking-wider text-amber-300 flex items-center gap-1.5"><Lock size={13} /> Partituras Pagas ({paidList.length})</h3>
+                      {paidList.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">{paidList.map(renderTeacherCard)}</div>
+                      ) : (
+                        <p className="text-xs text-slate-500">Nenhuma partitura paga cadastrada.</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+
+          {/* TAB 6: MEU PERFIL */}
           {activeTab === 'perfil' && (
             <div className="space-y-6">
               <div className="border-b border-white/10 pb-4">
@@ -686,11 +870,26 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                     </p>
                   </div>
                 )}
+
+                <div className="pt-3 border-t border-white/10">
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block mb-2">Canais Diretos da Escola:</span>
+                  <OfficialContacts />
+                </div>
               </div>
             </div>
           )}
         </main>
       </div>
+
+      {viewerData && (
+        <SheetViewerModal
+          sheet={viewerData.sheet}
+          pdfUrl={viewerData.pdfUrl}
+          isPaidProtected={viewerData.isPaidProtected}
+          isOpen={!!viewerData}
+          onClose={() => setViewerData(null)}
+        />
+      )}
     </div>
   );
 };

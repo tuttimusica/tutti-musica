@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Volume2, Play, Sparkles, Music, Check, Info } from 'lucide-react';
-import { audioEngine } from '../../services/audioEngine';
+import React, { useState, useEffect } from 'react';
+import { Volume2, Play, Square, Sparkles, Music, Info, Clock, Gauge } from 'lucide-react';
+import { audioEngine, calculateBeatDurationSeconds, BeatCount } from '../../services/audioEngine';
 
 export type ChordQuality = 'major' | 'minor' | '7M' | '7' | '9' | '7_9' | 'm7' | 'm7M' | 'm9' | 'sus4' | 'dim';
 
@@ -558,13 +558,28 @@ export const GuitarStudio: React.FC = () => {
   const [selectedRoot, setSelectedRoot] = useState<string>('C');
   const [selectedQuality, setSelectedQuality] = useState<ChordQuality>('major');
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [beats, setBeats] = useState<BeatCount>(2);
+  const [bpm, setBpm] = useState<number>(100);
 
+  const computedDurationSec = calculateBeatDurationSeconds(beats, bpm);
   const currentChord = getChord(selectedRoot, selectedQuality);
 
+  useEffect(() => {
+    const unsub = audioEngine.subscribePlayback(setIsPlaying);
+    audioEngine.preloadInstrument('guitar');
+    return () => {
+      unsub();
+      audioEngine.stopAllNotes();
+    };
+  }, []);
+
   const handlePlayChord = () => {
-    setIsPlaying(true);
-    audioEngine.playChord(currentChord.notes, 1.4, 'guitar');
-    setTimeout(() => setIsPlaying(false), 1400);
+    audioEngine.stopAllNotes();
+    audioEngine.playChord(currentChord.notes, computedDurationSec, 'guitar');
+  };
+
+  const handleStopAudio = () => {
+    audioEngine.stopAllNotes();
   };
 
   const stringNames = ['E', 'A', 'D', 'G', 'B', 'e'];
@@ -587,17 +602,85 @@ export const GuitarStudio: React.FC = () => {
             </p>
           </div>
 
-          <button
-            onClick={handlePlayChord}
-            className={`px-6 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-xl ${
-              isPlaying
-                ? 'bg-emerald-400 text-black scale-105 shadow-emerald-400/40'
-                : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 shadow-cyan-500/20 glow'
-            }`}
-          >
-            <Volume2 size={18} />
-            <span>Tocar {currentChord.displayName} 🎸</span>
-          </button>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={handlePlayChord}
+              className={`px-6 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-xl cursor-pointer ${
+                isPlaying
+                  ? 'bg-emerald-400 text-black scale-105 shadow-emerald-400/40'
+                  : 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 shadow-cyan-500/20 glow'
+              }`}
+            >
+              <Volume2 size={18} />
+              <span>Tocar {currentChord.displayName} 🎸</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleStopAudio}
+              disabled={!isPlaying}
+              className="px-4 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center gap-2 border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/30 text-rose-200 disabled:opacity-40 cursor-pointer"
+            >
+              <Square size={15} fill="currentColor" />
+              <span>Parar</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Duração (1-4 tempos) e BPM */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#0b0d14] p-3.5 rounded-2xl border border-white/10 items-center">
+          <div className="space-y-1">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock size={12} className="text-emerald-400" /> Duração (Tempos):
+            </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {([1, 2, 3, 4] as BeatCount[]).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setBeats(b)}
+                  className={`py-1.5 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    beats === b
+                      ? 'bg-emerald-400 text-black border-emerald-300 font-black'
+                      : 'bg-[#131722] text-slate-300 hover:text-white border-white/10'
+                  }`}
+                >
+                  {b}t
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="flex justify-between text-[11px]">
+              <span className="font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Gauge size={12} className="text-cyan-400" /> Andamento:
+              </span>
+              <span className="font-mono font-bold text-cyan-300">{bpm} BPM</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="range"
+                min={40}
+                max={220}
+                value={bpm}
+                onChange={(e) => setBpm(Number(e.target.value))}
+                className="flex-1 accent-cyan-400 cursor-pointer"
+              />
+              <input
+                type="number"
+                min={40}
+                max={220}
+                value={bpm}
+                onChange={(e) => setBpm(Math.max(40, Math.min(220, Number(e.target.value) || 60)))}
+                className="w-16 bg-[#131722] border border-white/10 rounded-xl px-2 py-1 text-center text-xs font-mono font-bold text-white"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between md:justify-end gap-3 text-xs">
+            <span className="text-slate-400">Duração real: <strong className="font-mono text-emerald-400">{computedDurationSec.toFixed(2)}s</strong></span>
+          </div>
         </div>
 
         {/* Root Notes Picker */}

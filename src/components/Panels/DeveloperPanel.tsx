@@ -4,13 +4,36 @@ import {
   Clock, CheckCircle2, XCircle, AlertCircle, 
   Plus, Edit, Trash2, Search, Filter, Shield, Settings, 
   BarChart3, RefreshCw, Check, X, FileText, ChevronRight, LogOut, 
-  Sparkles, Download, Eye, Upload, FileUp, CreditCard, Crown, ArrowUpDown
+  Sparkles, Download, Eye, Upload, FileUp, CreditCard, Crown, ArrowUpDown,
+  Copy, CheckCheck, ShoppingBag, Lock, Unlock, Image as ImageIcon, Package, Loader2, Tag
 } from 'lucide-react';
 import { useAuth, TeacherRequest, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
 import { supabase } from '../../lib/supabase';
-import { SHEETS_CATALOG, SheetMusic } from '../../data/musicData';
+import { SheetMusic } from '../../data/musicData';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
+import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
+import { DbPlano } from '../Subscription/PlansModal';
+import { resolvePartituraPdfUrl } from '../../services/partiturasService';
+
+export interface StoreDbProduct {
+  id: number;
+  nome: string;
+  descricao: string;
+  preco: number;
+  preco_original?: number | null;
+  categoria: 'Acessórios' | 'Instrumentos' | 'Vestuário' | 'Livros' | string;
+  badge?: string | null;
+  em_estoque: boolean;
+  publicado: boolean;
+  ordem: number;
+  imagens: string[];
+  imagem_principal?: string | null;
+  imagem_url?: string | null;
+  avaliacao?: number;
+  num_avaliacoes?: number;
+  created_at?: string;
+}
 
 export const INSTRUMENT_OPTIONS = [
   'Saxofone Alto',
@@ -35,6 +58,7 @@ type DevTab =
   | 'marcacoes' 
   | 'solicitacoes' 
   | 'assinaturas' 
+  | 'loja'
   | 'relatorios' 
   | 'configuracoes';
 
@@ -64,12 +88,14 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [bookings, setBookings] = useState<LessonBooking[]>([]);
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
 
-  // Sheets Management State (loaded from Supabase public.partituras with initial catalog fallback)
-  const [sheetsList, setSheetsList] = useState<SheetMusic[]>(() => [...SHEETS_CATALOG]);
+  // Sheets Management State (loaded from Supabase public.partituras)
+  const [sheetsList, setSheetsList] = useState<SheetMusic[]>([]);
   const [isLoadingSheets, setIsLoadingSheets] = useState(false);
 
   // Modal / Viewer State for Sheet Music
   const [viewingSheet, setViewingSheet] = useState<SheetMusic | null>(null);
+  const [viewingSheetPdfUrl, setViewingSheetPdfUrl] = useState<string | null>(null);
+  const [viewingSheetProtected, setViewingSheetProtected] = useState(false);
   const [isAddSheetModalOpen, setIsAddSheetModalOpen] = useState(false);
   const [editingSheet, setEditingSheet] = useState<SheetMusic | null>(null);
 
@@ -81,6 +107,9 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [formLevel, setFormLevel] = useState<'Iniciante' | 'Intermediário' | 'Avançado'>('Intermediário');
   const [formTonality, setFormTonality] = useState('G');
   const [formDescription, setFormDescription] = useState('');
+  const [formCategory, setFormCategory] = useState<'gratuita' | 'paga'>('gratuita');
+  const [formPrice, setFormPrice] = useState<string>('29.90');
+  const [formPublished, setFormPublished] = useState<boolean>(true);
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
@@ -95,6 +124,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Filters for Partituras List
   const [sheetSearchTerm, setSheetSearchTerm] = useState('');
   const [sheetInstrumentFilter, setSheetInstrumentFilter] = useState('todos');
+  const [sheetCategoryFilter, setSheetCategoryFilter] = useState<'todas' | 'gratuitas' | 'pagas' | 'rascunhos'>('todas');
 
   // Filters for Bookings
   const [bookingDateFilter, setBookingDateFilter] = useState('');
@@ -116,29 +146,47 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [requestFilter, setRequestFilter] = useState<'todos' | 'pendente' | 'aprovado' | 'rejeitado'>('todos');
   const [requestSearchTerm, setRequestSearchTerm] = useState('');
 
-  // Subscription Periods State for Developer Management
-  const [devSubscriptionPlans] = useState([
-    {
-      periodo: 'Mensal',
-      planos: [
-        { nome: 'Grátis', preco: 'R$ 0,00', descricao: 'Acesso inicial a 30 partituras e Maestro IA' },
-        { nome: 'Tutti Pro', preco: 'R$ 49,90', descricao: 'Pagamento único e acesso vitalício à biblioteca e aulas' },
-        { nome: 'Tutti Ultra', preco: 'R$ 299,90', descricao: 'Cobrança mensal com aulas individuais ao vivo' }
-      ]
-    },
-    {
-      periodo: 'Trimestral',
-      planos: [
-        { nome: 'Tutti Ultra', preco: 'R$ 799,90', descricao: 'Plano exclusivo trimestral com professores e mentoria VIP' }
-      ]
-    },
-    {
-      periodo: 'Semestral',
-      planos: [
-        { nome: 'Tutti Ultra', preco: 'R$ 1.649,90', descricao: 'Plano exclusivo semestral com formação completa' }
-      ]
-    }
-  ]);
+  const [copiedStripeId, setCopiedStripeId] = useState<string | null>(null);
+
+  // Live Plans Management State (public.planos)
+  const [plansList, setPlansList] = useState<DbPlano[]>([]);
+  const [isLoadingPlans, setIsLoadingPlans] = useState(false);
+  const [isPlanModalOpen, setIsPlanModalOpen] = useState(false);
+  const [editingPlan, setEditingPlan] = useState<DbPlano | null>(null);
+  const [planIdInput, setPlanIdInput] = useState('');
+  const [planNome, setPlanNome] = useState('');
+  const [planDescricao, setPlanDescricao] = useState('');
+  const [planPreco, setPlanPreco] = useState('0');
+  const [planRecorrencia, setPlanRecorrencia] = useState<'mensal' | 'trimestral' | 'semestral' | 'vitalicio' | 'unico'>('mensal');
+  const [planBeneficiosText, setPlanBeneficiosText] = useState('');
+  const [planStripeProductId, setPlanStripeProductId] = useState('');
+  const [planStripePriceId, setPlanStripePriceId] = useState('');
+  const [planOrdem, setPlanOrdem] = useState('1');
+  const [planAtivo, setPlanAtivo] = useState(true);
+  const [isSavingPlan, setIsSavingPlan] = useState(false);
+
+  // Live Store Management State (public.produtos_loja)
+  const [storeProducts, setStoreProducts] = useState<StoreDbProduct[]>([]);
+  const [isLoadingStore, setIsLoadingStore] = useState(false);
+  const [storeSearch, setStoreSearch] = useState('');
+  const [storeCategoryFilter, setStoreCategoryFilter] = useState('Todas');
+  const [isStoreModalOpen, setIsStoreModalOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<StoreDbProduct | null>(null);
+  const [prodNome, setProdNome] = useState('');
+  const [prodDescricao, setProdDescricao] = useState('');
+  const [prodPreco, setProdPreco] = useState('');
+  const [prodPrecoOriginal, setProdPrecoOriginal] = useState('');
+  const [prodCategoria, setProdCategoria] = useState<'Instrumentos' | 'Acessórios' | 'Livros' | 'Vestuário'>('Acessórios');
+  const [prodBadge, setProdBadge] = useState('');
+  const [prodInStock, setProdInStock] = useState(true);
+  const [prodPublished, setProdPublished] = useState(true);
+  const [prodOrder, setProdOrder] = useState('0');
+  const [prodImages, setProdImages] = useState<string[]>([]);
+  const [prodMainImage, setProdMainImage] = useState('');
+  const [prodImageUrlInput, setProdImageUrlInput] = useState('');
+  const [isUploadingProductImages, setIsUploadingProductImages] = useState(false);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
+  const storeImageInputRef = useRef<HTMLInputElement>(null);
 
   // Load all real data from Supabase on mount
   useEffect(() => {
@@ -208,13 +256,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       // 5. Partituras do Banco de Dados
       try {
         setIsLoadingSheets(true);
-        const { data: pData } = await supabase
+        const { data: pData, error: pErr } = await supabase
           .from('partituras')
           .select('*')
           .order('id', { ascending: false });
 
-        if (pData && pData.length > 0) {
-          const mapped: SheetMusic[] = pData.map(p => ({
+        if (!pErr && pData) {
+          const mapped: SheetMusic[] = pData.map((p: any) => ({
             id: p.id,
             title: p.titulo,
             composer: p.compositor || 'Compositor Tutti',
@@ -229,10 +277,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
             melodyNotes: p.melodia_notas || [],
             chords: p.cifras || [],
             description: p.descricao || '',
-            pdfUrl: p.arquivo_pdf_url,
+            pdfUrl: p.arquivo_pdf_url || undefined,
             isFeatured: p.is_featured ?? false,
             featuredOrder: p.featured_order ?? 0,
-            storagePath: p.storage_path,
+            categoria: p.categoria === 'paga' ? 'paga' : 'gratuita',
+            preco: Number(p.preco ?? 0),
+            publicado: p.publicado ?? true,
+            storagePath: p.storage_path || undefined,
             createdAt: p.created_at,
             createdBy: p.created_by
           }));
@@ -244,7 +295,82 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         setIsLoadingSheets(false);
       }
 
-      // 6. Logs de Acesso
+      // 6. Planos Reais do Banco de Dados (public.planos)
+      try {
+        setIsLoadingPlans(true);
+        const { data: plData, error: plErr } = await supabase
+          .from('planos')
+          .select('*')
+          .order('ordem', { ascending: true });
+
+        if (!plErr && plData) {
+          setPlansList(
+            plData.map((row: any) => ({
+              id: row.id,
+              nome: row.nome,
+              descricao: row.descricao || '',
+              preco: Number(row.preco ?? 0),
+              moeda: row.moeda || 'BRL',
+              recorrencia: row.recorrencia || 'mensal',
+              beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
+              stripe_product_id: row.stripe_product_id || null,
+              stripe_price_id: row.stripe_price_id || null,
+              ordem: Number(row.ordem ?? 0),
+              ativo: row.ativo !== false,
+            }))
+          );
+        }
+      } catch (err) {
+        console.warn('Supabase planos sync note:', err);
+      } finally {
+        setIsLoadingPlans(false);
+      }
+
+      // 7. Produtos da Loja Tutti (public.produtos_loja)
+      try {
+        setIsLoadingStore(true);
+        const { data: prData, error: prErr } = await supabase
+          .from('produtos_loja')
+          .select('*')
+          .order('ordem', { ascending: true })
+          .order('id', { ascending: false });
+
+        if (!prErr && prData) {
+          setStoreProducts(
+            prData.map((item: any) => {
+              const imgs = Array.isArray(item.imagens)
+                ? item.imagens.filter(Boolean)
+                : item.imagem_url
+                ? [item.imagem_url]
+                : [];
+              return {
+                id: Number(item.id),
+                nome: item.nome,
+                descricao: item.descricao || '',
+                preco: Number(item.preco ?? 0),
+                preco_original: item.preco_original != null ? Number(item.preco_original) : null,
+                categoria: item.categoria || 'Acessórios',
+                badge: item.badge || null,
+                em_estoque: item.em_estoque !== false,
+                publicado: item.publicado !== false,
+                ordem: Number(item.ordem ?? 0),
+                imagens: imgs,
+                imagem_principal: item.imagem_principal || item.imagem_url || imgs[0] || null,
+                imagem_url: item.imagem_url || imgs[0] || null,
+                avaliacao: Number(item.avaliacao ?? 5),
+                num_avaliacoes: Number(item.num_avaliacoes ?? 0),
+                created_at: item.created_at,
+              };
+            })
+          );
+        }
+      } catch (err) {
+        console.warn('Supabase produtos_loja sync note:', err);
+      } finally {
+        setIsLoadingStore(false);
+      }
+
+      // 8. Logs de Acesso
       try {
         const { data: logData } = await supabase
           .from('eventos_acesso')
@@ -306,15 +432,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
-  // Handle Sheet Music Upload and Creation
+  // Handle Sheet Music Upload and Creation (Free -> public bucket, Paid -> private bucket)
   const handleSaveSheet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formTitle.trim()) {
-      alert('Informe o título da partitura.');
+      showToast('Informe o título da partitura.');
       return;
     }
     if (!selectedPdfFile && !editingSheet) {
-      alert('Selecione um arquivo PDF no seu computador.');
+      showToast('Selecione um arquivo PDF no seu computador.');
+      return;
+    }
+
+    const parsedPrice = formCategory === 'paga' ? Number(formPrice.replace(',', '.')) : 0;
+    if (formCategory === 'paga' && (!Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
+      showToast('Informe um preço válido maior que R$ 0,00 para partituras pagas.');
       return;
     }
 
@@ -322,57 +454,66 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setUploadProgress(20);
 
     try {
-      let finalPdfUrl = editingSheet?.pdfUrl || '';
+      let finalPdfUrl = formCategory === 'paga' ? '' : (editingSheet?.pdfUrl || '');
       let storagePath = editingSheet?.storagePath || '';
+      const targetBucket = formCategory === 'paga' ? 'partituras-pagas' : 'partituras';
 
       if (selectedPdfFile) {
         setUploadProgress(40);
         const safeName = selectedPdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-        storagePath = `partituras/${Date.now()}_${safeName}`;
+        storagePath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${safeName}`;
 
-        // Attempt upload to Supabase Storage bucket 'partituras'
-        try {
-          const { data: uploadData, error: uploadErr } = await supabase.storage
-            .from('partituras')
-            .upload(storagePath, selectedPdfFile, {
-              cacheControl: '3600',
-              upsert: true
-            });
+        const { data: uploadData, error: uploadErr } = await supabase.storage
+          .from(targetBucket)
+          .upload(storagePath, selectedPdfFile, {
+            cacheControl: '3600',
+            upsert: true,
+            contentType: 'application/pdf'
+          });
 
-          if (!uploadErr && uploadData) {
-            const { data: pubData } = supabase.storage
-              .from('partituras')
-              .getPublicUrl(storagePath);
-            finalPdfUrl = pubData.publicUrl;
-          }
-        } catch (storageErr) {
-          console.warn('Storage bucket fallback:', storageErr);
+        if (uploadErr || !uploadData) {
+          throw new Error(
+            uploadErr?.message ||
+              `Erro ao enviar PDF para o bucket "${targetBucket}". Verifique se a migração SQL foi executada.`
+          );
         }
 
-        // Fallback: generate local data URL so the PDF can be immediately viewed and downloaded
-        if (!finalPdfUrl) {
-          finalPdfUrl = await readFileAsDataUrl(selectedPdfFile);
+        if (formCategory === 'gratuita') {
+          const { data: pubData } = supabase.storage
+            .from('partituras')
+            .getPublicUrl(storagePath);
+          finalPdfUrl = pubData.publicUrl;
+        } else {
+          // Partitura paga fica somente no bucket privado e nunca grava URL pública no banco
+          finalPdfUrl = '';
         }
       }
 
       setUploadProgress(75);
 
       if (editingSheet) {
-        // Update existing sheet in Supabase
-        await supabase
+        const updatePayload: Record<string, any> = {
+          titulo: formTitle.trim(),
+          compositor: formComposer.trim() || 'Compositor Tutti',
+          instrumento: formInstrument,
+          genero: formGenre,
+          nivel: formLevel,
+          tonalidade: formTonality,
+          descricao: formDescription.trim(),
+          categoria: formCategory,
+          preco: parsedPrice,
+          publicado: formPublished,
+          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
+          storage_path: storagePath || null,
+          updated_at: new Date().toISOString(),
+        };
+
+        const { error: upErr } = await supabase
           .from('partituras')
-          .update({
-            titulo: formTitle.trim(),
-            compositor: formComposer.trim() || 'Compositor Tutti',
-            instrumento: formInstrument,
-            genero: formGenre,
-            nivel: formLevel,
-            tonalidade: formTonality,
-            descricao: formDescription.trim(),
-            arquivo_pdf_url: finalPdfUrl,
-            storage_path: storagePath
-          })
+          .update(updatePayload)
           .eq('id', editingSheet.id);
+
+        if (upErr) throw upErr;
 
         setSheetsList(prev => prev.map(s => s.id === editingSheet.id ? {
           ...s,
@@ -383,59 +524,70 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           level: formLevel,
           tonality: formTonality,
           description: formDescription.trim(),
-          pdfUrl: finalPdfUrl,
+          categoria: formCategory,
+          preco: parsedPrice,
+          publicado: formPublished,
+          pdfUrl: formCategory === 'paga' ? undefined : finalPdfUrl,
           storagePath
         } : s));
 
-        showToast(`Metadados de "${formTitle}" atualizados com sucesso! ✓`);
+        showToast(`Partitura "${formTitle}" atualizada com sucesso!`);
       } else {
-        // Insert new sheet in Supabase
-        const nextId = sheetsList.length > 0 ? Math.max(...sheetsList.map(s => s.id)) + 1 : 1;
-        const newSheet: SheetMusic = {
-          id: nextId,
-          title: formTitle.trim(),
-          composer: formComposer.trim() || 'Compositor Tutti',
-          instrument: formInstrument,
-          tonality: formTonality,
-          originalKey: formTonality,
-          family: 'Madeiras',
-          level: formLevel,
-          genre: formGenre,
-          tempo: 120,
-          timeSignature: '4/4',
-          melodyNotes: [{ note: 'G4', duration: 1 }],
-          chords: ['Gmaj7', 'Am7'],
-          description: formDescription.trim() || 'Partitura oficial em PDF catalogada pela Tutti.',
-          pdfUrl: finalPdfUrl,
-          storagePath,
-          isFeatured: markAsFeaturedOnCreate,
-          featuredOrder: markAsFeaturedOnCreate ? 1 : 0,
-          fileSizeBytes: selectedPdfFile?.size,
-          createdAt: new Date().toISOString(),
-          createdBy: user?.email || 'eliandrolucas.EL@gmail.com'
+        const insertPayload = {
+          titulo: formTitle.trim(),
+          compositor: formComposer.trim() || 'Compositor Tutti',
+          instrumento: formInstrument,
+          tonalidade: formTonality,
+          tom_original: formTonality,
+          nivel: formLevel,
+          genero: formGenre,
+          descricao: formDescription.trim() || 'Partitura oficial em PDF catalogada pela Tutti.',
+          categoria: formCategory,
+          preco: parsedPrice,
+          publicado: formPublished,
+          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
+          storage_path: storagePath || null,
+          is_featured: markAsFeaturedOnCreate,
+          featured_order: markAsFeaturedOnCreate ? 1 : 0,
         };
 
-        try {
-          await supabase.from('partituras').insert({
-            titulo: newSheet.title,
-            compositor: newSheet.composer,
-            instrumento: newSheet.instrument,
-            tonalidade: newSheet.tonality,
-            nivel: newSheet.level,
-            genero: newSheet.genre,
-            descricao: newSheet.description,
-            arquivo_pdf_url: newSheet.pdfUrl,
-            storage_path: newSheet.storagePath,
-            is_featured: newSheet.isFeatured,
-            featured_order: newSheet.featuredOrder,
-            created_at: newSheet.createdAt
-          });
-        } catch (dbErr) {
-          console.warn('Db insert note:', dbErr);
-        }
+        const { data: inserted, error: insErr } = await supabase
+          .from('partituras')
+          .insert(insertPayload)
+          .select()
+          .single();
+
+        if (insErr) throw insErr;
+
+        const newSheet: SheetMusic = {
+          id: Number(inserted.id),
+          title: inserted.titulo,
+          composer: inserted.compositor || 'Compositor Tutti',
+          instrument: inserted.instrumento,
+          tonality: inserted.tonalidade || formTonality,
+          originalKey: inserted.tom_original || formTonality,
+          family: 'Madeiras',
+          level: inserted.nivel || formLevel,
+          genre: inserted.genero || formGenre,
+          tempo: inserted.tempo_bpm || 120,
+          timeSignature: inserted.compasso || '4/4',
+          melodyNotes: inserted.melodia_notas || [],
+          chords: inserted.cifras || [],
+          description: inserted.descricao || '',
+          categoria: inserted.categoria === 'paga' ? 'paga' : 'gratuita',
+          preco: Number(inserted.preco ?? parsedPrice),
+          publicado: inserted.publicado ?? true,
+          pdfUrl: inserted.categoria === 'paga' ? undefined : (inserted.arquivo_pdf_url || undefined),
+          storagePath: inserted.storage_path || undefined,
+          isFeatured: inserted.is_featured ?? markAsFeaturedOnCreate,
+          featuredOrder: inserted.featured_order ?? 0,
+          fileSizeBytes: selectedPdfFile?.size,
+          createdAt: inserted.created_at,
+          createdBy: user?.email || undefined
+        };
 
         setSheetsList(prev => [newSheet, ...prev]);
-        showToast(`Partitura "${newSheet.title}" adicionada com sucesso! ✓`);
+        showToast(`Partitura "${newSheet.title}" adicionada com sucesso!`);
       }
 
       setUploadProgress(100);
@@ -443,7 +595,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       setEditingSheet(null);
       resetForm();
     } catch (err: any) {
-      alert(`Erro no upload da partitura: ${err?.message || err}`);
+      showToast(`Erro ao salvar partitura: ${err?.message || err}`);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -457,6 +609,9 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setFormLevel('Intermediário');
     setFormTonality('G');
     setFormDescription('');
+    setFormCategory('gratuita');
+    setFormPrice('29.90');
+    setFormPublished(true);
     setSelectedPdfFile(null);
     setMarkAsFeaturedOnCreate(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
@@ -471,8 +626,86 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setFormLevel(sheet.level || 'Intermediário');
     setFormTonality(sheet.tonality || 'G');
     setFormDescription(sheet.description || '');
+    setFormCategory(sheet.categoria === 'paga' ? 'paga' : 'gratuita');
+    setFormPrice(sheet.preco && sheet.preco > 0 ? String(sheet.preco) : '29.90');
+    setFormPublished(sheet.publicado ?? true);
     setSelectedPdfFile(null);
     setIsAddSheetModalOpen(true);
+  };
+
+  const handlePreviewAdminSheet = async (sheet: SheetMusic) => {
+    try {
+      const resolved = await resolvePartituraPdfUrl({
+        id: sheet.id,
+        titulo: sheet.title,
+        compositor: sheet.composer,
+        instrumento: sheet.instrument,
+        tonalidade: sheet.tonality,
+        nivel: sheet.level,
+        arquivo_pdf_url: sheet.pdfUrl || null,
+        storage_path: sheet.storagePath || null,
+        categoria: sheet.categoria || 'gratuita',
+        preco: sheet.preco ?? 0,
+        publicado: sheet.publicado ?? true,
+      });
+      setViewingSheetPdfUrl(resolved.url);
+      setViewingSheetProtected(resolved.protected || sheet.categoria === 'paga');
+      setViewingSheet(sheet);
+    } catch (err: any) {
+      // Para o admin no painel, tenta fallback via client caso storage policy de admin esteja ativa
+      if (sheet.storagePath) {
+        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
+        const { data } = await supabase.storage.from(bucket).createSignedUrl(sheet.storagePath, 120);
+        if (data?.signedUrl) {
+          setViewingSheetPdfUrl(data.signedUrl);
+          setViewingSheetProtected(sheet.categoria === 'paga');
+          setViewingSheet(sheet);
+          return;
+        }
+      }
+      setViewingSheetPdfUrl(sheet.pdfUrl || null);
+      setViewingSheetProtected(sheet.categoria === 'paga');
+      setViewingSheet(sheet);
+    }
+  };
+
+  const handleToggleSheetPublished = async (sheet: SheetMusic) => {
+    const nextPub = !(sheet.publicado ?? true);
+    try {
+      const { error } = await supabase
+        .from('partituras')
+        .update({ publicado: nextPub, updated_at: new Date().toISOString() })
+        .eq('id', sheet.id);
+      if (error) throw error;
+      setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, publicado: nextPub } : s));
+      showToast(nextPub ? `"${sheet.title}" publicada no catálogo!` : `"${sheet.title}" movida para rascunhos/oculta.`);
+    } catch {
+      showToast('Erro ao alterar visibilidade da partitura.');
+    }
+  };
+
+  const handleToggleSheetCategory = async (sheet: SheetMusic) => {
+    const nextCat: 'gratuita' | 'paga' = sheet.categoria === 'paga' ? 'gratuita' : 'paga';
+    const nextPrice = nextCat === 'paga' ? (sheet.preco && sheet.preco > 0 ? sheet.preco : 29.9) : 0;
+    try {
+      const { error } = await supabase
+        .from('partituras')
+        .update({
+          categoria: nextCat,
+          preco: nextPrice,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', sheet.id);
+      if (error) throw error;
+      setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat, preco: nextPrice } : s));
+      showToast(
+        nextCat === 'paga'
+          ? `"${sheet.title}" movida para Partituras Pagas (R$ ${nextPrice.toFixed(2).replace('.', ',')}).`
+          : `"${sheet.title}" movida para Partituras Gratuitas.`
+      );
+    } catch {
+      showToast('Erro ao alterar categoria da partitura.');
+    }
   };
 
   const handleDeleteSheet = async (sheet: SheetMusic) => {
@@ -481,18 +714,373 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
 
     try {
-      // 1. Delete from Supabase Database
       await supabase.from('partituras').delete().eq('id', sheet.id);
 
-      // 2. Delete from Supabase Storage if path exists
       if (sheet.storagePath) {
-        await supabase.storage.from('partituras').remove([sheet.storagePath]);
+        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
+        await supabase.storage.from(bucket).remove([sheet.storagePath]);
       }
 
       setSheetsList(prev => prev.filter(s => s.id !== sheet.id));
       showToast(`Partitura "${sheet.title}" excluída com sucesso.`);
-    } catch (err: any) {
+    } catch {
       showToast('Erro ao excluir partitura no Supabase.');
+    }
+  };
+
+  // --- PLANOS EDITÁVEIS (CRUD public.planos) ---
+  const handleOpenCreatePlan = () => {
+    setEditingPlan(null);
+    setPlanIdInput('');
+    setPlanNome('');
+    setPlanDescricao('');
+    setPlanPreco('49.90');
+    setPlanRecorrencia('mensal');
+    setPlanBeneficiosText('Acesso completo às aulas\nEstúdio virtual completo\nSuporte pedagógico Tutti');
+    setPlanStripeProductId('');
+    setPlanStripePriceId('');
+    setPlanOrdem(String(plansList.length + 1));
+    setPlanAtivo(true);
+    setIsPlanModalOpen(true);
+  };
+
+  const handleOpenEditPlan = (plan: DbPlano) => {
+    setEditingPlan(plan);
+    setPlanIdInput(plan.id);
+    setPlanNome(plan.nome);
+    setPlanDescricao(plan.descricao || '');
+    setPlanPreco(String(plan.preco ?? 0));
+    setPlanRecorrencia((plan.recorrencia as any) || 'mensal');
+    setPlanBeneficiosText((plan.beneficios || []).join('\n'));
+    setPlanStripeProductId(plan.stripe_product_id || '');
+    setPlanStripePriceId(plan.stripe_price_id || '');
+    setPlanOrdem(String(plan.ordem ?? 0));
+    setPlanAtivo(plan.ativo !== false);
+    setIsPlanModalOpen(true);
+  };
+
+  const handleSavePlan = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const idSlug = (editingPlan ? editingPlan.id : planIdInput.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '_'));
+    if (!idSlug || !planNome.trim()) {
+      showToast('Informe o identificador e o nome do plano.');
+      return;
+    }
+    const parsedPrice = Number(planPreco.replace(',', '.'));
+    if (!Number.isFinite(parsedPrice) || parsedPrice < 0) {
+      showToast('Informe um valor de preço válido.');
+      return;
+    }
+
+    const beneficios = planBeneficiosText
+      .split('\n')
+      .map(line => line.trim())
+      .filter(Boolean);
+
+    const intervalo =
+      planRecorrencia === 'trimestral' || planRecorrencia === 'semestral' || planRecorrencia === 'mensal'
+        ? 'month'
+        : 'one_time';
+    const intervalo_count =
+      planRecorrencia === 'trimestral' ? 3 : planRecorrencia === 'semestral' ? 6 : 1;
+
+    setIsSavingPlan(true);
+    try {
+      const payload = {
+        id: idSlug,
+        nome: planNome.trim(),
+        descricao: planDescricao.trim(),
+        preco: parsedPrice,
+        moeda: 'BRL',
+        recorrencia: planRecorrencia,
+        beneficios,
+        stripe_product_id: planStripeProductId.trim() || null,
+        stripe_price_id: planStripePriceId.trim() || null,
+        ordem: Number(planOrdem) || 0,
+        intervalo,
+        intervalo_count,
+        ativo: planAtivo,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { error } = await supabase.from('planos').upsert(payload, { onConflict: 'id' });
+      if (error) throw error;
+
+      const updated: DbPlano = {
+        id: idSlug,
+        nome: payload.nome,
+        descricao: payload.descricao,
+        preco: payload.preco,
+        moeda: 'BRL',
+        recorrencia: payload.recorrencia,
+        beneficios: payload.beneficios,
+        stripe_product_id: payload.stripe_product_id,
+        stripe_price_id: payload.stripe_price_id,
+        ordem: payload.ordem,
+        ativo: payload.ativo,
+      };
+
+      setPlansList(prev => {
+        const exists = prev.some(p => p.id === idSlug);
+        const next = exists ? prev.map(p => (p.id === idSlug ? updated : p)) : [...prev, updated];
+        return [...next].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+      });
+
+      setIsPlanModalOpen(false);
+      setEditingPlan(null);
+      showToast(`Plano "${updated.nome}" salvo e sincronizado em tempo real!`);
+    } catch (err: any) {
+      showToast(`Erro ao salvar plano: ${err?.message || err}`);
+    } finally {
+      setIsSavingPlan(false);
+    }
+  };
+
+  const handleTogglePlanActive = async (plan: DbPlano) => {
+    const nextActive = !plan.ativo;
+    try {
+      const { error } = await supabase
+        .from('planos')
+        .update({ ativo: nextActive, updated_at: new Date().toISOString() })
+        .eq('id', plan.id);
+      if (error) throw error;
+      setPlansList(prev => prev.map(p => (p.id === plan.id ? { ...p, ativo: nextActive } : p)));
+      showToast(nextActive ? `Plano "${plan.nome}" ativado.` : `Plano "${plan.nome}" ocultado dos alunos.`);
+    } catch {
+      showToast('Erro ao atualizar status do plano.');
+    }
+  };
+
+  const handleDeletePlan = async (plan: DbPlano) => {
+    if (!window.confirm(`Deseja realmente excluir o plano "${plan.nome}"?`)) return;
+    try {
+      const { error } = await supabase.from('planos').delete().eq('id', plan.id);
+      if (error) throw error;
+      setPlansList(prev => prev.filter(p => p.id !== plan.id));
+      showToast(`Plano "${plan.nome}" removido.`);
+    } catch {
+      showToast('Erro ao excluir plano.');
+    }
+  };
+
+  // --- LOJA TUTTI (CRUD public.produtos_loja + Upload Múltiplo de Imagens) ---
+  const handleOpenCreateProduct = () => {
+    setEditingProduct(null);
+    setProdNome('');
+    setProdDescricao('');
+    setProdPreco('');
+    setProdPrecoOriginal('');
+    setProdCategoria('Acessórios');
+    setProdBadge('');
+    setProdInStock(true);
+    setProdPublished(true);
+    setProdOrder(String(storeProducts.length + 1));
+    setProdImages([]);
+    setProdMainImage('');
+    setProdImageUrlInput('');
+    setIsStoreModalOpen(true);
+  };
+
+  const handleOpenEditProduct = (prod: StoreDbProduct) => {
+    setEditingProduct(prod);
+    setProdNome(prod.nome);
+    setProdDescricao(prod.descricao || '');
+    setProdPreco(String(prod.preco ?? ''));
+    setProdPrecoOriginal(prod.preco_original ? String(prod.preco_original) : '');
+    setProdCategoria((prod.categoria as any) || 'Acessórios');
+    setProdBadge(prod.badge || '');
+    setProdInStock(prod.em_estoque);
+    setProdPublished(prod.publicado);
+    setProdOrder(String(prod.ordem ?? 0));
+    const imgs = prod.imagens?.length ? prod.imagens : prod.imagem_principal ? [prod.imagem_principal] : [];
+    setProdImages(imgs);
+    setProdMainImage(prod.imagem_principal || imgs[0] || '');
+    setProdImageUrlInput('');
+    setIsStoreModalOpen(true);
+  };
+
+  const handleProductImagesUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/avif'];
+    const invalid = files.find(f => !allowed.includes(f.type) || f.size > 5 * 1024 * 1024);
+    if (invalid) {
+      showToast('Envie apenas imagens JPG, PNG, WebP ou AVIF de até 5MB cada.');
+      return;
+    }
+
+    setIsUploadingProductImages(true);
+    try {
+      const uploadedUrls: string[] = [];
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const path = `produtos/${Date.now()}_${i}_${safeName}`;
+        const { error: upErr } = await supabase.storage
+          .from('produtos-loja')
+          .upload(path, file, { cacheControl: '3600', upsert: true, contentType: file.type });
+
+        if (upErr) {
+          throw new Error(upErr.message || 'Falha no upload para bucket produtos-loja.');
+        }
+
+        const { data: pub } = supabase.storage.from('produtos-loja').getPublicUrl(path);
+        if (pub?.publicUrl) {
+          uploadedUrls.push(pub.publicUrl);
+        }
+      }
+
+      if (uploadedUrls.length > 0) {
+        setProdImages(prev => {
+          const next = [...prev, ...uploadedUrls];
+          if (!prodMainImage) {
+            setProdMainImage(next[0]);
+          }
+          return next;
+        });
+        showToast(`${uploadedUrls.length} foto(s) enviada(s) com sucesso!`);
+      }
+    } catch (err: any) {
+      showToast(`Erro no upload das fotos: ${err?.message || err}`);
+    } finally {
+      setIsUploadingProductImages(false);
+      if (storeImageInputRef.current) storeImageInputRef.current.value = '';
+    }
+  };
+
+  const handleAddExternalProductImage = () => {
+    const trimmed = prodImageUrlInput.trim();
+    if (!trimmed) return;
+    setProdImages(prev => {
+      if (prev.includes(trimmed)) return prev;
+      const next = [...prev, trimmed];
+      if (!prodMainImage) setProdMainImage(trimmed);
+      return next;
+    });
+    setProdImageUrlInput('');
+  };
+
+  const handleRemoveProductImage = (url: string) => {
+    setProdImages(prev => {
+      const next = prev.filter(u => u !== url);
+      if (prodMainImage === url) {
+        setProdMainImage(next[0] || '');
+      }
+      return next;
+    });
+  };
+
+  const handleSaveProduct = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!prodNome.trim()) {
+      showToast('Informe o nome do produto.');
+      return;
+    }
+    const price = Number(prodPreco.replace(',', '.'));
+    if (!Number.isFinite(price) || price <= 0) {
+      showToast('Informe um preço válido.');
+      return;
+    }
+    const origPrice = prodPrecoOriginal.trim() ? Number(prodPrecoOriginal.replace(',', '.')) : null;
+    const coverImage = prodMainImage || prodImages[0] || null;
+
+    setIsSavingProduct(true);
+    try {
+      const payload = {
+        nome: prodNome.trim(),
+        descricao: prodDescricao.trim(),
+        preco: price,
+        preco_original: origPrice && origPrice > 0 ? origPrice : null,
+        categoria: prodCategoria,
+        badge: prodBadge.trim() || null,
+        em_estoque: prodInStock,
+        publicado: prodPublished,
+        ordem: Number(prodOrder) || 0,
+        imagens: prodImages,
+        imagem_principal: coverImage,
+        imagem_url: coverImage,
+        updated_at: new Date().toISOString(),
+      };
+
+      if (editingProduct) {
+        const { error } = await supabase
+          .from('produtos_loja')
+          .update(payload)
+          .eq('id', editingProduct.id);
+        if (error) throw error;
+
+        setStoreProducts(prev =>
+          prev.map(p => (p.id === editingProduct.id ? { ...p, ...payload, id: editingProduct.id } : p))
+        );
+        showToast(`Produto "${payload.nome}" atualizado na Loja Tutti!`);
+      } else {
+        const { data: inserted, error } = await supabase
+          .from('produtos_loja')
+          .insert(payload)
+          .select()
+          .single();
+        if (error) throw error;
+
+        const created: StoreDbProduct = {
+          id: Number(inserted.id),
+          ...payload,
+          avaliacao: Number(inserted.avaliacao ?? 5),
+          num_avaliacoes: Number(inserted.num_avaliacoes ?? 0),
+          created_at: inserted.created_at,
+        };
+        setStoreProducts(prev => [created, ...prev].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0)));
+        showToast(`Produto "${created.nome}" adicionado à Loja Tutti!`);
+      }
+
+      setIsStoreModalOpen(false);
+      setEditingProduct(null);
+    } catch (err: any) {
+      showToast(`Erro ao salvar produto: ${err?.message || err}`);
+    } finally {
+      setIsSavingProduct(false);
+    }
+  };
+
+  const handleToggleProductPublished = async (prod: StoreDbProduct) => {
+    const nextPub = !prod.publicado;
+    try {
+      const { error } = await supabase
+        .from('produtos_loja')
+        .update({ publicado: nextPub, updated_at: new Date().toISOString() })
+        .eq('id', prod.id);
+      if (error) throw error;
+      setStoreProducts(prev => prev.map(p => (p.id === prod.id ? { ...p, publicado: nextPub } : p)));
+      showToast(nextPub ? `"${prod.nome}" publicado na loja.` : `"${prod.nome}" ocultado da loja.`);
+    } catch {
+      showToast('Erro ao alterar publicação do produto.');
+    }
+  };
+
+  const handleToggleProductStock = async (prod: StoreDbProduct) => {
+    const nextStock = !prod.em_estoque;
+    try {
+      const { error } = await supabase
+        .from('produtos_loja')
+        .update({ em_estoque: nextStock, updated_at: new Date().toISOString() })
+        .eq('id', prod.id);
+      if (error) throw error;
+      setStoreProducts(prev => prev.map(p => (p.id === prod.id ? { ...p, em_estoque: nextStock } : p)));
+      showToast(nextStock ? `"${prod.nome}" marcado em estoque.` : `"${prod.nome}" marcado como esgotado.`);
+    } catch {
+      showToast('Erro ao alterar estoque do produto.');
+    }
+  };
+
+  const handleDeleteProduct = async (prod: StoreDbProduct) => {
+    if (!window.confirm(`Deseja excluir o produto "${prod.nome}" da Loja Tutti?`)) return;
+    try {
+      const { error } = await supabase.from('produtos_loja').delete().eq('id', prod.id);
+      if (error) throw error;
+      setStoreProducts(prev => prev.filter(p => p.id !== prod.id));
+      showToast(`Produto "${prod.nome}" removido da loja.`);
+    } catch {
+      showToast('Erro ao excluir produto.');
     }
   };
 
@@ -602,6 +1190,9 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
   // Filtered Sheets
   const filteredSheets = sheetsList.filter(s => {
+    if (sheetCategoryFilter === 'gratuitas' && s.categoria === 'paga') return false;
+    if (sheetCategoryFilter === 'pagas' && s.categoria !== 'paga') return false;
+    if (sheetCategoryFilter === 'rascunhos' && (s.publicado ?? true)) return false;
     if (sheetInstrumentFilter !== 'todos' && !s.instrument.toLowerCase().includes(sheetInstrumentFilter.toLowerCase())) {
       return false;
     }
@@ -706,7 +1297,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
             { id: 'solicitacoes', label: 'Solicitações de Professores', icon: UserCheck, badge: requests.filter(r => r.status === 'pendente').length },
             { id: 'alunos', label: 'Alunos Cadastrados', icon: Users, badge: students.length },
             { id: 'marcacoes', label: 'Marcações de Aula', icon: Clock, badge: bookings.length },
-            { id: 'assinaturas', label: 'Planos & Assinaturas', icon: CreditCard },
+            { id: 'assinaturas', label: 'Planos & Assinaturas', icon: CreditCard, badge: plansList.length },
+            { id: 'loja', label: 'Gerenciar Loja', icon: ShoppingBag, badge: storeProducts.length },
             { id: 'relatorios', label: 'Relatórios de Acesso', icon: BarChart3 },
             { id: 'configuracoes', label: 'Configurações', icon: Settings },
           ].map(tab => {
@@ -1383,58 +1975,303 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
             </div>
           )}
 
-          {/* TAB 9: PLANOS & ASSINATURAS (REORGANIZAÇÃO DOS PERÍODOS - ITEM 2) */}
+          {/* TAB 9: PLANOS & ASSINATURAS EDITÁVEIS (public.planos CRUD) */}
           {activeTab === 'assinaturas' && (
             <div className="space-y-6">
-              <div className="border-b border-white/10 pb-4">
-                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 mb-2">
-                  <CreditCard size={14} /> Estrutura Oficial de Períodos de Contratação
+              <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30 mb-2">
+                    <CreditCard size={14} /> Planos Dinâmicos Sincronizados com Supabase & Stripe
+                  </div>
+                  <h2 className="text-xl sm:text-2xl font-syne font-black text-white">Planos & Assinaturas Editáveis</h2>
+                  <p className="text-xs text-slate-400">
+                    Qualquer alteração salva aqui atualiza automaticamente a tela de planos dos alunos via Supabase Realtime.
+                  </p>
                 </div>
-                <h2 className="text-xl sm:text-2xl font-syne font-black text-white">Gestão de Assinaturas</h2>
-                <p className="text-xs text-slate-400">
-                  Períodos de contratação: Mensal, Trimestral e Semestral (Opção Anual terminantemente removida).
-                </p>
+
+                <button
+                  onClick={handleOpenCreatePlan}
+                  className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500 text-black font-syne font-black text-xs flex items-center gap-2 shadow-lg hover:opacity-95 cursor-pointer self-start sm:self-auto"
+                >
+                  <Plus size={16} />
+                  <span>Novo Plano</span>
+                </button>
               </div>
 
-              {/* Subscriptions Grid per Period */}
-              <div className="space-y-6">
-                {devSubscriptionPlans.map(group => (
-                  <div key={group.periodo} className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-4">
-                    <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                      <div>
-                        <h3 className="font-syne font-black text-lg text-white">
-                          Período: {group.periodo}
-                        </h3>
-                        <p className="text-xs text-slate-400">
-                          {group.periodo === 'Trimestral' ? 'Apresenta exclusivamente o plano Tutti Ultra (R$ 799,90)' :
-                           group.periodo === 'Semestral' ? 'Apresenta exclusivamente o plano Tutti Ultra (R$ 1.649,90)' :
-                           'Planos regulares mensais (Grátis, Pro Vitalício e Ultra Mensal)'}
-                        </p>
+              {isLoadingPlans ? (
+                <div className="p-10 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-cyan-400" />
+                  <span>Carregando planos do Supabase...</span>
+                </div>
+              ) : plansList.length > 0 ? (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {plansList.map(plano => (
+                    <div
+                      key={plano.id}
+                      className={`p-5 rounded-2xl bg-[#0b0d14] border space-y-4 flex flex-col justify-between ${
+                        plano.ativo ? 'border-white/15' : 'border-rose-500/30 opacity-75'
+                      }`}
+                    >
+                      <div className="space-y-2.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <h3 className="font-syne font-black text-lg text-white">{plano.nome}</h3>
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-violet-500/20 text-violet-300 border border-violet-500/30">
+                                {plano.recorrencia}
+                              </span>
+                            </div>
+                            <span className="text-[11px] font-mono text-slate-500">ID: {plano.id} • Ordem #{plano.ordem ?? 0}</span>
+                          </div>
+                          <div className="text-right">
+                            <div className="text-xl font-syne font-black text-emerald-400">
+                              R$ {Number(plano.preco || 0).toFixed(2).replace('.', ',')}
+                            </div>
+                            <span className={`text-[10px] font-bold ${plano.ativo ? 'text-emerald-400' : 'text-rose-400'}`}>
+                              {plano.ativo ? 'Ativo' : 'Oculto'}
+                            </span>
+                          </div>
+                        </div>
+
+                        {plano.descricao && (
+                          <p className="text-xs text-slate-300 leading-relaxed">{plano.descricao}</p>
+                        )}
+
+                        {plano.beneficios && plano.beneficios.length > 0 && (
+                          <ul className="space-y-1 pt-1">
+                            {plano.beneficios.slice(0, 4).map((b, i) => (
+                              <li key={i} className="text-[11px] text-slate-400 flex items-start gap-1.5">
+                                <Check size={12} className="text-cyan-400 shrink-0 mt-0.5" />
+                                <span>{b}</span>
+                              </li>
+                            ))}
+                            {plano.beneficios.length > 4 && (
+                              <li className="text-[10px] text-slate-500">+{plano.beneficios.length - 4} benefícios adicionais</li>
+                            )}
+                          </ul>
+                        )}
+
+                        {plano.stripe_product_id && (
+                          <div className="pt-2 flex items-center justify-between text-[11px]">
+                            <span className="text-slate-400 font-mono text-[10px]">Stripe ID:</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard.writeText(plano.stripe_product_id!);
+                                setCopiedStripeId(plano.stripe_product_id!);
+                                showToast(`Stripe ID copiado: ${plano.stripe_product_id}`);
+                                setTimeout(() => setCopiedStripeId(null), 2000);
+                              }}
+                              className="font-mono text-[11px] text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1 cursor-pointer"
+                            >
+                              <span>{plano.stripe_product_id}</span>
+                              {copiedStripeId === plano.stripe_product_id ? (
+                                <CheckCheck size={12} className="text-emerald-400" />
+                              ) : (
+                                <Copy size={12} />
+                              )}
+                            </button>
+                          </div>
+                        )}
                       </div>
 
-                      <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                        group.periodo === 'Trimestral' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' :
-                        group.periodo === 'Semestral' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
-                        'bg-violet-500/20 text-violet-300 border border-violet-500/30'
-                      }`}>
-                        {group.periodo}
-                      </span>
-                    </div>
+                      <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+                        <button
+                          onClick={() => handleTogglePlanActive(plano)}
+                          className={`px-3 py-1.5 rounded-xl font-bold text-xs cursor-pointer ${
+                            plano.ativo
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                              : 'bg-white/5 text-slate-300 border border-white/10'
+                          }`}
+                        >
+                          {plano.ativo ? 'Desativar' : 'Ativar'}
+                        </button>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                      {group.planos.map(plano => (
-                        <div key={plano.nome} className="p-4 rounded-xl bg-[#131722] border border-white/10 space-y-2">
-                          <div className="flex items-center justify-between">
-                            <span className="font-syne font-bold text-white text-sm">{plano.nome}</span>
-                            <span className="text-emerald-400 font-mono font-black text-base">{plano.preco}</span>
-                          </div>
-                          <p className="text-xs text-slate-400 leading-relaxed">{plano.descricao}</p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => handleOpenEditPlan(plano)}
+                            className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1 transition-colors cursor-pointer"
+                          >
+                            <Edit size={13} />
+                            <span>Editar Plano</span>
+                          </button>
+                          <button
+                            onClick={() => handleDeletePlan(plano)}
+                            className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 transition-colors cursor-pointer"
+                            title="Excluir plano"
+                          >
+                            <Trash2 size={14} />
+                          </button>
                         </div>
-                      ))}
+                      </div>
                     </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="p-10 text-center rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
+                  <CreditCard size={32} className="mx-auto text-slate-500" />
+                  <h3 className="font-syne font-bold text-white text-base">Nenhum plano cadastrado na tabela planos</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Clique em "Novo Plano" para cadastrar ou execute o script SQL de migração no Supabase.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB 9B: GERENCIAR LOJA TUTTI (public.produtos_loja + Multi-Image Upload) */}
+          {activeTab === 'loja' && (
+            <div className="space-y-6">
+              <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-cyan-500/20 text-cyan-300 text-xs font-bold border border-cyan-500/30 mb-2">
+                    <ShoppingBag size={14} /> Catálogo Oficial & Galeria de Fotos
                   </div>
-                ))}
+                  <h2 className="text-xl sm:text-2xl font-syne font-black text-white">Gerenciar Loja Tutti</h2>
+                  <p className="text-xs text-slate-400">
+                    Adicione instrumentos, acessórios, livros e envie múltiplas fotos diretamente do computador para o Storage.
+                  </p>
+                </div>
+
+                <button
+                  onClick={handleOpenCreateProduct}
+                  className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500 text-black font-syne font-black text-xs flex items-center gap-2 shadow-lg hover:opacity-95 cursor-pointer self-start sm:self-auto"
+                >
+                  <Plus size={16} />
+                  <span>Adicionar Produto</span>
+                </button>
               </div>
+
+              {/* Search & Category Filter */}
+              <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center gap-3">
+                <div className="relative flex-1 w-full">
+                  <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <input
+                    type="text"
+                    value={storeSearch}
+                    onChange={e => setStoreSearch(e.target.value)}
+                    placeholder="Buscar produto na loja..."
+                    className="w-full bg-[#131722] text-white pl-10 pr-4 py-2.5 rounded-xl border border-white/10 text-xs outline-none focus:border-cyan-400"
+                  />
+                </div>
+                <select
+                  value={storeCategoryFilter}
+                  onChange={e => setStoreCategoryFilter(e.target.value)}
+                  className="w-full sm:w-52 bg-[#131722] text-white px-3.5 py-2.5 rounded-xl border border-white/10 text-xs outline-none focus:border-cyan-400"
+                >
+                  <option value="Todas">Todas as Categorias</option>
+                  <option value="Instrumentos">Instrumentos</option>
+                  <option value="Acessórios">Acessórios</option>
+                  <option value="Livros">Livros</option>
+                  <option value="Vestuário">Vestuário</option>
+                </select>
+              </div>
+
+              {isLoadingStore ? (
+                <div className="p-10 text-center text-xs text-slate-400 flex items-center justify-center gap-2">
+                  <Loader2 size={16} className="animate-spin text-cyan-400" />
+                  <span>Carregando catálogo da Loja Tutti...</span>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {storeProducts
+                    .filter(p => storeCategoryFilter === 'Todas' || p.categoria === storeCategoryFilter)
+                    .filter(p => !storeSearch || p.nome.toLowerCase().includes(storeSearch.toLowerCase()))
+                    .map(prod => {
+                      const thumb = prod.imagem_principal || prod.imagens?.[0] || prod.imagem_url;
+                      return (
+                        <div key={prod.id} className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 space-y-3 flex flex-col justify-between">
+                          <div className="flex gap-4">
+                            <div className="w-24 h-24 rounded-xl bg-[#131722] border border-white/10 overflow-hidden shrink-0 flex items-center justify-center">
+                              {thumb ? (
+                                <img src={thumb} alt={prod.nome} className="w-full h-full object-cover" />
+                              ) : (
+                                <Package size={24} className="text-slate-500" />
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0 space-y-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <h4 className="font-syne font-bold text-white text-sm truncate">{prod.nome}</h4>
+                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold shrink-0 ${
+                                  prod.publicado ? 'bg-emerald-500/20 text-emerald-300' : 'bg-rose-500/20 text-rose-300'
+                                }`}>
+                                  {prod.publicado ? 'Publicado' : 'Oculto'}
+                                </span>
+                              </div>
+                              <div className="text-xs text-cyan-300 font-semibold">
+                                {prod.categoria} {prod.imagens?.length ? `• ${prod.imagens.length} foto(s)` : ''}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <span className="text-base font-syne font-black text-emerald-400">
+                                  R$ {prod.preco.toFixed(2).replace('.', ',')}
+                                </span>
+                                {prod.preco_original && prod.preco_original > prod.preco && (
+                                  <span className="text-xs text-slate-500 line-through">
+                                    R$ {prod.preco_original.toFixed(2).replace('.', ',')}
+                                  </span>
+                                )}
+                              </div>
+                              <p className="text-[11px] text-slate-400 line-clamp-2">{prod.descricao}</p>
+                            </div>
+                          </div>
+
+                          <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleToggleProductPublished(prod)}
+                                className={`px-2.5 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer ${
+                                  prod.publicado
+                                    ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                                    : 'bg-white/5 text-slate-300'
+                                }`}
+                              >
+                                {prod.publicado ? 'Ocultar' : 'Publicar'}
+                              </button>
+                              <button
+                                onClick={() => handleToggleProductStock(prod)}
+                                className={`px-2.5 py-1.5 rounded-xl font-bold text-[11px] cursor-pointer ${
+                                  prod.em_estoque
+                                    ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/30'
+                                    : 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                }`}
+                              >
+                                {prod.em_estoque ? 'Em Estoque' : 'Esgotado'}
+                              </button>
+                            </div>
+
+                            <div className="flex items-center gap-1.5">
+                              <button
+                                onClick={() => handleOpenEditProduct(prod)}
+                                className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 font-bold text-xs flex items-center gap-1 cursor-pointer"
+                              >
+                                <Edit size={13} />
+                                <span>Editar</span>
+                              </button>
+                              <button
+                                onClick={() => handleDeleteProduct(prod)}
+                                className="p-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 cursor-pointer"
+                                title="Excluir produto"
+                              >
+                                <Trash2 size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
+              {!isLoadingStore && storeProducts.length === 0 && (
+                <div className="p-10 text-center rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
+                  <ShoppingBag size={32} className="mx-auto text-slate-500" />
+                  <h3 className="font-syne font-bold text-white text-base">Nenhum produto cadastrado na loja</h3>
+                  <p className="text-xs text-slate-400 max-w-md mx-auto">
+                    Clique em "Adicionar Produto" para cadastrar o primeiro item com fotos reais do computador.
+                  </p>
+                </div>
+              )}
             </div>
           )}
 
@@ -1576,12 +2413,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                   </a>
 
                   <a
-                    href="/api/download-db-sql"
-                    className="py-3 px-4 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs font-bold flex items-center justify-center gap-2 transition"
-                    title="Baixar arquivo .sql bruto para importar no Supabase"
+                    href="/api/download-master-sql"
+                    className="py-3 px-4 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 text-cyan-300 border border-cyan-500/30 text-xs font-bold flex items-center justify-center gap-2 transition"
+                    title="Baixar migração SQL master com buckets, RLS, planos e loja"
                   >
                     <Download size={15} />
-                    <span>Baixar Script .SQL Bruto</span>
+                    <span>Baixar Script .SQL Master</span>
                   </a>
                 </div>
               </div>
@@ -1725,6 +2562,57 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     <option value="Avançado">Avançado</option>
                   </select>
                 </div>
+              </div>
+
+              {/* Etapa 4B: Tipo (Gratuita vs Paga), Preço e Publicação */}
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
+                      Categoria de Acesso *
+                    </label>
+                    <select
+                      value={formCategory}
+                      onChange={e => setFormCategory(e.target.value as 'gratuita' | 'paga')}
+                      className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3 py-2 text-xs outline-none focus:border-cyan-400"
+                    >
+                      <option value="gratuita">Partitura Gratuita (Bucket Público)</option>
+                      <option value="paga">Partitura Paga (Bucket Privado Protegido)</option>
+                    </select>
+                  </div>
+
+                  {formCategory === 'paga' ? (
+                    <div>
+                      <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
+                        Preço em R$ (BRL) *
+                      </label>
+                      <input
+                        type="text"
+                        required
+                        value={formPrice}
+                        onChange={e => setFormPrice(e.target.value)}
+                        placeholder="29.90"
+                        className="w-full bg-[#131722] text-emerald-300 font-mono font-bold border border-emerald-500/30 rounded-xl px-3 py-2 text-xs outline-none focus:border-emerald-400"
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex items-end pb-2">
+                      <span className="text-[11px] text-emerald-400 font-semibold">
+                        Acesso livre para download e leitura na plataforma.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formPublished}
+                    onChange={e => setFormPublished(e.target.checked)}
+                    className="rounded text-emerald-500 cursor-pointer"
+                  />
+                  <span>Publicar imediatamente no catálogo público e painéis</span>
+                </label>
               </div>
 
               {/* Descrição Opcional */}
@@ -1909,15 +2797,435 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         </div>
       )}
 
-      {/* MODAL 3: VISUALIZADOR DE PDF INTEGRADO (ITEM 3.4) */}
+      {/* MODAL 3: VISUALIZADOR DE PDF INTEGRADO */}
       {viewingSheet && (
         <SheetViewerModal
           sheet={viewingSheet}
-          pdfUrl={viewingSheet.pdfUrl}
+          pdfUrl={viewingSheetPdfUrl ?? viewingSheet.pdfUrl}
+          isPaidProtected={viewingSheetProtected}
           title={viewingSheet.title}
           isOpen={!!viewingSheet}
-          onClose={() => setViewingSheet(null)}
+          onClose={() => {
+            setViewingSheet(null);
+            setViewingSheetPdfUrl(null);
+            setViewingSheetProtected(false);
+          }}
         />
+      )}
+
+      {/* MODAL 4: CRIAR / EDITAR PLANO TUTTI (public.planos) */}
+      {isPlanModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#131722] border-2 border-emerald-500/40 rounded-3xl p-6 sm:p-8 max-w-lg w-full shadow-2xl space-y-5 relative my-auto">
+            <button
+              onClick={() => setIsPlanModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            <div>
+              <h3 className="text-2xl font-syne font-black text-white">
+                {editingPlan ? `Editar Plano: ${editingPlan.nome}` : 'Novo Plano Tutti'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                As alterações são publicadas instantaneamente para os alunos no modal de assinaturas.
+              </p>
+            </div>
+
+            <form onSubmit={handleSavePlan} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Identificador (slug) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    disabled={!!editingPlan}
+                    value={planIdInput}
+                    onChange={e => setPlanIdInput(e.target.value)}
+                    placeholder="ex: mensal, trimestral, pro"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5 disabled:opacity-60"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Nome do Plano *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={planNome}
+                    onChange={e => setPlanNome(e.target.value)}
+                    placeholder="Ex: Tutti Ultra Mensal"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Preço (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={planPreco}
+                    onChange={e => setPlanPreco(e.target.value)}
+                    placeholder="299.90"
+                    className="w-full bg-[#0b0d14] text-emerald-300 font-mono font-bold border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Recorrência
+                  </label>
+                  <select
+                    value={planRecorrencia}
+                    onChange={e => setPlanRecorrencia(e.target.value as any)}
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
+                  >
+                    <option value="mensal">Mensal</option>
+                    <option value="trimestral">Trimestral</option>
+                    <option value="semestral">Semestral</option>
+                    <option value="vitalicio">Vitalício</option>
+                    <option value="unico">Pagamento Único</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Ordem
+                  </label>
+                  <input
+                    type="number"
+                    value={planOrdem}
+                    onChange={e => setPlanOrdem(e.target.value)}
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                  Descrição
+                </label>
+                <textarea
+                  rows={2}
+                  value={planDescricao}
+                  onChange={e => setPlanDescricao(e.target.value)}
+                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl p-3 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                  Benefícios (um por linha)
+                </label>
+                <textarea
+                  rows={4}
+                  value={planBeneficiosText}
+                  onChange={e => setPlanBeneficiosText(e.target.value)}
+                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl p-3 resize-none"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Stripe Product ID
+                  </label>
+                  <input
+                    type="text"
+                    value={planStripeProductId}
+                    onChange={e => setPlanStripeProductId(e.target.value)}
+                    placeholder="prod_..."
+                    className="w-full bg-[#0b0d14] text-amber-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Stripe Price ID (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={planStripePriceId}
+                    onChange={e => setPlanStripePriceId(e.target.value)}
+                    placeholder="price_..."
+                    className="w-full bg-[#0b0d14] text-amber-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={planAtivo}
+                  onChange={e => setPlanAtivo(e.target.checked)}
+                />
+                <span>Plano ativo e visível para alunos</span>
+              </label>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setIsPlanModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingPlan}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black font-syne font-black flex items-center gap-2 cursor-pointer"
+                >
+                  {isSavingPlan ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                  <span>Salvar Plano</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL 5: ADICIONAR / EDITAR PRODUTO DA LOJA (public.produtos_loja + Upload Múltiplo) */}
+      {isStoreModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#131722] border-2 border-cyan-500/40 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl space-y-5 relative my-auto">
+            <button
+              onClick={() => setIsStoreModalOpen(false)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            <div>
+              <h3 className="text-2xl font-syne font-black text-white">
+                {editingProduct ? `Editar Produto: ${editingProduct.nome}` : 'Novo Produto na Loja Tutti'}
+              </h3>
+              <p className="text-xs text-slate-400 mt-1">
+                Envie múltiplas fotos do seu computador e escolha a foto de capa do catálogo.
+              </p>
+            </div>
+
+            <form onSubmit={handleSaveProduct} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Nome do Produto *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={prodNome}
+                    onChange={e => setProdNome(e.target.value)}
+                    placeholder="Ex: Palheta Vandoren Java Caixa c/ 5"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Categoria *
+                  </label>
+                  <select
+                    value={prodCategoria}
+                    onChange={e => setProdCategoria(e.target.value as any)}
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5"
+                  >
+                    <option value="Instrumentos">Instrumentos</option>
+                    <option value="Acessórios">Acessórios</option>
+                    <option value="Livros">Livros</option>
+                    <option value="Vestuário">Vestuário</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Preço (R$) *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={prodPreco}
+                    onChange={e => setProdPreco(e.target.value)}
+                    placeholder="189.90"
+                    className="w-full bg-[#0b0d14] text-emerald-300 font-mono font-bold border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Preço Anterior (opcional)
+                  </label>
+                  <input
+                    type="text"
+                    value={prodPrecoOriginal}
+                    onChange={e => setProdPrecoOriginal(e.target.value)}
+                    placeholder="229.90"
+                    className="w-full bg-[#0b0d14] text-slate-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Selo / Badge
+                  </label>
+                  <input
+                    type="text"
+                    value={prodBadge}
+                    onChange={e => setProdBadge(e.target.value)}
+                    placeholder="Ex: Mais Vendido"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Ordem
+                  </label>
+                  <input
+                    type="number"
+                    value={prodOrder}
+                    onChange={e => setProdOrder(e.target.value)}
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                  Descrição Completa
+                </label>
+                <textarea
+                  rows={3}
+                  value={prodDescricao}
+                  onChange={e => setProdDescricao(e.target.value)}
+                  placeholder="Detalhes técnicos, especificações e diferenciais do produto..."
+                  className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl p-3 resize-none"
+                />
+              </div>
+
+              {/* Upload Múltiplo de Fotos do Computador */}
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <div className="font-bold text-white flex items-center gap-1.5">
+                      <ImageIcon size={14} className="text-cyan-400" />
+                      <span>Galeria de Fotos do Produto (JPG, PNG, WebP, AVIF até 5MB)</span>
+                    </div>
+                    <p className="text-[11px] text-slate-400">Clique em "Capa" na foto desejada para defini-la como imagem principal.</p>
+                  </div>
+
+                  <label className="px-4 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 cursor-pointer transition-colors shrink-0">
+                    {isUploadingProductImages ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                    <span>{isUploadingProductImages ? 'Enviando...' : 'Enviar Fotos do PC'}</span>
+                    <input
+                      ref={storeImageInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/avif"
+                      multiple
+                      onChange={handleProductImagesUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                {/* Fallback adicionar por URL se desejar */}
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={prodImageUrlInput}
+                    onChange={e => setProdImageUrlInput(e.target.value)}
+                    placeholder="Ou cole uma URL de imagem pública..."
+                    className="flex-1 bg-[#131722] text-white border border-white/10 rounded-xl px-3 py-2 text-xs"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddExternalProductImage}
+                    className="px-3 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white font-bold text-xs cursor-pointer"
+                  >
+                    + URL
+                  </button>
+                </div>
+
+                {prodImages.length > 0 && (
+                  <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5 pt-1">
+                    {prodImages.map((imgUrl, idx) => {
+                      const isMain = prodMainImage === imgUrl;
+                      return (
+                        <div
+                          key={`${imgUrl}_${idx}`}
+                          className={`relative rounded-xl overflow-hidden border-2 bg-[#131722] aspect-square group ${
+                            isMain ? 'border-amber-400' : 'border-white/10'
+                          }`}
+                        >
+                          <img src={imgUrl} alt={`Foto ${idx + 1}`} className="w-full h-full object-cover" />
+                          <div className="absolute inset-x-0 bottom-0 p-1 bg-black/75 flex items-center justify-between gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setProdMainImage(imgUrl)}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded cursor-pointer ${
+                                isMain ? 'bg-amber-400 text-black' : 'bg-white/15 text-white'
+                              }`}
+                            >
+                              {isMain ? 'Capa ★' : 'Capa'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveProductImage(imgUrl)}
+                              className="p-0.5 text-rose-400 hover:text-rose-300 cursor-pointer"
+                              title="Remover foto"
+                            >
+                              <Trash2 size={12} />
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-6">
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={prodInStock}
+                    onChange={e => setProdInStock(e.target.checked)}
+                  />
+                  <span>Produto disponível em estoque</span>
+                </label>
+
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={prodPublished}
+                    onChange={e => setProdPublished(e.target.checked)}
+                  />
+                  <span>Publicado na Loja Tutti</span>
+                </label>
+              </div>
+
+              <div className="flex justify-end gap-3 pt-2 border-t border-white/10">
+                <button
+                  type="button"
+                  onClick={() => setIsStoreModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 font-bold"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingProduct}
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black font-syne font-black flex items-center gap-2 cursor-pointer"
+                >
+                  {isSavingProduct ? <Loader2 size={15} className="animate-spin" /> : <Check size={15} />}
+                  <span>{editingProduct ? 'Atualizar Produto' : 'Publicar Produto'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

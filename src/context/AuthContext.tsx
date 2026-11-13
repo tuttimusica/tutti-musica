@@ -70,6 +70,7 @@ interface AuthContextType {
     extraData?: { instrumento?: string; bio?: string }
   ) => Promise<{ data?: any; error: any }>;
   resetPassword: (email: string) => Promise<{ error: any; message?: string }>;
+  resendConfirmationEmail: (email: string) => Promise<{ error: any }>;
   logout: () => Promise<void>;
   updateProfileData: (data: Partial<UserProfileData>) => Promise<void>;
   addXp: (amount: number) => Promise<void>;
@@ -83,6 +84,9 @@ interface AuthContextType {
   criarMarcacaoAula: (marcacao: Omit<LessonBooking, 'id' | 'created_at'>) => Promise<{ error: any; data?: any }>;
   cancelarMarcacaoAula: (marcacaoId: string) => Promise<{ error: any }>;
   registrarEventoAcesso: (tipo: string, detalhes?: any) => Promise<void>;
+  backendPlan: 'free' | 'pro' | 'ultra';
+  hasActiveSubscription: boolean;
+  refreshSubscription: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
@@ -123,9 +127,62 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [backendPlan, setBackendPlan] = useState<'free' | 'pro' | 'ultra'>('free');
+  const [hasActiveSubscription, setHasActiveSubscription] = useState<boolean>(false);
 
   // Active role computed from profile
   const activeRole: 'desenvolvedor' | 'professor' | 'aluno' = profile?.role || 'aluno';
+
+  /**
+   * Sincronizar assinatura real do backend Supabase
+   */
+  const syncSubscription = async (authUser: User | null) => {
+    if (!authUser) {
+      setBackendPlan('free');
+      setHasActiveSubscription(false);
+      return;
+    }
+
+    if (isAuthorizedDeveloperEmail(authUser.email)) {
+      setBackendPlan('ultra');
+      setHasActiveSubscription(true);
+      return;
+    }
+
+    try {
+      const { data: sub, error } = await supabase
+        .from('assinaturas_usuarios')
+        .select('plano_id, status, data_fim')
+        .eq('user_id', authUser.id)
+        .eq('status', 'ativo')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (!error && sub) {
+        const isNotExpired = !sub.data_fim || new Date(sub.data_fim) >= new Date();
+        if (isNotExpired) {
+          const pId = sub.plano_id?.toLowerCase();
+          if (pId === 'ultra' || pId === 'mensal' || pId === 'trimestral' || pId === 'semestral') {
+            setBackendPlan('ultra');
+          } else if (pId === 'pro') {
+            setBackendPlan('pro');
+          } else {
+            setBackendPlan('free');
+          }
+          setHasActiveSubscription(true);
+          return;
+        }
+      }
+
+      setBackendPlan('free');
+      setHasActiveSubscription(false);
+    } catch (e) {
+      console.warn('Subscription sync notice:', e);
+      setBackendPlan('free');
+      setHasActiveSubscription(false);
+    }
+  };
 
   /**
    * Log Access Events in Supabase (tabela eventos_acesso)
@@ -243,6 +300,59 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  // Trigger welcome email in backend only after user email is confirmed (idempotent in DB)
+  const triggerWelcomeEmailIfConfirmed = async (session: any) => {
+    try {
+      const currentUser = session?.user;
+      if (!currentUser?.id || !currentUser?.email_confirmed_at || !session?.access_token) return;
+      const cacheKey = `tutti_welcome_sent_${currentUser.id}`;
+      if (typeof window !== 'undefined' && window.localStorage.getItem(cacheKey) === '1') {
+        return;
+      }
+
+      const nome =
+        currentUser.user_metadata?.full_name ||
+        currentUser.user_metadata?.display_name ||
+        currentUser.email?.split('@')[0] ||
+        'Aluno(a)';
+      const platformUrl = typeof window !== 'undefined' ? window.location.origin : undefined;
+
+      let dispatched = false;
+      try {
+        const res = await fetch('/api/emails/welcome', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ nome, platformUrl }),
+        });
+        const json = await res.json().catch(() => ({}));
+        if (json?.sent || json?.alreadySent) {
+          dispatched = true;
+        }
+      } catch {
+        // Fallback to Edge Function when running without local Express server
+        try {
+          const { data } = await supabase.functions.invoke('send-welcome-email', {
+            body: { nome, platformUrl },
+          });
+          if (data?.sent || data?.alreadySent) {
+            dispatched = true;
+          }
+        } catch (edgeErr) {
+          console.debug('Welcome email Edge Function note:', edgeErr);
+        }
+      }
+
+      if (dispatched && typeof window !== 'undefined') {
+        window.localStorage.setItem(cacheKey, '1');
+      }
+    } catch (err) {
+      console.debug('Welcome email check skipped:', err);
+    }
+  };
+
   useEffect(() => {
     let isMounted = true;
 
@@ -258,8 +368,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (currentUser) {
         loadProfile(currentUser);
+        syncSubscription(currentUser);
+        triggerWelcomeEmailIfConfirmed(session);
       } else {
         setProfile(null);
+        syncSubscription(null);
       }
     }).catch(err => {
       console.warn('Supabase getSession exception:', err);
@@ -269,7 +382,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Subscribe to auth state changes
     const {
       data: { subscription }
-    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
       const currentUser = session?.user ?? null;
       setUser(currentUser);
@@ -277,8 +390,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
       if (currentUser) {
         loadProfile(currentUser);
+        syncSubscription(currentUser);
+        if (event === 'SIGNED_IN' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+          triggerWelcomeEmailIfConfirmed(session);
+        }
       } else {
         setProfile(null);
+        syncSubscription(null);
       }
     });
 
@@ -331,10 +449,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const isProfessor = requestedRole === 'professor';
 
     try {
+      const emailRedirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth` : undefined;
       const res = await supabase.auth.signUp({
         email: email.trim(),
         password: pass,
         options: {
+          emailRedirectTo,
           data: {
             full_name: cleanName,
             display_name: cleanName,
@@ -402,6 +522,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         redirectTo: `${window.location.origin}/auth`
       });
       return res;
+    } catch (err: any) {
+      return { error: err };
+    }
+  };
+
+  const resendConfirmationEmail = async (email: string) => {
+    try {
+      const emailRedirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth` : undefined;
+      const { error } = await supabase.auth.resend({
+        type: 'signup',
+        email: email.trim(),
+        options: { emailRedirectTo },
+      });
+      return { error };
     } catch (err: any) {
       return { error: err };
     }
@@ -715,6 +849,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         loginWithEmail,
         signUpWithEmail,
         resetPassword,
+        resendConfirmationEmail,
         logout,
         updateProfileData,
         addXp,
@@ -727,7 +862,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         rejeitarProfessor,
         criarMarcacaoAula,
         cancelarMarcacaoAula,
-        registrarEventoAcesso
+        registrarEventoAcesso,
+        backendPlan,
+        hasActiveSubscription,
+        refreshSubscription: () => syncSubscription(user)
       }}
     >
       {children}

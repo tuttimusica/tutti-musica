@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
+import { supabase } from '../../lib/supabase';
 
 export const AuthPage: React.FC = () => {
   const {
@@ -32,6 +33,7 @@ export const AuthPage: React.FC = () => {
     loginWithEmail,
     signUpWithEmail,
     resetPassword,
+    resendConfirmationEmail,
     loginWithGoogle,
     logout
   } = useAuth();
@@ -71,58 +73,92 @@ export const AuthPage: React.FC = () => {
     return '/aluno';
   };
 
-  // Inspect URL parameters and Hash on component mount for OAuth errors or callbacks
+  const [emailConfirmedBanner, setEmailConfirmedBanner] = useState(false);
+  const [canResendConfirmation, setCanResendConfirmation] = useState(false);
+  const [resendingEmail, setResendingEmail] = useState(false);
+
+  // Inspect URL parameters and Hash on component mount for Email Confirmation, PKCE Code, or OAuth errors
   useEffect(() => {
     if (typeof window === 'undefined') return;
 
-    try {
-      // 1. Check URL query string
-      const searchParams = new URLSearchParams(window.location.search);
-      const searchError = searchParams.get('error');
-      const searchErrorDesc = searchParams.get('error_description');
+    const inspectCallback = async () => {
+      try {
+        const searchParams = new URLSearchParams(window.location.search);
+        const searchError = searchParams.get('error');
+        const searchErrorDesc = searchParams.get('error_description');
+        const pkceCode = searchParams.get('code');
+        const confirmType = searchParams.get('type');
 
-      // 2. Check URL hash (Supabase Auth returns errors and tokens in hash)
-      let hashError: string | null = null;
-      let hashErrorDesc: string | null = null;
-      if (window.location.hash && window.location.hash.includes('error=')) {
-        const hashString = window.location.hash.substring(1);
-        const hashParams = new URLSearchParams(hashString);
-        hashError = hashParams.get('error');
-        hashErrorDesc = hashParams.get('error_description');
-      }
+        let hashError: string | null = null;
+        let hashErrorDesc: string | null = null;
+        let hashType: string | null = null;
+        let hasAccessToken = false;
 
-      const rawError = searchError || hashError;
-      const rawDesc = searchErrorDesc || hashErrorDesc;
-
-      if (rawError || rawDesc) {
-        const combined = `${rawError || ''}: ${rawDesc || ''}`.toLowerCase();
-        
-        if (combined.includes('deleted_client') || combined.includes('client was deleted')) {
-          setOauthDiagnosticInfo(
-            'O Cliente OAuth do Google configurado no provedor Supabase foi excluído ou desativado no Google Cloud Console (Erro 401: deleted_client). É necessário criar um novo Client ID e atualizar as credenciais no painel do Supabase.'
-          );
-          setErrorMsg('O login com Google está temporariamente indisponível devido a credenciais desatualizadas no servidor. Por favor, utilize seu E-mail e Senha abaixo.');
-        } else if (combined.includes('access_denied')) {
-          setErrorMsg('A autenticação com o Google foi cancelada por você.');
-        } else if (combined.includes('unsupported_provider') || combined.includes('provider is not enabled')) {
-          setErrorMsg('O provedor Google ainda não está habilitado no painel do Supabase. Utilize o login convencional.');
-        } else if (combined.includes('redirect_uri_mismatch')) {
-          setOauthDiagnosticInfo(
-            'A URL de redirecionamento autorizada não coincide com a cadastrada no Google Cloud Console. A URL obrigatória é: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback'
-          );
-          setErrorMsg('Erro de configuração de URL no Google OAuth.');
-        } else {
-          setErrorMsg(rawDesc || rawError || 'Falha na autenticação via Google.');
+        if (window.location.hash) {
+          const hashString = window.location.hash.substring(1);
+          const hashParams = new URLSearchParams(hashString);
+          hashError = hashParams.get('error');
+          hashErrorDesc = hashParams.get('error_description');
+          hashType = hashParams.get('type');
+          hasAccessToken = Boolean(hashParams.get('access_token'));
         }
 
-        // Clean up hash to prevent stale errors on page refresh
-        if (window.history && window.history.replaceState) {
-          window.history.replaceState({}, document.title, window.location.pathname);
+        const rawError = searchError || hashError;
+        const rawDesc = searchErrorDesc || hashErrorDesc;
+
+        if (rawError || rawDesc) {
+          const combined = `${rawError || ''}: ${rawDesc || ''}`.toLowerCase();
+
+          if (combined.includes('deleted_client') || combined.includes('client was deleted')) {
+            setOauthDiagnosticInfo(
+              'O Cliente OAuth do Google configurado no provedor Supabase foi excluído ou desativado no Google Cloud Console (Erro 401: deleted_client). É necessário criar um novo Client ID e atualizar as credenciais no painel do Supabase.'
+            );
+            setErrorMsg('O login com Google está temporariamente indisponível devido a credenciais desatualizadas no servidor. Por favor, utilize seu E-mail e Senha abaixo.');
+          } else if (combined.includes('access_denied')) {
+            setErrorMsg('A autenticação com o Google foi cancelada por você.');
+          } else if (combined.includes('unsupported_provider') || combined.includes('provider is not enabled')) {
+            setErrorMsg('O provedor Google ainda não está habilitado no painel do Supabase. Utilize o login convencional.');
+          } else if (combined.includes('redirect_uri_mismatch')) {
+            setOauthDiagnosticInfo(
+              'A URL de redirecionamento autorizada não coincide com a cadastrada no Google Cloud Console. A URL obrigatória é: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback'
+            );
+            setErrorMsg('Erro de configuração de URL no Google OAuth.');
+          } else if (combined.includes('expired') || combined.includes('otp_expired') || combined.includes('invalid')) {
+            setErrorMsg('O link de confirmação expirou ou já foi utilizado. Caso necessário, solicite o reenvio abaixo.');
+            setCanResendConfirmation(true);
+          } else {
+            setErrorMsg(rawDesc || rawError || 'Falha na autenticação.');
+          }
+
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+          return;
         }
+
+        // Troca de código PKCE (confirmação de cadastro / login mágico / OAuth)
+        if (pkceCode) {
+          const { error: exErr } = await supabase.auth.exchangeCodeForSession(pkceCode);
+          if (!exErr) {
+            setEmailConfirmedBanner(true);
+            setSuccessMsg('E-mail confirmado com sucesso! Sua conta na Tutti Escola de Música está ativa.');
+          }
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        } else if (confirmType === 'signup' || confirmType === 'email' || hashType === 'signup' || (hasAccessToken && hashType !== 'recovery')) {
+          setEmailConfirmedBanner(true);
+          setSuccessMsg('E-mail confirmado com sucesso! Sua conta na Tutti Escola de Música está ativa.');
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState({}, document.title, window.location.pathname);
+          }
+        }
+      } catch (e) {
+        console.debug('Auth callback URL inspection notice:', e);
       }
-    } catch (e) {
-      console.debug('OAuth URL inspection notice:', e);
-    }
+    };
+
+    inspectCallback();
   }, []);
 
   // When user is already authenticated or becomes authenticated via OAuth on /auth, redirect seamlessly
@@ -147,6 +183,9 @@ export const AuthPage: React.FC = () => {
       );
       return 'O provedor Google OAuth está com credenciais excluídas no Google Cloud (Erro 401: deleted_client). Por favor, use login com E-mail e Senha.';
     }
+    if (msg.includes('Invalid path') || msg.includes('requested path is invalid') || msg.includes('PGRST125')) {
+      return 'A URL de conexão do Supabase foi higienizada para a raiz do projeto (removendo subcaminhos /rest/v1). Por favor, tente entrar novamente.';
+    }
     if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
       return 'O provedor Google OAuth está sendo ativado no painel do Supabase. Por favor, utilize o login com E-mail e Senha.';
     }
@@ -163,12 +202,33 @@ export const AuthPage: React.FC = () => {
       return 'A senha precisa ter no mínimo 6 caracteres.';
     }
     if (msg.includes('Email not confirmed')) {
-      return 'E-mail ainda não confirmado. Verifique a caixa de entrada do seu provedor de e-mail.';
+      setCanResendConfirmation(true);
+      return 'E-mail ainda não confirmado. Verifique sua caixa de entrada ou clique abaixo para reenviar o link de confirmação.';
     }
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
       return 'Falha de comunicação com o servidor de autenticação. Verifique sua conexão com a internet.';
     }
     return msg || 'Ocorreu uma falha no processamento da autenticação. Tente novamente.';
+  };
+
+  const handleResendConfirmation = async () => {
+    const cleanEmail = email.trim();
+    if (!cleanEmail) {
+      setErrorMsg('Digite seu e-mail no campo acima para reenviar a confirmação.');
+      return;
+    }
+    setResendingEmail(true);
+    try {
+      const { error } = await resendConfirmationEmail(cleanEmail);
+      if (error) throw error;
+      setErrorMsg(null);
+      setSuccessMsg(`Novo link de confirmação enviado para ${cleanEmail}. Confira também sua caixa de spam.`);
+      showToast('E-mail de confirmação reenviado!');
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Não foi possível reenviar o e-mail de confirmação agora.');
+    } finally {
+      setResendingEmail(false);
+    }
   };
 
   // Reset errors when changing modes
@@ -247,12 +307,13 @@ export const AuthPage: React.FC = () => {
       const res = await signUpWithEmail(cleanEmail, password, cleanName, 'aluno');
       if (res.error) throw res.error;
 
-      showToast('Conta de aluno criada com sucesso! 🎶');
-
       if (res.data?.session) {
+        showToast('Conta de aluno criada com sucesso!');
         navigate('/aluno');
       } else {
-        setSuccessMsg('Cadastro realizado com sucesso! Verifique a mensagem de confirmação enviada para o seu e-mail.');
+        setCanResendConfirmation(true);
+        setSuccessMsg('Cadastro realizado! Enviamos um link de confirmação para o seu e-mail. Confirme seu endereço para ativar o acesso e receber suas boas-vindas.');
+        showToast('Confira seu e-mail para confirmar o cadastro.');
       }
     } catch (err: any) {
       setErrorMsg(translateAuthError(err));
@@ -408,6 +469,34 @@ export const AuthPage: React.FC = () => {
                 Dispensar aviso
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Banner de Confirmação de E-mail Concluída */}
+        {emailConfirmedBanner && (
+          <div className="p-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-200 text-xs flex items-start gap-3 relative z-10">
+            <CheckCircle2 size={18} className="text-emerald-400 flex-shrink-0 mt-0.5" />
+            <div className="space-y-1">
+              <p className="font-bold text-white">Cadastro Confirmado!</p>
+              <p className="text-emerald-200/90">
+                Seu endereço de e-mail foi validado com sucesso. Bem-vindo(a) à Tutti Escola de Música!
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* Ação de Reenvio de Confirmação */}
+        {canResendConfirmation && email.trim() && (
+          <div className="p-3.5 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 flex flex-wrap items-center justify-between gap-3 text-xs relative z-10">
+            <span className="text-cyan-200">Não recebeu o e-mail de confirmação em <strong>{email.trim()}</strong>?</span>
+            <button
+              type="button"
+              onClick={handleResendConfirmation}
+              disabled={resendingEmail}
+              className="px-3.5 py-1.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold transition disabled:opacity-50 cursor-pointer"
+            >
+              {resendingEmail ? 'Reenviando...' : 'Reenviar Confirmação'}
+            </button>
           </div>
         )}
 

@@ -39,6 +39,9 @@ export interface SheetMusic {
   storagePath?: string;
   isFeatured?: boolean;
   featuredOrder?: number;
+  categoria?: 'gratuita' | 'paga';
+  preco?: number;
+  publicado?: boolean;
   fileSizeBytes?: number;
   createdAt?: string;
   createdBy?: string;
@@ -68,11 +71,14 @@ export interface Product {
   originalPrice?: number;
   category: 'Acessórios' | 'Instrumentos' | 'Vestuário' | 'Livros';
   image: string;
+  images?: string[];
   rating: number;
   reviewsCount: number;
   badge?: string;
   description: string;
   inStock: boolean;
+  published?: boolean;
+  order?: number;
 }
 
 export interface Masterclass {

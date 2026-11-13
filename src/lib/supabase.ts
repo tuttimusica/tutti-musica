@@ -10,13 +10,18 @@ export const DEFAULT_SUPABASE_ANON_KEY = 'sb_publishable_lmlaQ5wY_WDUa5G8O9SRVw_
  */
 function resolveSupabaseUrl(rawUrl?: string): string {
   if (!rawUrl || typeof rawUrl !== 'string') return DEFAULT_SUPABASE_URL;
-  const trimmed = rawUrl.trim();
+  let trimmed = rawUrl.trim().replace(/['"]/g, '');
   if (!trimmed.match(/^https?:\/\//i) || trimmed.length < 10) {
     return DEFAULT_SUPABASE_URL;
   }
+  // Auto-correct any typo referencing the invalid domain
+  if (trimmed.includes('viwxalwpvuygcyxsdbi')) {
+    trimmed = trimmed.replace('viwxalwpvuygcyxsdbi', 'viwxalwpvuvgcyxsdjbi');
+  }
   try {
-    new URL(trimmed);
-    return trimmed;
+    const parsed = new URL(trimmed);
+    // Guarantee base domain without any subpaths like /rest/v1 or trailing slashes
+    return parsed.origin;
   } catch {
     return DEFAULT_SUPABASE_URL;
   }

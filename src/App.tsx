@@ -7,7 +7,7 @@ import {
   Volume2, VolumeX, Activity, Radio, Award,
   Flame, Clock, Check, Layers, ChevronRight,
   Folder, HardDrive, Sun, Moon, Video, Edit3, Image as ImageIcon, ExternalLink,
-  Plus, Link as LinkIcon, Lock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn, GraduationCap, Download
+  Plus, Link as LinkIcon, Lock, Unlock, Mic, Square, Heart, MessageCircle, Share2, LogOut, ShieldCheck, LogIn, GraduationCap, Download, Loader2, Tag, Eye
 } from 'lucide-react';
 
 import { 
@@ -37,9 +37,52 @@ import { KeyboardStudio } from './components/Studio/KeyboardStudio';
 import { CommunityFeed } from './components/Community/CommunityFeed';
 import { PlansModal } from './components/Subscription/PlansModal';
 import { SocialModal } from './components/Social/SocialModal';
+import { OfficialContacts } from './components/Common/OfficialContacts';
+import {
+  DbPartitura,
+  fetchPublishedPartituras,
+  fetchUnlockedPartituraIds,
+  resolvePartituraPdfUrl,
+  createPaidSheetCheckout,
+} from './services/partiturasService';
 import { RouterContext, RouterContextType, useAppRouter } from './context/RouterContext';
 export { useAppRouter, RouterContext };
 export type { RouterContextType };
+
+function mapDbPartituraToSheetMusic(item: DbPartitura): SheetMusic {
+  const isPaid = item.categoria === 'paga';
+  return {
+    id: Number(item.id),
+    title: item.titulo,
+    composer: item.compositor || 'Compositor Tutti',
+    instrument: item.instrumento || 'Saxofone Alto',
+    family:
+      item.instrumento?.toLowerCase().includes('sax') ||
+      item.instrumento?.toLowerCase().includes('tromp') ||
+      item.instrumento?.toLowerCase().includes('tromb') ||
+      item.instrumento?.toLowerCase().includes('clar')
+        ? 'Metais'
+        : 'Teclas',
+    tonality: item.tonalidade || 'C',
+    originalKey: item.tom_original || item.tonalidade || 'C',
+    level: (item.nivel || 'Intermediário') as 'Iniciante' | 'Intermediário' | 'Avançado',
+    genre: item.genero || 'Geral',
+    tempo: item.tempo_bpm || 120,
+    timeSignature: item.compasso || '4/4',
+    description: item.descricao || '',
+    // Partituras pagas não expõem URL pública no frontend; o acesso passa por backend/signed URL
+    pdfUrl: isPaid ? undefined : item.arquivo_pdf_url || undefined,
+    storagePath: item.storage_path || undefined,
+    isFeatured: item.is_featured ?? false,
+    featuredOrder: item.featured_order ?? 0,
+    categoria: isPaid ? 'paga' : 'gratuita',
+    preco: Number(item.preco ?? 0),
+    publicado: item.publicado ?? true,
+    chords: Array.isArray(item.cifras) ? item.cifras : [],
+    melodyNotes: Array.isArray(item.melodia_notas) ? item.melodia_notas : [],
+    youtubeUrl: item.youtube_url || undefined,
+  };
+}
 
 // SEO helper
 const useSEO = (title: string, description: string) => {
@@ -69,6 +112,7 @@ const Header: React.FC = () => {
     { path: '/partituras', label: 'Partituras' },
     { path: '/estudio', label: 'Estúdio & Instrumentos' },
     { path: '/agenda', label: 'Agenda de Aula' },
+    { path: '/loja', label: 'Loja' },
     { path: '/comunidade', label: 'Comunidade' },
   ];
 
@@ -308,6 +352,7 @@ const MobileNav: React.FC = () => {
     ...(userRole !== 'professor' ? [{ path: '/aulas', icon: Play, label: 'Aulas' }] : []),
     { path: '/partituras', icon: Music, label: 'Partituras' },
     { path: '/estudio', icon: Headphones, label: 'Estúdio' },
+    { path: '/loja', icon: ShoppingBag, label: 'Loja' },
     ...(user
       ? [{ path: rolePath, icon: roleIcon, label: roleLabel }]
       : [{ path: '/auth', icon: LogIn, label: 'Entrar' }]),
@@ -341,11 +386,78 @@ const MobileNav: React.FC = () => {
 
 // 1. HOME PAGE
 const HomePage: React.FC = () => {
-  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal, openSocialModal } = useAppRouter();
+  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal, openSocialModal, showToast } = useAppRouter();
+  const { user, profile } = useAuth();
+  const [featuredDbSheets, setFeaturedDbSheets] = useState<DbPartitura[]>([]);
+  const [totalPublishedSheets, setTotalPublishedSheets] = useState<number>(0);
+  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
+  const [openingId, setOpeningId] = useState<number | null>(null);
+
   useSEO("Início", "Aprenda Saxofone, Teclado, Violão, Canto, Bateria e Violino com o Maestro Lucas.");
 
-  const playDemoSound = (note: string) => {
-    audioEngine.playNote(note, 0.8, 'sax');
+  const loadHomeSheets = useCallback(async () => {
+    try {
+      const [all, unlocked] = await Promise.all([
+        fetchPublishedPartituras(),
+        fetchUnlockedPartituraIds(user?.id),
+      ]);
+      setTotalPublishedSheets(all.length);
+      setUnlockedIds(unlocked);
+      const featuredOnly = all.filter(s => s.is_featured);
+      setFeaturedDbSheets((featuredOnly.length > 0 ? featuredOnly : all).slice(0, 6));
+    } catch (err) {
+      console.warn('Home sheets load note:', err);
+    }
+  }, [user?.id]);
+
+  useEffect(() => {
+    loadHomeSheets();
+    const channel = supabase
+      .channel('home-partituras-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => {
+        loadHomeSheets();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadHomeSheets]);
+
+  const handleOpenHomeSheet = async (item: DbPartitura) => {
+    const isPaid = item.categoria === 'paga';
+    const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+    const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
+
+    if (!isUnlocked) {
+      if (!user) {
+        showToast('Faça login para adquirir esta partitura paga.');
+        navigate('/auth');
+        return;
+      }
+      setOpeningId(item.id);
+      try {
+        const { url } = await createPaidSheetCheckout(item.id);
+        window.location.href = url;
+      } catch (err: any) {
+        showToast(err?.message || 'Não foi possível iniciar o pagamento.');
+      } finally {
+        setOpeningId(null);
+      }
+      return;
+    }
+
+    setOpeningId(item.id);
+    try {
+      const resolved = await resolvePartituraPdfUrl(item);
+      openSheetViewer(mapDbPartituraToSheetMusic(item), {
+        pdfUrl: resolved.url,
+        isPaidProtected: resolved.protected || isPaid,
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao carregar partitura.');
+    } finally {
+      setOpeningId(null);
+    }
   };
 
   return (
@@ -561,59 +673,89 @@ const HomePage: React.FC = () => {
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => navigate('/partituras')}
-              className="text-sm font-bold text-cyan-400 hover:underline flex items-center gap-1 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors"
+              className="text-sm font-bold text-cyan-400 hover:underline flex items-center gap-1 px-3 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 transition-colors cursor-pointer"
             >
-              Ver acervo completo ({SHEETS_CATALOG.length}) <ChevronRight size={16} />
+              Ver acervo completo ({totalPublishedSheets}) <ChevronRight size={16} />
             </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {SHEETS_CATALOG.slice(0, 3).map((sheet) => (
-            <div
-              key={sheet.id}
-              onClick={() => openSheetViewer(sheet)}
-              className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 cursor-pointer shadow-xl flex flex-col justify-between group relative overflow-hidden"
-            >
-              <div>
-                <div className="flex justify-between items-start mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
-                    𝄞
+        {featuredDbSheets.length > 0 ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {featuredDbSheets.map((item) => {
+              const isPaid = item.categoria === 'paga';
+              const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+              const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
+              return (
+                <div
+                  key={item.id}
+                  onClick={() => handleOpenHomeSheet(item)}
+                  className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 cursor-pointer shadow-xl flex flex-col justify-between group relative overflow-hidden"
+                >
+                  <div>
+                    <div className="flex justify-between items-start mb-4">
+                      <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
+                        𝄞
+                      </div>
+                      <div className="flex flex-col items-end gap-1">
+                        <span className="px-3 py-1 rounded-full bg-white/5 text-slate-300 text-xs font-bold border border-white/10">
+                          {item.nivel}
+                        </span>
+                        <span className={`text-[10px] font-bold flex items-center gap-1 px-2.5 py-0.5 rounded-full border ${
+                          isPaid
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                            : 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                        }`}>
+                          {isPaid ? <Lock size={10} /> : <Unlock size={10} />}
+                          {isPaid
+                            ? isUnlocked
+                              ? 'Paga • Liberada'
+                              : `Paga • R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}`
+                            : 'Gratuita'}
+                        </span>
+                      </div>
+                    </div>
+                    <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
+                      {item.titulo}
+                    </h3>
+                    <p className="text-xs text-slate-400 font-semibold mb-3">
+                      {item.compositor} • {item.instrumento}
+                    </p>
+                    <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
+                      <span>Tom: {item.tonalidade || 'C'}</span>
+                      <span>•</span>
+                      <span>{item.tempo_bpm || 120} BPM</span>
+                    </div>
                   </div>
-                  <div className="flex flex-col items-end gap-1">
-                    <span className="px-3 py-1 rounded-full bg-white/5 text-slate-300 text-xs font-bold border border-white/10">
-                      {sheet.level}
-                    </span>
-                    <span className="text-[10px] text-red-400 font-bold flex items-center gap-1 bg-red-500/10 px-2 py-0.5 rounded-full border border-red-500/20">
-                      <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                      YouTube Sincronizado
-                    </span>
-                  </div>
-                </div>
-                <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
-                  {sheet.title}
-                </h3>
-                <p className="text-xs text-slate-400 font-semibold mb-3">
-                  {sheet.composer} • {sheet.instrument}
-                </p>
-                <div className="flex items-center gap-2 text-xs text-emerald-400 font-mono">
-                  <span>Tom: {sheet.tonality}</span>
-                  <span>•</span>
-                  <span>{sheet.tempo} BPM</span>
-                </div>
-              </div>
 
-              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
-                <span className="text-xs font-bold text-cyan-400 group-hover:underline flex items-center gap-1">
-                  <Play size={13} fill="currentColor" /> Visualizar & Tocar com YouTube
-                </span>
-                <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center group-hover:bg-cyan-400 group-hover:text-black transition-colors shadow-sm">
-                  <ChevronRight size={16} />
+                  <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between">
+                    <span className="text-xs font-bold text-cyan-400 group-hover:underline flex items-center gap-1">
+                      {openingId === item.id ? (
+                        <Loader2 size={13} className="animate-spin" />
+                      ) : isUnlocked ? (
+                        <Play size={13} fill="currentColor" />
+                      ) : (
+                        <Lock size={13} />
+                      )}
+                      {isUnlocked ? 'Visualizar Partitura' : 'Adquirir Partitura'}
+                    </span>
+                    <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center group-hover:bg-cyan-400 group-hover:text-black transition-colors shadow-sm">
+                      <ChevronRight size={16} />
+                    </div>
+                  </div>
                 </div>
-              </div>
-            </div>
-          ))}
-        </div>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="p-10 text-center bg-[#131722] border border-white/10 rounded-3xl space-y-2">
+            <Music size={28} className="mx-auto text-slate-500" />
+            <p className="text-sm font-bold text-white">Nenhuma partitura em destaque publicada no momento.</p>
+            <p className="text-xs text-slate-400">
+              Novas partituras adicionadas pelo Desenvolvedor aparecerão automaticamente aqui.
+            </p>
+          </div>
+        )}
       </section>
 
       {/* Masterclass Banner */}
@@ -1035,18 +1177,21 @@ const AulasPage: React.FC = () => {
   );
 };
 
-// 3. PARTITURAS PAGE (Item 11 & Item 20)
+// 3. PARTITURAS PAGE (Gratuitas vs Pagas vs Destaques - Sem dados mockados)
 const PartiturasPage: React.FC = () => {
-  const { openSheetViewer } = useAppRouter();
+  const { openSheetViewer, navigate, showToast } = useAppRouter();
+  const { user, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInstrument, setSelectedInstrument] = useState('Todos');
   const [filterLevel, setFilterLevel] = useState('Todos');
-  const [dbSheets, setDbSheets] = useState<SheetMusic[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [dbSheets, setDbSheets] = useState<DbPartitura[]>([]);
+  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [busySheetId, setBusySheetId] = useState<number | null>(null);
 
   useSEO(
     "Biblioteca de Partituras Tutti",
-    "Consulte, visualize e baixe partituras em formato PDF com áudio interativo e transposição."
+    "Explore partituras gratuitas, partituras em destaque e partituras pagas com visualização segura em PDF."
   );
 
   const instrumentOptions = [
@@ -1065,71 +1210,202 @@ const PartiturasPage: React.FC = () => {
 
   const levels = ['Todos', 'Iniciante', 'Intermediário', 'Avançado'];
 
-  // Load real sheet music from Supabase
-  useEffect(() => {
-    async function loadSheets() {
-      setLoading(true);
-      try {
-        const { data, error } = await supabase
-          .from('partituras')
-          .select('*')
-          .order('id', { ascending: false });
-
-        if (!error && data && data.length > 0) {
-          const mapped: SheetMusic[] = data.map((item: any) => ({
-            id: Number(item.id),
-            title: item.titulo,
-            composer: item.compositor,
-            instrument: item.instrumento,
-            family: item.instrumento?.toLowerCase().includes('sax') || item.instrumento?.toLowerCase().includes('tromp') || item.instrumento?.toLowerCase().includes('tromb') || item.instrumento?.toLowerCase().includes('clar') ? 'Metais' : 'Teclas',
-            tonality: item.tonalidade || 'C',
-            originalKey: item.tom_original || item.tonalidade || 'C',
-            level: (item.nivel || 'Intermediário') as any,
-            genre: item.genero || 'Geral',
-            tempo: item.tempo_bpm || 120,
-            timeSignature: item.compasso || '4/4',
-            description: item.descricao || '',
-            sheetUrl: item.arquivo_pdf_url || '',
-            pdfUrl: item.arquivo_pdf_url || '',
-            storagePath: item.storage_path,
-            isFeatured: item.is_featured,
-            cifras: Array.isArray(item.cifras) ? item.cifras : [],
-            chords: Array.isArray(item.cifras) ? item.cifras : [],
-            melodyNotes: Array.isArray(item.melodia_notas) ? item.melodia_notas : [],
-            audioUrl: item.audio_playalong_url,
-            youtubeUrl: item.youtube_url,
-          }));
-
-          // Merge with catalog to ensure user always has the complete baseline music library
-          const existingIds = new Set(mapped.map(m => m.id));
-          const merged = [...mapped, ...SHEETS_CATALOG.filter(c => !existingIds.has(c.id))];
-          setDbSheets(merged);
-        } else {
-          setDbSheets(SHEETS_CATALOG);
-        }
-      } catch (e) {
-        console.debug('Using fallback sheets catalog:', e);
-        setDbSheets(SHEETS_CATALOG);
-      } finally {
-        setLoading(false);
-      }
+  const loadSheets = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [sheets, unlocked] = await Promise.all([
+        fetchPublishedPartituras(),
+        fetchUnlockedPartituraIds(user?.id),
+      ]);
+      setDbSheets(sheets);
+      setUnlockedIds(unlocked);
+    } catch (e) {
+      console.warn('Erro ao carregar partituras do Supabase:', e);
+      setDbSheets([]);
+    } finally {
+      setLoading(false);
     }
+  }, [user?.id]);
+
+  useEffect(() => {
     loadSheets();
-  }, []);
+    const channel = supabase
+      .channel('partituras-page-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => {
+        loadSheets();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras_acessos' }, () => {
+        loadSheets();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadSheets]);
 
   const filteredSheets = useMemo(() => {
-    return dbSheets.filter(sheet => {
-      const matchSearch = sheet.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          sheet.composer.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                          sheet.instrument.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchInstrument = selectedInstrument === 'Todos' || sheet.instrument.toLowerCase().includes(selectedInstrument.toLowerCase());
-      const matchLevel = filterLevel === 'Todos' || sheet.level === filterLevel;
+    return dbSheets.filter(item => {
+      const term = searchTerm.toLowerCase();
+      const matchSearch =
+        !term ||
+        item.titulo.toLowerCase().includes(term) ||
+        (item.compositor || '').toLowerCase().includes(term) ||
+        (item.instrumento || '').toLowerCase().includes(term);
+      const matchInstrument =
+        selectedInstrument === 'Todos' ||
+        (item.instrumento || '').toLowerCase().includes(selectedInstrument.toLowerCase());
+      const matchLevel = filterLevel === 'Todos' || item.nivel === filterLevel;
       return matchSearch && matchInstrument && matchLevel;
     });
   }, [dbSheets, searchTerm, selectedInstrument, filterLevel]);
 
+  const featuredSheets = useMemo(
+    () => filteredSheets.filter(s => s.is_featured),
+    [filteredSheets]
+  );
+  const freeSheets = useMemo(
+    () => filteredSheets.filter(s => s.categoria !== 'paga'),
+    [filteredSheets]
+  );
+  const paidSheets = useMemo(
+    () => filteredSheets.filter(s => s.categoria === 'paga'),
+    [filteredSheets]
+  );
+
+  const handleOpenSheet = async (item: DbPartitura) => {
+    setBusySheetId(item.id);
+    try {
+      const resolved = await resolvePartituraPdfUrl(item);
+      openSheetViewer(mapDbPartituraToSheetMusic(item), {
+        pdfUrl: resolved.url,
+        isPaidProtected: resolved.protected || item.categoria === 'paga',
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Esta partitura é protegida. Adquira para liberar.');
+    } finally {
+      setBusySheetId(null);
+    }
+  };
+
+  const handleBuyPaidSheet = async (item: DbPartitura) => {
+    if (!user) {
+      showToast('Faça login para adquirir esta partitura paga.');
+      navigate('/auth');
+      return;
+    }
+    setBusySheetId(item.id);
+    try {
+      const { url } = await createPaidSheetCheckout(item.id);
+      window.location.href = url;
+    } catch (err: any) {
+      showToast(err?.message || 'Erro ao iniciar checkout da partitura.');
+    } finally {
+      setBusySheetId(null);
+    }
+  };
+
+  const renderSheetCard = (item: DbPartitura) => {
+    const isPaid = item.categoria === 'paga';
+    const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+    const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
+    const priceLabel = `R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}`;
+
+    return (
+      <div
+        key={item.id}
+        className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 shadow-xl flex flex-col justify-between group"
+      >
+        <div>
+          <div className="flex justify-between items-start mb-4 gap-2">
+            <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
+              𝄞
+            </div>
+            <div className="flex flex-col items-end gap-1">
+              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                item.nivel === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-400' :
+                item.nivel === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
+              }`}>
+                {item.nivel}
+              </span>
+              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
+                isPaid
+                  ? isUnlocked
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
+              }`}>
+                {isPaid ? (isUnlocked ? <Unlock size={10} /> : <Lock size={10} />) : <Unlock size={10} />}
+                {isPaid ? (isUnlocked ? `Liberada • ${priceLabel}` : `Paga • ${priceLabel}`) : 'Gratuita'}
+              </span>
+            </div>
+          </div>
+
+          <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
+            {item.titulo}
+          </h3>
+          <p className="text-xs text-slate-400 font-semibold mb-2">
+            {item.compositor} • {item.instrumento}
+          </p>
+          <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+            {item.descricao || 'Arranjo oficial catalogado pela Tutti Escola de Música.'}
+          </p>
+        </div>
+
+        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-2">
+          <div className="text-xs text-slate-400 font-mono">
+            <strong className="text-white">{item.tonalidade || 'C'}</strong> • {item.tempo_bpm || 120} BPM
+          </div>
+
+          <div className="flex items-center gap-2">
+            {isUnlocked ? (
+              <>
+                <button
+                  onClick={() => handleOpenSheet(item)}
+                  disabled={busySheetId === item.id}
+                  className="px-3.5 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-400 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  {busySheetId === item.id ? (
+                    <Loader2 size={12} className="animate-spin" />
+                  ) : (
+                    <Eye size={13} />
+                  )}
+                  <span>Visualizar PDF</span>
+                </button>
+                {!isPaid && item.arquivo_pdf_url && (
+                  <a
+                    href={item.arquivo_pdf_url}
+                    download={`${item.titulo}.pdf`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
+                    title="Baixar Partitura Gratuita"
+                  >
+                    <Download size={14} />
+                  </a>
+                )}
+              </>
+            ) : (
+              <button
+                onClick={() => handleBuyPaidSheet(item)}
+                disabled={busySheetId === item.id}
+                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
+              >
+                {busySheetId === item.id ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <Lock size={12} />
+                )}
+                <span>Adquirir ({priceLabel})</span>
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   return (
-    <div className="animate-in fade-in duration-500 space-y-8">
+    <div className="animate-in fade-in duration-500 space-y-10">
       {/* Header */}
       <div className="text-center space-y-3">
         <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">Acervo Musical Oficial</span>
@@ -1137,7 +1413,7 @@ const PartiturasPage: React.FC = () => {
           Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Partituras Tutti</span>
         </h1>
         <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Consulte, visualize em tela cheia com zoom e navegação de páginas e baixe partituras oficiais em PDF com áudio interativo e transposição.
+          Partituras organizadas entre catálogo gratuito e edições exclusivas pagas, com leitor protegido e sincronização em tempo real.
         </p>
       </div>
 
@@ -1187,73 +1463,84 @@ const PartiturasPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Sheets Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredSheets.length > 0 ? (
-          filteredSheets.map((sheet) => (
-            <div
-              key={sheet.id}
-              className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 shadow-xl flex flex-col justify-between group"
-            >
-              <div>
-                <div className="flex justify-between items-start mb-4">
-                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
-                    𝄞
-                  </div>
-                  <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                    sheet.level === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-400' :
-                    sheet.level === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
-                  }`}>
-                    {sheet.level}
-                  </span>
-                </div>
-
-                <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
-                  {sheet.title}
-                </h3>
-                <p className="text-xs text-slate-400 font-semibold mb-2">
-                  {sheet.composer} • {sheet.instrument}
-                </p>
-                <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-                  {sheet.description || 'Arranjo completo para estudo individual e apresentações.'}
-                </p>
-              </div>
-
-              <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-2">
-                <div className="text-xs text-slate-400 font-mono">
-                  <strong className="text-white">{sheet.tonality}</strong> • {sheet.tempo} BPM
-                </div>
+      {loading ? (
+        <div className="py-16 text-center text-slate-400 flex items-center justify-center gap-2">
+          <Loader2 size={20} className="animate-spin text-cyan-400" />
+          <span className="text-sm font-semibold">Carregando acervo do Supabase...</span>
+        </div>
+      ) : filteredSheets.length === 0 ? (
+        <div className="py-16 text-center text-slate-400 bg-[#131722] rounded-3xl border border-white/10 space-y-2">
+          <Music size={32} className="mx-auto text-slate-500" />
+          <p className="text-base font-semibold text-white">Nenhuma partitura publicada encontrada.</p>
+          <p className="text-xs text-slate-400">
+            Ajuste os filtros ou aguarde novas publicações adicionadas pelo Desenvolvedor.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-12">
+          {/* SEÇÃO 1: PARTITURAS EM DESTAQUE */}
+          {featuredSheets.length > 0 && (
+            <section className="space-y-4">
+              <div className="flex items-center justify-between border-b border-white/10 pb-3">
                 <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openSheetViewer(sheet)}
-                    className="px-3 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-400 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                  >
-                    <Play size={12} fill="currentColor" /> Visualizar
-                  </button>
-                  {sheet.pdfUrl && (
-                    <a
-                      href={sheet.pdfUrl}
-                      download={`${sheet.title}.pdf`}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
-                      title="Baixar Partitura em PDF"
-                    >
-                      <Download size={14} />
-                    </a>
-                  )}
+                  <Star size={18} className="text-amber-400 fill-amber-400" />
+                  <h2 className="text-2xl font-syne font-black text-white">Partituras em Destaque</h2>
                 </div>
+                <span className="text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
+                  {featuredSheets.length} selecionada(s)
+                </span>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {featuredSheets.map(renderSheetCard)}
+              </div>
+            </section>
+          )}
+
+          {/* SEÇÃO 2: PARTITURAS GRATUITAS */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Unlock size={18} className="text-emerald-400" />
+                <h2 className="text-2xl font-syne font-black text-white">Partituras Gratuitas</h2>
+              </div>
+              <span className="text-xs font-bold text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/30">
+                {freeSheets.length} disponível(is)
+              </span>
             </div>
-          ))
-        ) : (
-          <div className="col-span-full py-16 text-center text-slate-400 bg-[#131722] rounded-3xl border border-white/10 space-y-2">
-            <Music size={32} className="mx-auto text-slate-500" />
-            <p className="text-base font-semibold text-white">Nenhuma partitura encontrada.</p>
-            <p className="text-xs text-slate-400">Tente buscar por outro termo ou alterar o filtro de instrumento.</p>
-          </div>
-        )}
-      </div>
+            {freeSheets.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {freeSheets.map(renderSheetCard)}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-xs text-slate-400 bg-[#131722] rounded-2xl border border-white/10">
+                Nenhuma partitura gratuita corresponde aos filtros selecionados.
+              </div>
+            )}
+          </section>
+
+          {/* SEÇÃO 3: PARTITURAS PAGAS */}
+          <section className="space-y-4">
+            <div className="flex items-center justify-between border-b border-white/10 pb-3">
+              <div className="flex items-center gap-2">
+                <Lock size={18} className="text-amber-400" />
+                <h2 className="text-2xl font-syne font-black text-white">Partituras Pagas & Edições Exclusivas</h2>
+              </div>
+              <span className="text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
+                {paidSheets.length} edição(ões)
+              </span>
+            </div>
+            {paidSheets.length > 0 ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                {paidSheets.map(renderSheetCard)}
+              </div>
+            ) : (
+              <div className="p-8 text-center text-xs text-slate-400 bg-[#131722] rounded-2xl border border-white/10">
+                Nenhuma partitura paga corresponde aos filtros selecionados.
+              </div>
+            )}
+          </section>
+        </div>
+      )}
     </div>
   );
 };
@@ -1618,79 +1905,366 @@ const ComunidadePage: React.FC = () => {
 };
 
 
-// 7. LOJA PAGE (EM ESTRUTURAÇÃO / EM BREVE)
+// 7. LOJA PAGE (Reativada e conectada ao Supabase public.produtos_loja + Galeria de Fotos)
 const LojaPage: React.FC = () => {
-  const { navigate } = useAppRouter();
-  useSEO("Loja Oficial Tutti - Em Breve", "Equipamentos, palhetas, boquilhas e instrumentos físicos em estruturação.");
+  const { addToCart, cart, openCheckout } = useAppRouter();
+  const [products, setProducts] = useState<Product[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState<string>('Todos');
+  const [selectedProductModal, setSelectedProductModal] = useState<Product | null>(null);
+  const [activeGalleryIdx, setActiveGalleryIdx] = useState(0);
+
+  useSEO(
+    "Loja Oficial Tutti",
+    "Instrumentos musicais, boquilhas, palhetas, métodos e acessórios selecionados pelos professores da Tutti."
+  );
+
+  const loadProducts = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data, error } = await supabase
+        .from('produtos_loja')
+        .select('*')
+        .neq('publicado', false)
+        .order('ordem', { ascending: true })
+        .order('id', { ascending: false });
+
+      if (!error && data) {
+        const mapped: Product[] = data.map((item: any) => {
+          const imgs: string[] = Array.isArray(item.imagens)
+            ? item.imagens.filter(Boolean)
+            : item.imagem_url
+            ? [item.imagem_url]
+            : [];
+          const cover = item.imagem_principal || item.imagem_url || imgs[0] || '';
+          const gallery = cover && !imgs.includes(cover) ? [cover, ...imgs] : imgs;
+          return {
+            id: Number(item.id),
+            name: item.nome,
+            price: Number(item.preco ?? 0),
+            originalPrice: item.preco_original != null ? Number(item.preco_original) : undefined,
+            category: (item.categoria || 'Acessórios') as Product['category'],
+            image: cover,
+            images: gallery,
+            rating: Number(item.avaliacao ?? 5),
+            reviewsCount: Number(item.num_avaliacoes ?? 0),
+            badge: item.badge || undefined,
+            description: item.descricao || '',
+            inStock: item.em_estoque !== false,
+            published: item.publicado !== false,
+            order: Number(item.ordem ?? 0),
+          };
+        });
+        setProducts(mapped);
+      } else {
+        setProducts([]);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar loja:', err);
+      setProducts([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadProducts();
+    const channel = supabase
+      .channel('loja-produtos-realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'produtos_loja' }, () => {
+        loadProducts();
+      })
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [loadProducts]);
+
+  const categories = ['Todos', 'Instrumentos', 'Acessórios', 'Livros', 'Vestuário'];
+
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchCat = selectedCategory === 'Todos' || p.category === selectedCategory;
+      const term = searchTerm.toLowerCase();
+      const matchSearch =
+        !term ||
+        p.name.toLowerCase().includes(term) ||
+        p.description.toLowerCase().includes(term) ||
+        p.category.toLowerCase().includes(term);
+      return matchCat && matchSearch;
+    });
+  }, [products, selectedCategory, searchTerm]);
+
+  const totalCartItems = cart.reduce((acc, item) => acc + item.quantity, 0);
 
   return (
-    <div className="animate-in fade-in duration-500 max-w-4xl mx-auto py-8 sm:py-12 space-y-8 text-center pb-20">
-      <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl p-6 sm:p-12 shadow-2xl relative overflow-hidden space-y-6">
-        <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-emerald-400 via-cyan-400 to-violet-600 flex items-center justify-center text-3xl mx-auto shadow-xl shadow-cyan-500/20">
-          🛍️
-        </div>
-
-        <div className="space-y-3 max-w-2xl mx-auto">
-          <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 text-xs font-bold">
-            <Sparkles size={14} />
-            <span>Novidade em Estruturação</span>
-          </div>
-
-          <h1 className="text-3xl sm:text-5xl font-syne font-black text-white tracking-tight">
-            Loja Oficial Tutti <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 to-cyan-400">Em Breve</span>
+    <div className="animate-in fade-in duration-500 space-y-8 pb-16">
+      {/* Store Header */}
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-white/10 pb-6">
+        <div className="space-y-2">
+          <span className="text-xs font-bold uppercase tracking-wider text-emerald-400">
+            Curadoria Tutti Escola de Música
+          </span>
+          <h1 className="text-4xl sm:text-5xl font-syne font-black text-white">
+            Loja Oficial <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Tutti</span>
           </h1>
-
-          <p className="text-sm sm:text-base text-slate-300 leading-relaxed pt-1">
-            Estamos estruturando nossa loja física oficial com os melhores instrumentos, boquilhas artesanais, palhetas de alto nível e acessórios com curadoria exclusiva dos nossos professores e luthiers parceiros.
+          <p className="text-sm text-slate-400 max-w-2xl">
+            Instrumentos regulados, palhetas, boquilhas, métodos e acessórios selecionados pelos nossos professores com pagamento seguro via Stripe.
           </p>
         </div>
 
-        {/* Feature Highlights Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 text-left max-w-3xl mx-auto">
-          <div className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-2">
-            <div className="text-2xl">🎷</div>
-            <h4 className="font-syne font-bold text-white text-sm">Instrumentos Selecionados</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Saxofones, flautas transversais, trombones e teclados inspecionados e regulados antes do envio.
-            </p>
-          </div>
+        <button
+          onClick={openCheckout}
+          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-syne font-black text-xs flex items-center gap-2 shadow-lg cursor-pointer self-start md:self-auto"
+        >
+          <ShoppingCart size={16} />
+          <span>Ver Carrinho ({totalCartItems})</span>
+        </button>
+      </div>
 
-          <div className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-2">
-            <div className="text-2xl">📦</div>
-            <h4 className="font-syne font-bold text-white text-sm">Acessórios de Qualidade</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Palhetas importadas, boquilhas de precisão, correias ergonômicas, metrônomos e estojos.
-            </p>
-          </div>
-
-          <div className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-2">
-            <div className="text-2xl">🛡️</div>
-            <h4 className="font-syne font-bold text-white text-sm">Garantia & Luthieria</h4>
-            <p className="text-xs text-slate-400 leading-relaxed">
-              Apoio de luthier profissional, nota fiscal e envio seguro para todo o território nacional.
-            </p>
-          </div>
+      {/* Filters & Search */}
+      <div className="bg-[#131722] p-4 sm:p-5 rounded-3xl border border-white/10 space-y-4">
+        <div className="relative">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Buscar saxofone, palheta, boquilha, método ou acessório..."
+            className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-2xl pl-11 pr-4 py-3 text-xs sm:text-sm outline-none focus:border-cyan-400"
+          />
         </div>
 
-        {/* Navigation Actions */}
-        <div className="pt-4 flex flex-col sm:flex-row items-center justify-center gap-4">
-          <button
-            onClick={() => navigate('/partituras')}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95 cursor-pointer"
-          >
-            <Music size={16} />
-            <span>Explorar Biblioteca de Partituras</span>
-          </button>
-
-          <button
-            onClick={() => navigate('/aulas')}
-            className="w-full sm:w-auto px-8 py-3.5 rounded-2xl font-syne font-bold text-xs bg-[#0b0d14] hover:bg-white/10 text-white border border-white/15 transition-all flex items-center justify-center gap-2 active:scale-95 cursor-pointer"
-          >
-            <BookOpen size={16} />
-            <span>Ver Aulas Disponíveis</span>
-          </button>
+        <div className="flex flex-wrap gap-2">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => setSelectedCategory(cat)}
+              className={`px-4 py-2 rounded-xl text-xs font-bold transition-colors cursor-pointer ${
+                selectedCategory === cat
+                  ? 'bg-gradient-to-r from-emerald-400 to-cyan-400 text-black'
+                  : 'bg-[#0b0d14] text-slate-300 hover:text-white border border-white/10'
+              }`}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
       </div>
+
+      {/* Catalog Grid */}
+      {loading ? (
+        <div className="py-16 text-center text-slate-400 flex items-center justify-center gap-2">
+          <Loader2 size={20} className="animate-spin text-cyan-400" />
+          <span className="text-sm font-semibold">Carregando catálogo da Loja Tutti...</span>
+        </div>
+      ) : filteredProducts.length > 0 ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          {filteredProducts.map((product) => {
+            const hasDiscount = product.originalPrice && product.originalPrice > product.price;
+            const discountPct = hasDiscount
+              ? Math.round(((product.originalPrice! - product.price) / product.originalPrice!) * 100)
+              : 0;
+            const gallery = product.images?.length ? product.images : product.image ? [product.image] : [];
+
+            return (
+              <div
+                key={product.id}
+                className="bg-[#131722] border border-white/10 hover:border-cyan-400/40 rounded-3xl overflow-hidden shadow-xl flex flex-col justify-between transition-all group"
+              >
+                <div>
+                  <div
+                    onClick={() => {
+                      setSelectedProductModal(product);
+                      setActiveGalleryIdx(0);
+                    }}
+                    className="h-56 bg-[#0b0d14] relative overflow-hidden cursor-pointer flex items-center justify-center"
+                  >
+                    {gallery[0] ? (
+                      <img
+                        src={gallery[0]}
+                        alt={product.name}
+                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                    ) : (
+                      <div className="text-5xl text-slate-600">🎷</div>
+                    )}
+
+                    {product.badge && (
+                      <span className="absolute top-3 left-3 px-2.5 py-1 rounded-full bg-amber-500 text-slate-950 text-[10px] font-black uppercase shadow">
+                        {product.badge}
+                      </span>
+                    )}
+
+                    {hasDiscount && (
+                      <span className="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-emerald-500 text-slate-950 text-[10px] font-black shadow">
+                        -{discountPct}%
+                      </span>
+                    )}
+
+                    {gallery.length > 1 && (
+                      <span className="absolute bottom-3 right-3 px-2.5 py-1 rounded-full bg-black/70 text-white text-[10px] font-bold border border-white/15">
+                        {gallery.length} fotos
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="p-5 space-y-2">
+                    <div className="flex items-center justify-between text-[11px]">
+                      <span className="text-cyan-400 font-bold uppercase tracking-wider">{product.category}</span>
+                      <span className={product.inStock ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
+                        {product.inStock ? 'Em estoque' : 'Esgotado'}
+                      </span>
+                    </div>
+
+                    <h3
+                      onClick={() => {
+                        setSelectedProductModal(product);
+                        setActiveGalleryIdx(0);
+                      }}
+                      className="text-lg font-syne font-bold text-white group-hover:text-cyan-400 transition-colors cursor-pointer"
+                    >
+                      {product.name}
+                    </h3>
+
+                    <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
+                      {product.description}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5 pt-0 space-y-3">
+                  <div className="flex items-baseline gap-2">
+                    <span className="text-2xl font-syne font-black text-emerald-400">
+                      R$ {product.price.toFixed(2).replace('.', ',')}
+                    </span>
+                    {hasDiscount && (
+                      <span className="text-xs text-slate-500 line-through">
+                        R$ {product.originalPrice!.toFixed(2).replace('.', ',')}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setSelectedProductModal(product);
+                        setActiveGalleryIdx(0);
+                      }}
+                      className="px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-200 text-xs font-bold border border-white/10 cursor-pointer"
+                    >
+                      Detalhes
+                    </button>
+                    <button
+                      onClick={() => addToCart(product)}
+                      disabled={!product.inStock}
+                      className="flex-1 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:opacity-90 disabled:opacity-40 text-black font-syne font-black text-xs flex items-center justify-center gap-1.5 cursor-pointer"
+                    >
+                      <ShoppingCart size={14} />
+                      <span>{product.inStock ? 'Adicionar ao Carrinho' : 'Indisponível'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="py-16 text-center bg-[#131722] rounded-3xl border border-white/10 space-y-2">
+          <ShoppingBag size={36} className="mx-auto text-slate-500" />
+          <p className="text-base font-bold text-white">Nenhum produto publicado encontrado.</p>
+          <p className="text-xs text-slate-400">
+            Produtos cadastrados e publicados pelo Desenvolvedor na aba "Gerenciar Loja" aparecerão aqui em tempo real.
+          </p>
+        </div>
+      )}
+
+      {/* Modal de Detalhes & Galeria Multi-Imagem */}
+      {selectedProductModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto">
+          <div className="bg-[#131722] border border-cyan-500/30 rounded-3xl p-6 sm:p-8 max-w-2xl w-full shadow-2xl relative space-y-5 my-auto">
+            <button
+              onClick={() => setSelectedProductModal(null)}
+              className="absolute top-5 right-5 text-slate-400 hover:text-white p-1 cursor-pointer"
+            >
+              <X size={20} />
+            </button>
+
+            {(() => {
+              const imgs = selectedProductModal.images?.length
+                ? selectedProductModal.images
+                : selectedProductModal.image
+                ? [selectedProductModal.image]
+                : [];
+              const activeImg = imgs[activeGalleryIdx] || imgs[0];
+              return (
+                <div className="space-y-4">
+                  <div className="h-64 sm:h-80 rounded-2xl bg-[#0b0d14] border border-white/10 overflow-hidden flex items-center justify-center">
+                    {activeImg ? (
+                      <img src={activeImg} alt={selectedProductModal.name} className="w-full h-full object-contain" />
+                    ) : (
+                      <div className="text-6xl">🎷</div>
+                    )}
+                  </div>
+
+                  {imgs.length > 1 && (
+                    <div className="flex gap-2 overflow-x-auto pb-1">
+                      {imgs.map((url, idx) => (
+                        <button
+                          key={`${url}_${idx}`}
+                          onClick={() => setActiveGalleryIdx(idx)}
+                          className={`w-16 h-16 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer ${
+                            idx === activeGalleryIdx ? 'border-cyan-400' : 'border-white/10 opacity-70 hover:opacity-100'
+                          }`}
+                        >
+                          <img src={url} alt={`Miniatura ${idx + 1}`} className="w-full h-full object-cover" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xs font-bold uppercase text-cyan-400">{selectedProductModal.category}</span>
+                <span className={`text-xs font-bold ${selectedProductModal.inStock ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {selectedProductModal.inStock ? 'Em estoque • Pronta entrega' : 'Esgotado'}
+                </span>
+              </div>
+              <h2 className="text-2xl font-syne font-black text-white">{selectedProductModal.name}</h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">{selectedProductModal.description}</p>
+
+              <div className="pt-2 flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-t border-white/10">
+                <div>
+                  <div className="text-2xl font-syne font-black text-emerald-400">
+                    R$ {selectedProductModal.price.toFixed(2).replace('.', ',')}
+                  </div>
+                  {selectedProductModal.originalPrice && selectedProductModal.originalPrice > selectedProductModal.price && (
+                    <div className="text-xs text-slate-500 line-through">
+                      De R$ {selectedProductModal.originalPrice.toFixed(2).replace('.', ',')}
+                    </div>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => {
+                    addToCart(selectedProductModal);
+                    setSelectedProductModal(null);
+                  }}
+                  disabled={!selectedProductModal.inStock}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-emerald-400 to-cyan-400 text-black font-syne font-black text-xs flex items-center justify-center gap-2 cursor-pointer disabled:opacity-40"
+                >
+                  <ShoppingCart size={15} />
+                  <span>{selectedProductModal.inStock ? 'Adicionar ao Carrinho' : 'Esgotado'}</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
@@ -2224,6 +2798,16 @@ const PerfilPage: React.FC = () => {
   );
 };
 
+const SubscriptionSync: React.FC<{ setUserPlan: (p: 'free' | 'pro' | 'ultra') => void }> = ({ setUserPlan }) => {
+  const { backendPlan } = useAuth();
+  useEffect(() => {
+    if (backendPlan) {
+      setUserPlan(backendPlan);
+    }
+  }, [backendPlan, setUserPlan]);
+  return null;
+};
+
 // --- APP SHELL AND PROVIDER ---
 export default function App() {
   // Sync initial path with window.location.pathname so F5 refresh preserves the current page
@@ -2253,7 +2837,11 @@ export default function App() {
 
   const [isMetronomeOpen, setIsMetronomeOpen] = useState(false);
   const [isTunerOpen, setIsTunerOpen] = useState(false);
-  const [activeSheetModal, setActiveSheetModal] = useState<SheetMusic | null>(null);
+  const [activeSheetModal, setActiveSheetModal] = useState<{
+    sheet: SheetMusic;
+    pdfUrl?: string | null;
+    isPaidProtected?: boolean;
+  } | null>(null);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -2414,7 +3002,15 @@ export default function App() {
     navigate,
     openMetronome: () => setIsMetronomeOpen(true),
     openTuner: () => setIsTunerOpen(true),
-    openSheetViewer: (sheet: SheetMusic) => setActiveSheetModal(sheet),
+    openSheetViewer: (
+      sheet: SheetMusic,
+      options?: { pdfUrl?: string | null; isPaidProtected?: boolean }
+    ) =>
+      setActiveSheetModal({
+        sheet,
+        pdfUrl: options?.pdfUrl ?? sheet.pdfUrl ?? null,
+        isPaidProtected: options?.isPaidProtected ?? sheet.categoria === 'paga',
+      }),
     openAuthModal: () => setIsAuthModalOpen(true),
     openPlansModal: () => setIsPlansModalOpen(true),
     openSocialModal: () => setIsSocialModalOpen(true),
@@ -2451,7 +3047,9 @@ export default function App() {
 
   return (
     <AuthProvider>
+      <SubscriptionSync setUserPlan={setUserPlan} />
       <RouterContext.Provider value={contextValue}>
+
         <div className={`min-h-screen ${theme === 'light' ? 'bg-[#f8fafc] text-slate-900' : 'bg-[#0b0d14] text-slate-100'} flex flex-col pt-20 pb-20 xl:pb-8 selection:bg-cyan-500 selection:text-black transition-colors duration-300`}>
           <Header />
           
@@ -2550,6 +3148,19 @@ export default function App() {
             )}
           </main>
 
+          {/* Rodapé Oficial de Contatos & Atendimento Tutti */}
+          <footer className="w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-8 border-t border-white/10">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+              <div>
+                <div className="font-syne font-black text-white text-sm">Tutti Escola de Música ♪</div>
+                <p className="text-xs text-slate-400">
+                  Atendimento oficial e suporte ao aluno via telefone e WhatsApp.
+                </p>
+              </div>
+              <OfficialContacts compact />
+            </div>
+          </footer>
+
           <MobileNav />
 
           {/* Global Modals */}
@@ -2564,7 +3175,9 @@ export default function App() {
           />
 
           <SheetViewerModal
-            sheet={activeSheetModal}
+            sheet={activeSheetModal?.sheet ?? null}
+            pdfUrl={activeSheetModal?.pdfUrl ?? activeSheetModal?.sheet?.pdfUrl ?? null}
+            isPaidProtected={activeSheetModal?.isPaidProtected ?? false}
             isOpen={!!activeSheetModal}
             onClose={() => setActiveSheetModal(null)}
           />

@@ -50,6 +50,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     if (msg.includes('deleted_client') || msg.includes('client was deleted')) {
       return 'O Cliente OAuth do Google configurado no Supabase foi excluído no Google Cloud. É necessário cadastrar um novo Client ID.';
     }
+    if (msg.includes('Invalid path') || msg.includes('requested path is invalid') || msg.includes('PGRST125')) {
+      return 'A URL do Supabase continha um caminho incorreto. Ela foi corrigida automaticamente. Tente entrar novamente.';
+    }
     if (msg.includes('Unsupported provider') || msg.includes('provider is not enabled')) {
       return 'O provedor Google OAuth está sendo configurado no Supabase. Por favor, utilize o login com E-mail e Senha.';
     }

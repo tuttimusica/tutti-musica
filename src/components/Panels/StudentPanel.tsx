@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
 import { supabase } from '../../lib/supabase';
@@ -19,10 +19,25 @@ import {
   Bell,
   CheckCircle,
   Sparkles,
-  Phone,
-  Mail,
-  Award
+  Award,
+  CreditCard,
+  Lock,
+  Star,
+  Eye,
+  Loader2
 } from 'lucide-react';
+import { StudentSubscriptionArea } from '../Subscription/StudentSubscriptionArea';
+import { PlansModal } from '../Subscription/PlansModal';
+import { OfficialContacts } from '../Common/OfficialContacts';
+import {
+  DbPartitura,
+  fetchPublishedPartituras,
+  fetchUnlockedPartituraIds,
+  resolvePartituraPdfUrl,
+  createPaidSheetCheckout
+} from '../../services/partiturasService';
+import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
+import { SheetMusic } from '../../data/musicData';
 
 export interface StudentPanelProps {
   onLogoutToAuth?: () => void;
@@ -32,12 +47,37 @@ export interface StudentPanelProps {
 export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNavigateHome }) => {
   const { user, profile, logout, cancelarMarcacaoAula } = useAuth();
   const { navigate, showToast } = useAppRouter();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'aulas' | 'marcacoes' | 'partituras' | 'professores' | 'perfil'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'assinatura' | 'aulas' | 'marcacoes' | 'partituras' | 'professores' | 'perfil'>(() => {
+    try {
+      const p = new URLSearchParams(window.location.search);
+      if (p.get('tab') === 'assinatura' || p.get('status') === 'success' || p.get('status') === 'cancelled') {
+        return 'assinatura';
+      }
+    } catch {}
+    return 'dashboard';
+  });
+  const [isPlansModalOpen, setIsPlansModalOpen] = useState(false);
   const [searchPartituras, setSearchPartituras] = useState('');
   const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
-  const [studyMaterials, setStudyMaterials] = useState<any[]>([]);
+  const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
+  const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<number>>(new Set());
+  const [openingSheetId, setOpeningSheetId] = useState<number | null>(null);
+  const [activeViewer, setActiveViewer] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
+
+  const loadPartiturasAndAccess = useCallback(async () => {
+    try {
+      const [sheets, unlocked] = await Promise.all([
+        fetchPublishedPartituras(),
+        fetchUnlockedPartituraIds(user?.id)
+      ]);
+      setStudyMaterials(sheets);
+      setUnlockedSheetIds(unlocked);
+    } catch (e) {
+      console.debug('Erro ao carregar partituras no painel do aluno:', e);
+    }
+  }, [user?.id]);
 
   // Load real student bookings, study materials, and approved teachers from Supabase
   useEffect(() => {
@@ -57,18 +97,8 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
           }
         }
 
-        // 2. Real study materials (partituras / apostilas)
-        const { data: materialsData } = await supabase
-          .from('partituras')
-          .select('*')
-          .order('id', { ascending: false })
-          .limit(8);
-
-        if (materialsData && materialsData.length > 0) {
-          setStudyMaterials(materialsData);
-        } else {
-          setStudyMaterials([]);
-        }
+        // 2. Real study materials & unlocked paid sheets
+        await loadPartiturasAndAccess();
 
         // 3. Real approved teachers
         const { data: teachersData } = await supabase
@@ -86,7 +116,6 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
             avatar: t.photo_url || t.photoURL
           })));
         } else {
-          // Check approved requests in solicitacoes_professores
           const { data: solData } = await supabase
             .from('solicitacoes_professores')
             .select('*')
@@ -110,7 +139,74 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       }
     }
     loadData();
-  }, [user?.email, user?.id]);
+
+    const channel = supabase
+      .channel('student-partituras-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => {
+        loadPartiturasAndAccess();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras_acessos' }, () => {
+        loadPartiturasAndAccess();
+      })
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.email, user?.id, loadPartiturasAndAccess]);
+
+  const toSheetMusic = (item: DbPartitura): SheetMusic => ({
+    id: Number(item.id),
+    title: item.titulo,
+    composer: item.compositor || 'Compositor Tutti',
+    instrument: item.instrumento || 'Instrumento Tutti',
+    tonality: item.tonalidade || 'C',
+    originalKey: item.tom_original || item.tonalidade || 'C',
+    family: 'Tutti',
+    level: (item.nivel as any) || 'Intermediário',
+    genre: item.genero || 'Geral',
+    tempo: item.tempo_bpm || 120,
+    timeSignature: item.compasso || '4/4',
+    melodyNotes: Array.isArray(item.melodia_notas) ? item.melodia_notas : [],
+    chords: Array.isArray(item.cifras) ? item.cifras : [],
+    description: item.descricao || '',
+    youtubeUrl: item.youtube_url || undefined,
+    pdfUrl: item.categoria === 'paga' ? undefined : (item.arquivo_pdf_url || undefined),
+    storagePath: item.storage_path || undefined,
+    isFeatured: item.is_featured,
+    featuredOrder: item.featured_order,
+    categoria: item.categoria || 'gratuita',
+    preco: item.preco,
+    publicado: item.publicado,
+  });
+
+  const handleOpenPartitura = async (item: DbPartitura) => {
+    try {
+      setOpeningSheetId(item.id);
+      const { url, protected: isProtected } = await resolvePartituraPdfUrl(item);
+      setActiveViewer({
+        sheet: toSheetMusic(item),
+        pdfUrl: url,
+        isPaidProtected: isProtected,
+      });
+    } catch (err: any) {
+      showToast(err?.message || 'Não foi possível abrir o PDF desta partitura.');
+    } finally {
+      setOpeningSheetId(null);
+    }
+  };
+
+  const handleBuyPaidPartitura = async (item: DbPartitura) => {
+    try {
+      setOpeningSheetId(item.id);
+      showToast('Iniciando pagamento seguro via Stripe...');
+      const { url } = await createPaidSheetCheckout(item.id);
+      window.location.href = url;
+    } catch (err: any) {
+      showToast(err?.message || 'Não foi possível iniciar o pagamento.');
+      setOpeningSheetId(null);
+    }
+  };
 
   const handleLogout = async () => {
     await logout();
@@ -132,6 +228,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
 
   const navItems = [
     { id: 'dashboard', label: 'Início & Resumo', icon: Sparkles },
+    { id: 'assinatura', label: 'Minha Assinatura', icon: CreditCard },
     { id: 'aulas', label: 'Minhas Aulas', icon: Video },
     { id: 'marcacoes', label: 'Marcações & Agenda', icon: Calendar },
     { id: 'partituras', label: 'Biblioteca de Partituras', icon: FileText },
@@ -280,11 +377,11 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
 
                 <div className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-amber-500/30 transition">
                   <div className="flex items-center justify-between text-slate-400 text-xs uppercase font-mono">
-                    <span>Partituras Disponíveis</span>
+                    <span>Partituras Publicadas</span>
                     <FileText className="w-4 h-4 text-amber-400" />
                   </div>
-                  <div className="text-3xl font-serif font-bold text-amber-300 mt-3">120+</div>
-                  <p className="text-xs text-slate-400 mt-1">Acervo clássico e moderno</p>
+                  <div className="text-3xl font-serif font-bold text-amber-300 mt-3">{studyMaterials.length}</div>
+                  <p className="text-xs text-slate-400 mt-1">Acervo sincronizado em tempo real</p>
                 </div>
               </div>
 
@@ -363,33 +460,45 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   </div>
                   <div className="space-y-3">
                     {studyMaterials.length > 0 ? (
-                      studyMaterials.slice(0, 4).map((mat: any) => (
-                        <div key={mat.id} className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <FileText className="w-4 h-4 text-amber-400" />
-                            <div>
-                              <p className="text-sm font-semibold text-white">{mat.titulo}</p>
-                              <p className="text-xs text-slate-400">{mat.compositor} • {mat.instrumento}</p>
+                      studyMaterials.slice(0, 4).map((mat) => {
+                        const isPaid = mat.categoria === 'paga';
+                        const isUnlocked = !isPaid || unlockedSheetIds.has(mat.id);
+                        return (
+                          <div key={mat.id} className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <FileText className="w-4 h-4 text-amber-400 shrink-0" />
+                              <div className="min-w-0">
+                                <p className="text-sm font-semibold text-white truncate">{mat.titulo}</p>
+                                <p className="text-xs text-slate-400 truncate">
+                                  {mat.compositor} • {mat.instrumento} • {isPaid ? (isUnlocked ? 'Paga (Liberada)' : `R$ ${Number(mat.preco || 0).toFixed(2).replace('.', ',')}`) : 'Gratuita'}
+                                </p>
+                              </div>
                             </div>
+                            {isUnlocked ? (
+                              <button
+                                type="button"
+                                onClick={() => handleOpenPartitura(mat)}
+                                disabled={openingSheetId === mat.id}
+                                className="text-xs font-mono text-cyan-400 hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
+                              >
+                                {openingSheetId === mat.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                                <span>Abrir PDF</span>
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => handleBuyPaidPartitura(mat)}
+                                className="text-xs font-mono text-amber-300 hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
+                              >
+                                <Lock className="w-3 h-3" /> Adquirir
+                              </button>
+                            )}
                           </div>
-                          {mat.arquivo_pdf_url ? (
-                            <a
-                              href={mat.arquivo_pdf_url}
-                              download
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-xs font-mono text-cyan-400 hover:underline flex items-center gap-1"
-                            >
-                              <Download className="w-3 h-3" /> PDF
-                            </a>
-                          ) : (
-                            <span className="text-xs font-mono text-cyan-400">PDF</span>
-                          )}
-                        </div>
-                      ))
+                        );
+                      })
                     ) : (
                       <div className="p-6 text-center rounded-xl bg-white/[0.02] border border-white/5">
-                        <p className="text-xs text-slate-400 font-medium">Nenhum material encontrado.</p>
+                        <p className="text-xs text-slate-400 font-medium">Nenhum material publicado no momento.</p>
                       </div>
                     )}
                   </div>
@@ -399,30 +508,18 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   <h3 className="font-serif font-bold text-lg text-white mb-4 flex items-center gap-2">
                     <Sparkles className="w-5 h-5 text-amber-400" /> Suporte e Secretaria Tutti
                   </h3>
-                  <p className="text-sm text-slate-400 leading-relaxed">
-                    Dúvidas sobre horários, reposição de aulas ou material didático? Nossa equipe pedagógica está pronta para te atender.
+                  <p className="text-sm text-slate-400 leading-relaxed mb-4">
+                    Dúvidas sobre horários, reposição de aulas, mencionar aluno ou falar com a secretaria? Utilize os canais oficiais abaixo.
                   </p>
-                  <div className="mt-4 space-y-2.5">
-                    <a
-                      href="https://wa.me/5511999999999"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex items-center gap-3 p-3 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 text-xs font-medium transition"
-                    >
-                      <Phone className="w-4 h-4" />
-                      <span>WhatsApp da Secretaria: (11) 99999-9999</span>
-                    </a>
-                    <a
-                      href="mailto:contato@tuttimusica.com.br"
-                      className="flex items-center gap-3 p-3 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 border border-white/10 text-xs font-medium transition"
-                    >
-                      <Mail className="w-4 h-4" />
-                      <span>secretaria@tuttimusica.com.br</span>
-                    </a>
-                  </div>
+                  <OfficialContacts />
                 </div>
               </div>
             </div>
+          )}
+
+          {/* TAB: MINHA ASSINATURA & STRIPE */}
+          {activeTab === 'assinatura' && (
+            <StudentSubscriptionArea onOpenPlansModal={() => setIsPlansModalOpen(true)} />
           )}
 
           {/* TAB: MINHAS AULAS */}
@@ -589,92 +686,131 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 </div>
               </div>
 
-              {/* Sample sheet music */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {[
-                  {
-                    title: 'Clair de Lune',
-                    composer: 'Claude Debussy',
-                    instrument: 'Piano',
-                    difficulty: 'Intermediário',
-                    downloadUrl: '#',
-                  },
-                  {
-                    title: 'Für Elise (Para Elisa)',
-                    composer: 'Ludwig van Beethoven',
-                    instrument: 'Piano',
-                    difficulty: 'Iniciante',
-                    downloadUrl: '#',
-                  },
-                  {
-                    title: 'As Quatro Estações - Primavera',
-                    composer: 'Antonio Vivaldi',
-                    instrument: 'Violino',
-                    difficulty: 'Avançado',
-                    downloadUrl: '#',
-                  },
-                  {
-                    title: 'Estudo Op. 60 Nº 1',
-                    composer: 'Matteo Carcassi',
-                    instrument: 'Violão Clássico',
-                    difficulty: 'Iniciante',
-                    downloadUrl: '#',
-                  },
-                  {
-                    title: 'Nocturne Op. 9 No. 2',
-                    composer: 'Frédéric Chopin',
-                    instrument: 'Piano',
-                    difficulty: 'Avançado',
-                    downloadUrl: '#',
-                  },
-                  {
-                    title: 'Garota de Ipanema (Arranjo Solo)',
-                    composer: 'Tom Jobim',
-                    instrument: 'Violão / Sax',
-                    difficulty: 'Intermediário',
-                    downloadUrl: '#',
-                  },
-                ]
-                  .filter(
-                    (p) =>
-                      p.title.toLowerCase().includes(searchPartituras.toLowerCase()) ||
-                      p.composer.toLowerCase().includes(searchPartituras.toLowerCase())
-                  )
-                  .map((item, idx) => (
+              {(() => {
+                const term = searchPartituras.trim().toLowerCase();
+                const filtered = studyMaterials.filter(
+                  (p) =>
+                    !term ||
+                    p.titulo.toLowerCase().includes(term) ||
+                    (p.compositor || '').toLowerCase().includes(term) ||
+                    (p.instrumento || '').toLowerCase().includes(term)
+                );
+                const featured = filtered.filter((p) => p.is_featured);
+                const freeSheets = filtered.filter((p) => p.categoria !== 'paga');
+                const paidSheets = filtered.filter((p) => p.categoria === 'paga');
+
+                const renderCard = (item: DbPartitura) => {
+                  const isPaid = item.categoria === 'paga';
+                  const isUnlocked = !isPaid || unlockedSheetIds.has(item.id);
+                  const isBusy = openingSheetId === item.id;
+                  return (
                     <div
-                      key={idx}
-                      className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-amber-500/30 flex flex-col justify-between transition group"
+                      key={item.id}
+                      className={`p-5 rounded-2xl bg-[#0e141f] border flex flex-col justify-between transition group ${
+                        isPaid ? 'border-amber-500/30 hover:border-amber-400/60' : 'border-white/10 hover:border-cyan-500/40'
+                      }`}
                     >
                       <div>
-                        <div className="flex items-center justify-between text-xs text-slate-400">
-                          <span className="text-amber-400 font-medium">{item.instrument}</span>
-                          <span className="px-2 py-0.5 rounded-full bg-white/5 text-[11px] font-mono">
-                            {item.difficulty}
-                          </span>
+                        <div className="flex items-center justify-between text-xs text-slate-400 gap-2">
+                          <span className="text-amber-400 font-medium truncate">{item.instrumento}</span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {item.is_featured && (
+                              <span className="px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[10px] font-bold flex items-center gap-1">
+                                <Star size={10} className="fill-amber-400" /> Destaque
+                              </span>
+                            )}
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                              isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
+                            }`}>
+                              {isPaid ? `Paga • R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}` : 'Gratuita'}
+                            </span>
+                          </div>
                         </div>
                         <h4 className="font-serif font-bold text-white text-base mt-2 group-hover:text-amber-300 transition">
-                          {item.title}
+                          {item.titulo}
                         </h4>
-                        <p className="text-xs text-slate-400">{item.composer}</p>
+                        <p className="text-xs text-slate-400">{item.compositor} • {item.nivel}</p>
                       </div>
 
-                      <div className="mt-5 pt-3 border-t border-white/5 flex items-center justify-between">
-                        <span className="text-[11px] text-slate-500 font-mono">PDF Imprimível</span>
-                        <a
-                          href={item.downloadUrl}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            showToast(`Download de "${item.title}" iniciado com sucesso.`);
-                          }}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 text-xs font-semibold transition"
-                        >
-                          <Download className="w-3.5 h-3.5" />
-                          Baixar PDF
-                        </a>
+                      <div className="mt-5 pt-3 border-t border-white/5 flex items-center justify-between gap-2">
+                        <span className="text-[11px] text-slate-500 font-mono">
+                          {isPaid ? (isUnlocked ? 'Desbloqueada' : 'Protegida') : 'Acesso Livre'}
+                        </span>
+                        {isUnlocked ? (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleOpenPartitura(item)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-cyan-500/15 hover:bg-cyan-500 text-cyan-300 hover:text-black text-xs font-semibold transition cursor-pointer"
+                          >
+                            {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                            <span>Abrir / Baixar PDF</span>
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isBusy}
+                            onClick={() => handleBuyPaidPartitura(item)}
+                            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold transition cursor-pointer"
+                          >
+                            {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
+                            <span>Adquirir R$ {Number(item.preco || 0).toFixed(2).replace('.', ',')}</span>
+                          </button>
+                        )}
                       </div>
                     </div>
-                  ))}
-              </div>
+                  );
+                };
+
+                if (filtered.length === 0) {
+                  return (
+                    <div className="p-10 text-center rounded-2xl bg-[#0e141f] border border-white/10 text-xs text-slate-400">
+                      Nenhuma partitura publicada encontrada no acervo no momento.
+                    </div>
+                  );
+                }
+
+                return (
+                  <div className="space-y-8">
+                    {featured.length > 0 && (
+                      <section className="space-y-3">
+                        <h3 className="text-sm font-syne font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                          <Star size={14} className="fill-amber-400" /> Partituras em Destaque ({featured.length})
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {featured.map(renderCard)}
+                        </div>
+                      </section>
+                    )}
+
+                    <section className="space-y-3">
+                      <h3 className="text-sm font-syne font-bold text-emerald-300 uppercase tracking-wider">
+                        Partituras Gratuitas ({freeSheets.length})
+                      </h3>
+                      {freeSheets.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {freeSheets.map(renderCard)}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">Nenhuma partitura gratuita encontrada com o filtro atual.</p>
+                      )}
+                    </section>
+
+                    <section className="space-y-3">
+                      <h3 className="text-sm font-syne font-bold text-amber-300 uppercase tracking-wider flex items-center gap-2">
+                        <Lock size={14} /> Partituras Pagas / Premium ({paidSheets.length})
+                      </h3>
+                      {paidSheets.length > 0 ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {paidSheets.map(renderCard)}
+                        </div>
+                      ) : (
+                        <p className="text-xs text-slate-500">Nenhuma partitura paga encontrada com o filtro atual.</p>
+                      )}
+                    </section>
+                  </div>
+                );
+              })()}
             </div>
           )}
 
@@ -774,6 +910,20 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
           )}
         </div>
       </main>
+
+      {isPlansModalOpen && (
+        <PlansModal isOpen={isPlansModalOpen} onClose={() => setIsPlansModalOpen(false)} />
+      )}
+
+      {activeViewer && (
+        <SheetViewerModal
+          sheet={activeViewer.sheet}
+          pdfUrl={activeViewer.pdfUrl}
+          isPaidProtected={activeViewer.isPaidProtected}
+          isOpen={!!activeViewer}
+          onClose={() => setActiveViewer(null)}
+        />
+      )}
     </div>
   );
 };

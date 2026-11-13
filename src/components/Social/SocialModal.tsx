@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, ExternalLink, Copy, Check, MessageCircle, Instagram, Sparkles, Share2, Music2 } from 'lucide-react';
 import { useAppRouter } from '../../App';
+import { OfficialContacts, TUTTI_PHONE_DISPLAY, buildTuttiWhatsAppUrl } from '../Common/OfficialContacts';
 
 interface SocialModalProps {
   isOpen: boolean;
@@ -49,16 +50,16 @@ export const SocialModal: React.FC<SocialModalProps> = ({ isOpen, onClose }) => 
     },
     {
       id: 'whatsapp',
-      name: 'WhatsApp Tutti',
-      handle: '+55 (11) 99999-9999',
-      url: `https://wa.me/5511999999999?text=${encodeURIComponent(
-        'Olá! Vim através do site da Tutti Escola de Música e gostaria de tirar algumas dúvidas sobre os cursos e planos!'
-      )}`,
-      copyValue: '11999999999',
-      description: 'Fale diretamente com nossa coordenação pedagógica para matrículas, suporte e aulas ao vivo.',
+      name: 'WhatsApp Tutti (Secretaria & Alunos)',
+      handle: TUTTI_PHONE_DISPLAY,
+      url: buildTuttiWhatsAppUrl(
+        'Olá! Vim através do site da Tutti Escola de Música e gostaria de falar com a secretaria!'
+      ),
+      copyValue: '21920375422',
+      description: 'Mencionar aluno P/ (21) 92037-5422 • Falar com a secretaria P/ (21) 92037-5422.',
       color: 'from-emerald-500 to-teal-600',
-      badge: 'Atendimento Rápido',
-      followers: 'Online agora',
+      badge: 'Atendimento Oficial',
+      followers: 'Secretaria Tutti',
       icon: (
         <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center text-white shadow-lg shadow-emerald-500/20">
           <MessageCircle size={24} />
@@ -177,6 +178,11 @@ export const SocialModal: React.FC<SocialModalProps> = ({ isOpen, onClose }) => 
               </div>
             );
           })}
+        </div>
+
+        {/* Official Direct Attendance Channels */}
+        <div className="relative z-10 pt-1">
+          <OfficialContacts />
         </div>
 
         {/* Footer info banner */}

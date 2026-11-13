@@ -1,6 +1,14 @@
-import React, { useState } from 'react';
-import { Play, Volume2, Sparkles, Info, HelpCircle, ChevronRight, Award, BookOpen, ExternalLink, Image as ImageIcon, X } from 'lucide-react';
-import { audioEngine } from '../../services/audioEngine';
+import React, { useState, useEffect } from 'react';
+import { Play, Square, Volume2, Sparkles, Info, ChevronRight, BookOpen, ExternalLink, Image as ImageIcon, X, Clock, Gauge } from 'lucide-react';
+import { audioEngine, calculateBeatDurationSeconds, BeatCount, TuttiInstrumentSound } from '../../services/audioEngine';
+import {
+  CLARINET_NOTES,
+  ClarinetSvgDiagram,
+  TRUMPET_NOTES,
+  TrumpetSvgDiagram,
+  TROMBONE_NOTES,
+  TromboneSvgDiagram,
+} from './WindBrassDiagrams';
 
 export interface SaxKeyMap {
   octave?: boolean;
@@ -897,31 +905,86 @@ export function getFluteKeys(noteId: string): { keys: FluteKeyMap; text: { left:
   }
 }
 
+type WindVoice = 'Alto' | 'Tenor' | 'Soprano' | 'Flauta' | 'Clarinete' | 'Trompete' | 'Trombone';
+
 export const SaxophoneStudio: React.FC = () => {
   const [selectedNoteId, setSelectedNoteId] = useState<string>('C4');
   const [filterRegister, setFilterRegister] = useState<'Todos' | 'Grave' | 'Médio' | 'Agudo' | 'Altíssimo'>('Todos');
-  const [saxVoice, setSaxVoice] = useState<'Alto' | 'Tenor' | 'Soprano' | 'Flauta'>('Alto');
+  const [saxVoice, setSaxVoice] = useState<WindVoice>('Alto');
   const [isPlayingAudio, setIsPlayingAudio] = useState(false);
   const [showReferenceModal, setShowReferenceModal] = useState(false);
   const [diagramViewMode, setDiagramViewMode] = useState<'both' | 'photo' | 'diagram'>('both');
+  const [beats, setBeats] = useState<BeatCount>(2);
+  const [bpm, setBpm] = useState<number>(100);
+  const [isSampleReady, setIsSampleReady] = useState<boolean>(false);
+
+  const computedDurationSec = calculateBeatDurationSeconds(beats, bpm);
+
+  const getSoundType = (voice: WindVoice): TuttiInstrumentSound => {
+    switch (voice) {
+      case 'Alto': return 'sax-alto';
+      case 'Tenor': return 'sax-tenor';
+      case 'Soprano': return 'sax-soprano';
+      case 'Flauta': return 'flauta';
+      case 'Clarinete': return 'clarinet';
+      case 'Trompete': return 'trumpet';
+      case 'Trombone': return 'trombone';
+    }
+  };
+
+  useEffect(() => {
+    const unsubscribe = audioEngine.subscribePlayback(setIsPlayingAudio);
+    return () => {
+      unsubscribe();
+      audioEngine.stopAllNotes();
+    };
+  }, []);
+
+  useEffect(() => {
+    const soundType = getSoundType(saxVoice);
+    setIsSampleReady(audioEngine.isSampleLoaded(soundType));
+    audioEngine.preloadInstrument(soundType).then((loaded) => {
+      if (loaded) setIsSampleReady(true);
+    });
+  }, [saxVoice]);
 
   const currentNote = SAX_NOTES.find(n => n.id === selectedNoteId) || SAX_NOTES[2];
   const fluteData = getFluteKeys(currentNote.id);
 
-  const handlePlaySound = (scientific: string) => {
-    setIsPlayingAudio(true);
-    // Sound pitch and timbre adjustment according to instrument:
-    // Sax Alto: Eb timbre
-    // Sax Tenor: Bb deep timbre
-    // Sax Soprano: Bb bright soprano timbre
-    // Flauta Transversal: C pure crystalline concert flute timbre
-    const soundType = 
-      saxVoice === 'Alto' ? 'sax-alto' :
-      saxVoice === 'Tenor' ? 'sax-tenor' :
-      saxVoice === 'Soprano' ? 'sax-soprano' : 'flauta';
+  // Notas para Clarinete, Trompete e Trombone
+  const [selectedClarinetId, setSelectedClarinetId] = useState<string>('C4');
+  const [selectedTrumpetId, setSelectedTrumpetId] = useState<string>('C4');
+  const [selectedTromboneId, setSelectedTromboneId] = useState<string>('Bb2');
 
-    audioEngine.playNote(scientific, 1.2, soundType);
-    setTimeout(() => setIsPlayingAudio(false), 1200);
+  const currentClarinetNote = CLARINET_NOTES.find(n => n.id === selectedClarinetId) || CLARINET_NOTES[8];
+  const currentTrumpetNote = TRUMPET_NOTES.find(n => n.id === selectedTrumpetId) || TRUMPET_NOTES[6];
+  const currentTromboneNote = TROMBONE_NOTES.find(n => n.id === selectedTromboneId) || TROMBONE_NOTES[6];
+
+  const activeScientificPitch =
+    saxVoice === 'Clarinete'
+      ? currentClarinetNote.scientific
+      : saxVoice === 'Trompete'
+      ? currentTrumpetNote.scientific
+      : saxVoice === 'Trombone'
+      ? currentTromboneNote.scientific
+      : currentNote.scientific;
+
+  const activeNoteTitle =
+    saxVoice === 'Clarinete'
+      ? `${currentClarinetNote.namePt} (${currentClarinetNote.scientific})`
+      : saxVoice === 'Trompete'
+      ? `${currentTrumpetNote.namePt} (${currentTrumpetNote.scientific})`
+      : saxVoice === 'Trombone'
+      ? `${currentTromboneNote.namePt} (${currentTromboneNote.scientific})`
+      : `${currentNote.namePt} (${currentNote.scientific})`;
+
+  const handlePlaySound = (scientific: string) => {
+    const soundType = getSoundType(saxVoice);
+    audioEngine.playNote(scientific, computedDurationSec, soundType, { replacePrevious: true });
+  };
+
+  const handleStopSound = () => {
+    audioEngine.stopAllNotes();
   };
 
   const filteredNotes = SAX_NOTES.filter(n => {
@@ -938,12 +1001,15 @@ export const SaxophoneStudio: React.FC = () => {
   const row1Notes = SAX_NOTES.filter(n => STAFF_NOTE_DATA[n.id]?.row === 1);
   const row2Notes = SAX_NOTES.filter(n => STAFF_NOTE_DATA[n.id]?.row === 2);
 
-  const windInstruments = [
-    { id: 'Alto', label: 'Alto (Eb)', tuning: 'Mi Bemol (Eb)' },
-    { id: 'Tenor', label: 'Tenor (Bb)', tuning: 'Si Bemol (Bb)' },
-    { id: 'Soprano', label: 'Soprano (Bb)', tuning: 'Si Bemol (Bb)' },
-    { id: 'Flauta', label: 'Flauta Transversal (C)', tuning: 'Dó (C)' },
-  ] as const;
+  const windInstruments: { id: WindVoice; label: string; tuning: string; hasPhoto: boolean }[] = [
+    { id: 'Alto', label: 'Sax Alto (Eb)', tuning: 'Mi Bemol (Eb)', hasPhoto: true },
+    { id: 'Tenor', label: 'Sax Tenor (Bb)', tuning: 'Si Bemol (Bb)', hasPhoto: true },
+    { id: 'Soprano', label: 'Sax Soprano (Bb)', tuning: 'Si Bemol (Bb)', hasPhoto: true },
+    { id: 'Flauta', label: 'Flauta Transversal (C)', tuning: 'Dó (C)', hasPhoto: true },
+    { id: 'Clarinete', label: 'Clarinete (Bb)', tuning: 'Si Bemol (Bb - Boehm)', hasPhoto: false },
+    { id: 'Trompete', label: 'Trompete (Bb)', tuning: 'Si Bemol (Bb - 3 Pistos)', hasPhoto: false },
+    { id: 'Trombone', label: 'Trombone de Vara (Bb)', tuning: 'Si Bemol (7 Posições)', hasPhoto: true },
+  ];
 
   const currentInstInfo = windInstruments.find(w => w.id === saxVoice) || windInstruments[0];
 
@@ -955,45 +1021,63 @@ export const SaxophoneStudio: React.FC = () => {
           <div>
             <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-bold mb-2">
               <Sparkles size={14} />
-              <span>Chaves Ativas Destacadas em Vermelho • Extensão Completa</span>
+              <span>
+                {isSampleReady ? 'Áudio Real de Instrumento (SoundFont Ativo)' : 'Áudio de Alta Fidelidade • Chaves em Vermelho'}
+              </span>
             </div>
             <h2 className="text-2xl sm:text-3xl font-syne font-black text-white">
-              {saxVoice === 'Flauta' ? 'Dedilhado Interativo da Flauta Transversal' : `Dedilhado Interativo: ${currentInstInfo.label}`}
+              Dedilhado Interativo: {currentInstInfo.label}
             </h2>
             <p className="text-slate-400 text-sm max-w-2xl mt-1">
-              Selecione qualquer nota para visualizar as chaves ativas (em vermelho) e emitir o som real correspondente ao instrumento selecionado.
+              Selecione qualquer nota para visualizar as chaves/válvulas/posições ativas (em vermelho), controlar o tempo e BPM e ouvir o som real do instrumento.
             </p>
           </div>
 
-          {/* Quick Sound Play Button */}
-          <button
-            onClick={() => handlePlaySound(currentNote.scientific)}
-            className={`px-6 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-xl cursor-pointer ${
-              isPlayingAudio
-                ? 'bg-red-500 text-white scale-105 shadow-red-500/40'
-                : 'bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 text-white hover:opacity-90 shadow-red-500/20 glow'
-            }`}
-          >
-            <Volume2 size={18} />
-            <span>
-              Ouvir {saxVoice === 'Flauta' ? 'Flauta' : `Sax ${saxVoice}`} • {currentNote.namePt} ({currentNote.scientific})
-            </span>
-          </button>
+          {/* Quick Sound Play & Stop Buttons */}
+          <div className="flex flex-wrap items-center gap-2.5">
+            <button
+              onClick={() => handlePlaySound(activeScientificPitch)}
+              className={`px-5 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center justify-center gap-2 transition-all shadow-xl cursor-pointer ${
+                isPlayingAudio
+                  ? 'bg-red-500 text-white scale-[1.02] shadow-red-500/40'
+                  : 'bg-gradient-to-r from-red-500 via-rose-500 to-amber-500 text-white hover:opacity-90 shadow-red-500/20 glow'
+              }`}
+            >
+              <Volume2 size={18} />
+              <span>
+                Ouvir {currentInstInfo.label.split(' (')[0]} • {activeNoteTitle}
+              </span>
+            </button>
+
+            <button
+              type="button"
+              onClick={handleStopSound}
+              disabled={!isPlayingAudio}
+              title="Interromper execução imediatamente"
+              className="px-4 py-3.5 rounded-2xl font-syne font-bold text-sm flex items-center justify-center gap-2 border border-rose-500/40 bg-rose-500/15 hover:bg-rose-500/30 text-rose-200 disabled:opacity-40 disabled:cursor-not-allowed transition-all cursor-pointer"
+            >
+              <Square size={15} fill="currentColor" />
+              <span>Parar</span>
+            </button>
+          </div>
         </div>
 
-        {/* INSTRUMENTOS DE SOPRO SWITCHER & REFERENCE ASSETS */}
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 bg-[#0b0d14] p-3.5 rounded-2xl border border-white/10">
-          <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Instrumentos de Sopro:</span>
-            <div className="inline-flex p-1 rounded-full bg-[#131722] border border-white/15 shadow-md flex-wrap gap-1">
+        {/* INSTRUMENTOS DE SOPRO & METAIS SWITCHER */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-[#0b0d14] p-3.5 rounded-2xl border border-white/10">
+          <div className="flex flex-wrap items-center gap-2.5">
+            <span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Sopros & Metais:</span>
+            <div className="inline-flex p-1 rounded-2xl bg-[#131722] border border-white/15 shadow-md flex-wrap gap-1">
               {windInstruments.map(item => (
                 <button
                   key={item.id}
-                  onClick={() => setSaxVoice(item.id)}
-                  className={`px-4 sm:px-5 py-1.5 rounded-full font-syne font-bold text-xs transition-all cursor-pointer ${
+                  onClick={() => {
+                    handleStopSound();
+                    setSaxVoice(item.id);
+                  }}
+                  className={`px-3.5 py-1.5 rounded-xl font-syne font-bold text-xs transition-all cursor-pointer ${
                     saxVoice === item.id
                       ? 'bg-rose-500 text-white shadow-md shadow-rose-500/30'
-                      : 'text-slate-400 hover:text-white'
+                      : 'text-slate-400 hover:text-white hover:bg-white/5'
                   }`}
                 >
                   {item.label}
@@ -1005,7 +1089,7 @@ export const SaxophoneStudio: React.FC = () => {
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 shrink-0">
             <a
               href="/assets/aistudio/saxophone-en_teclas_91ce1e9e.pdf"
               target="_blank"
@@ -1024,6 +1108,84 @@ export const SaxophoneStudio: React.FC = () => {
             >
               <ImageIcon size={13} />
               <span>Ilustração</span>
+            </button>
+          </div>
+        </div>
+
+        {/* CONTROLES DE DURAÇÃO (TEMPOS), BPM E EXECUÇÃO */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-[#0b0d14] p-4 rounded-2xl border border-white/10 items-center">
+          {/* Seleção de Tempos (1 a 4 tempos) */}
+          <div className="space-y-1.5">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <Clock size={12} className="text-cyan-400" />
+              Duração da Nota (Tempos):
+            </span>
+            <div className="grid grid-cols-4 gap-1.5">
+              {([1, 2, 3, 4] as BeatCount[]).map((b) => (
+                <button
+                  key={b}
+                  type="button"
+                  onClick={() => setBeats(b)}
+                  className={`py-2 rounded-xl text-xs font-bold border transition-all cursor-pointer ${
+                    beats === b
+                      ? 'bg-cyan-500 text-black border-cyan-400 font-black shadow-md'
+                      : 'bg-[#131722] text-slate-300 hover:text-white border-white/10'
+                  }`}
+                >
+                  {b} {b === 1 ? 'tempo' : 'tempos'}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Controle de BPM */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-[11px]">
+              <span className="font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+                <Gauge size={12} className="text-amber-400" />
+                Andamento (BPM):
+              </span>
+              <span className="font-mono font-bold text-amber-300">{bpm} BPM</span>
+            </div>
+            <div className="flex items-center gap-2.5">
+              <input
+                type="range"
+                min={40}
+                max={220}
+                value={bpm}
+                onChange={(e) => setBpm(Number(e.target.value))}
+                className="flex-1 accent-amber-400 cursor-pointer"
+                aria-label="Controle de BPM"
+              />
+              <input
+                type="number"
+                min={40}
+                max={220}
+                value={bpm}
+                onChange={(e) => setBpm(Math.max(40, Math.min(220, Number(e.target.value) || 60)))}
+                className="w-16 bg-[#131722] border border-white/10 rounded-xl px-2 py-1.5 text-center text-xs font-mono font-bold text-white outline-none focus:border-amber-400"
+                aria-label="Valor numérico de BPM"
+              />
+            </div>
+          </div>
+
+          {/* Resumo de tempo calculado */}
+          <div className="flex items-center justify-between md:justify-end gap-3 bg-[#131722] px-4 py-2.5 rounded-xl border border-white/10">
+            <div className="text-xs">
+              <span className="text-slate-400 block text-[10px] uppercase font-bold">Tempo Calculado</span>
+              <span className="font-mono font-black text-emerald-400 text-sm">
+                {computedDurationSec.toFixed(2)}s
+              </span>
+              <span className="text-[10px] text-slate-500 ml-1.5">
+                ({beats}t @ {bpm} BPM)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => handlePlaySound(activeScientificPitch)}
+              className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer"
+            >
+              <Play size={13} fill="currentColor" /> Tocar
             </button>
           </div>
         </div>
@@ -1265,128 +1427,282 @@ export const SaxophoneStudio: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Grid: Saxophone Diagram & Notes Selector */}
+      {/* Main Grid: Saxophone / Wind / Brass Diagram & Notes Selector */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
         {/* Left Column: Note Selection Buttons */}
         <div className="lg:col-span-5 bg-[#131722] p-5 sm:p-6 rounded-3xl border border-white/10 shadow-xl space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-syne font-bold text-white text-base">Selecione a Nota:</h3>
-            <span className="text-[11px] text-slate-400">Sib3 ao Ré7</span>
+            <span className="text-[11px] text-slate-400">
+              {saxVoice === 'Clarinete'
+                ? 'Mi3 ao Ré6 (Boehm)'
+                : saxVoice === 'Trompete'
+                ? 'Fá#3 ao Dó6 (Pistos)'
+                : saxVoice === 'Trombone'
+                ? 'Mi2 ao Sib4 (Vara)'
+                : 'Sib3 ao Ré7'}
+            </span>
           </div>
 
-          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[580px] overflow-y-auto pr-1">
-            {filteredNotes.map(n => {
-              const isSelected = selectedNoteId === n.id;
-              return (
-                <button
-                  key={n.id}
-                  onClick={() => {
-                    setSelectedNoteId(n.id);
-                    handlePlaySound(n.scientific);
-                  }}
-                  className={`p-2.5 rounded-2xl text-left border transition-all flex flex-col justify-between group ${
-                    isSelected
-                      ? n.isAltissimo
-                        ? 'bg-red-600 text-white border-red-400 shadow-lg shadow-red-500/30 font-black'
-                        : 'bg-cyan-500 text-black border-cyan-300 shadow-lg shadow-cyan-500/30 font-black'
-                      : 'bg-[#0b0d14] hover:bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
-                  }`}
-                >
-                  <div className="flex justify-between items-center w-full">
-                    <span className="text-base font-black tracking-tight">{n.scientific}</span>
-                    {n.isAltissimo && (
-                      <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
-                        isSelected ? 'bg-black/30 text-white' : 'bg-red-500/20 text-red-400'
-                      }`}>
-                        Alt
+          {saxVoice === 'Clarinete' ? (
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[580px] overflow-y-auto pr-1">
+                {CLARINET_NOTES.map((n) => {
+                  const isSelected = selectedClarinetId === n.id;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setSelectedClarinetId(n.id);
+                        handlePlaySound(n.scientific);
+                      }}
+                      className={`p-2.5 rounded-2xl text-left border transition-all flex flex-col justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-cyan-500 text-black border-cyan-300 shadow-lg shadow-cyan-500/30 font-black'
+                          : 'bg-[#0b0d14] hover:bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <span className="text-base font-black tracking-tight">{n.scientific}</span>
+                      <span className={`text-[10px] truncate block mt-1 font-medium ${isSelected ? 'text-black/80 font-bold' : 'text-slate-400'}`}>
+                        {n.namePt}
                       </span>
-                    )}
-                  </div>
-                  <span className={`text-[10px] truncate block mt-1 font-medium ${
-                    isSelected ? 'text-black/80 font-bold' : 'text-slate-400'
-                  }`}>
-                    {n.namePt.split('(')[0]}
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-bold uppercase">Nota Selecionada</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-emerald-500/20 text-emerald-400">
+                    {currentClarinetNote.register}
                   </span>
-                </button>
-              );
-            })}
-          </div>
+                </div>
+                <div className="text-xl font-syne font-black text-white">
+                  {currentClarinetNote.namePt} ({currentClarinetNote.scientific})
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">{currentClarinetNote.tip}</p>
+              </div>
+            </>
+          ) : saxVoice === 'Trompete' ? (
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[580px] overflow-y-auto pr-1">
+                {TRUMPET_NOTES.map((n) => {
+                  const isSelected = selectedTrumpetId === n.id;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setSelectedTrumpetId(n.id);
+                        handlePlaySound(n.scientific);
+                      }}
+                      className={`p-2.5 rounded-2xl text-left border transition-all flex flex-col justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-amber-500 text-black border-amber-300 shadow-lg shadow-amber-500/30 font-black'
+                          : 'bg-[#0b0d14] hover:bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center w-full">
+                        <span className="text-base font-black tracking-tight">{n.scientific}</span>
+                        <span className={`text-[9px] px-1.5 rounded-full font-bold ${isSelected ? 'bg-black/25 text-black' : 'bg-amber-500/15 text-amber-300'}`}>
+                          {n.valvesLabel.split(' ')[0]}
+                        </span>
+                      </div>
+                      <span className={`text-[10px] truncate block mt-1 font-medium ${isSelected ? 'text-black/80 font-bold' : 'text-slate-400'}`}>
+                        {n.namePt}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-bold uppercase">Nota Selecionada</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-amber-500/20 text-amber-300">
+                    Pistos: {currentTrumpetNote.valvesLabel}
+                  </span>
+                </div>
+                <div className="text-xl font-syne font-black text-white">
+                  {currentTrumpetNote.namePt} ({currentTrumpetNote.scientific})
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">{currentTrumpetNote.tip}</p>
+              </div>
+            </>
+          ) : saxVoice === 'Trombone' ? (
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[580px] overflow-y-auto pr-1">
+                {TROMBONE_NOTES.map((n) => {
+                  const isSelected = selectedTromboneId === n.id;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setSelectedTromboneId(n.id);
+                        handlePlaySound(n.scientific);
+                      }}
+                      className={`p-2.5 rounded-2xl text-left border transition-all flex flex-col justify-between cursor-pointer ${
+                        isSelected
+                          ? 'bg-rose-500 text-white border-rose-300 shadow-lg shadow-rose-500/30 font-black'
+                          : 'bg-[#0b0d14] hover:bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center w-full">
+                        <span className="text-base font-black tracking-tight">{n.scientific}</span>
+                        <span className={`text-[9px] px-1.5 rounded-full font-bold ${isSelected ? 'bg-black/30 text-white' : 'bg-rose-500/20 text-rose-300'}`}>
+                          {n.position}ª
+                        </span>
+                      </div>
+                      <span className={`text-[10px] truncate block mt-1 font-medium ${isSelected ? 'text-white/90 font-bold' : 'text-slate-400'}`}>
+                        {n.namePt}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-bold uppercase">Nota Selecionada</span>
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-bold bg-rose-500/20 text-rose-300">
+                    {currentTromboneNote.position}ª Posição • {currentTromboneNote.partial}
+                  </span>
+                </div>
+                <div className="text-xl font-syne font-black text-white">
+                  {currentTromboneNote.namePt} ({currentTromboneNote.scientific})
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">{currentTromboneNote.tip}</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid grid-cols-3 sm:grid-cols-4 gap-2 max-h-[580px] overflow-y-auto pr-1">
+                {filteredNotes.map(n => {
+                  const isSelected = selectedNoteId === n.id;
+                  return (
+                    <button
+                      key={n.id}
+                      onClick={() => {
+                        setSelectedNoteId(n.id);
+                        handlePlaySound(n.scientific);
+                      }}
+                      className={`p-2.5 rounded-2xl text-left border transition-all flex flex-col justify-between group ${
+                        isSelected
+                          ? n.isAltissimo
+                            ? 'bg-red-600 text-white border-red-400 shadow-lg shadow-red-500/30 font-black'
+                            : 'bg-cyan-500 text-black border-cyan-300 shadow-lg shadow-cyan-500/30 font-black'
+                          : 'bg-[#0b0d14] hover:bg-white/5 text-slate-300 border-white/10 hover:border-white/20'
+                      }`}
+                    >
+                      <div className="flex justify-between items-center w-full">
+                        <span className="text-base font-black tracking-tight">{n.scientific}</span>
+                        {n.isAltissimo && (
+                          <span className={`text-[9px] px-1.5 py-0.2 rounded-full font-bold ${
+                            isSelected ? 'bg-black/30 text-white' : 'bg-red-500/20 text-red-400'
+                          }`}>
+                            Alt
+                          </span>
+                        )}
+                      </div>
+                      <span className={`text-[10px] truncate block mt-1 font-medium ${
+                        isSelected ? 'text-black/80 font-bold' : 'text-slate-400'
+                      }`}>
+                        {n.namePt.split('(')[0]}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
 
-          {/* Quick Note Summary Card */}
-          <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-xs text-slate-400 font-bold uppercase">Nota Selecionada</span>
-              <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
-                currentNote.isAltissimo 
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
-                  : 'bg-emerald-500/20 text-emerald-400'
-              }`}>
-                {currentNote.register}
-              </span>
-            </div>
-            <div className="text-xl font-syne font-black text-white">
-              {currentNote.namePt} ({currentNote.scientific})
-            </div>
-            <p className="text-xs text-slate-300 leading-relaxed">
-              {currentNote.description}
-            </p>
-          </div>
+              {/* Quick Note Summary Card */}
+              <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-slate-400 font-bold uppercase">Nota Selecionada</span>
+                  <span className={`text-xs px-2.5 py-0.5 rounded-full font-bold ${
+                    currentNote.isAltissimo 
+                      ? 'bg-red-500/20 text-red-400 border border-red-500/30' 
+                      : 'bg-emerald-500/20 text-emerald-400'
+                  }`}>
+                    {currentNote.register}
+                  </span>
+                </div>
+                <div className="text-xl font-syne font-black text-white">
+                  {currentNote.namePt} ({currentNote.scientific})
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed">
+                  {currentNote.description}
+                </p>
+              </div>
+            </>
+          )}
         </div>
 
         {/* Right Column: Instrument Visual Diagram with Red Highlighted Keys */}
         <div className="lg:col-span-7 bg-[#131722] p-6 sm:p-8 rounded-3xl border border-white/10 shadow-xl space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
             <div>
-              <h3 className="font-syne font-black text-xl text-white flex items-center gap-2">
-                <span>Diagrama & {saxVoice === 'Flauta' ? 'Flauta Real' : 'Saxofone Real'}</span>
+              <h3 className="font-syne font-black text-xl text-white flex items-center gap-2 flex-wrap">
+                <span>Diagrama Técnico: {currentInstInfo.label.split(' (')[0]}</span>
                 <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-red-500/20 text-red-400 border border-red-500/30">
-                  Chaves em Vermelho = Pressionar
+                  Em Vermelho = Ativo / Pressionar
                 </span>
               </h3>
               <p className="text-xs text-slate-400">
                 {saxVoice === 'Flauta'
                   ? 'Flauta transversal real integrada com digitação do sistema Boehm'
-                  : `${currentInstInfo.label} de verdade integrado com marcação de chaves ativas`}
+                  : saxVoice === 'Clarinete'
+                  ? 'Clarinete Bb Sistema Boehm com furos, alavancas laterais e chave de registro'
+                  : saxVoice === 'Trompete'
+                  ? 'Trompete Bb com visualização dos 3 pistos (Baixo vs Solto)'
+                  : saxVoice === 'Trombone'
+                  ? 'Trombone de Vara Bb com deslizamento animado entre a 1ª e a 7ª posição'
+                  : `${currentInstInfo.label} com marcação precisa de chaves ativas`}
               </p>
             </div>
 
             <div className="flex items-center gap-2">
-              {/* Mode switch */}
-              <div className="bg-[#0b0d14] p-1 rounded-xl border border-white/10 flex items-center gap-1 text-[11px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setDiagramViewMode('both')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    diagramViewMode === 'both' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Instrumento & Chaves
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiagramViewMode('photo')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    diagramViewMode === 'photo' ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Instrumento Real
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setDiagramViewMode('diagram')}
-                  className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
-                    diagramViewMode === 'diagram' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  Chaves
-                </button>
-              </div>
+              {currentInstInfo.hasPhoto && (
+                <div className="bg-[#0b0d14] p-1 rounded-xl border border-white/10 flex items-center gap-1 text-[11px] font-bold">
+                  <button
+                    type="button"
+                    onClick={() => setDiagramViewMode('both')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                      diagramViewMode === 'both' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Instrumento & Chaves
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiagramViewMode('photo')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                      diagramViewMode === 'photo' ? 'bg-amber-500 text-black' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Instrumento Real
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setDiagramViewMode('diagram')}
+                    className={`px-2.5 py-1 rounded-lg transition-colors cursor-pointer ${
+                      diagramViewMode === 'diagram' ? 'bg-cyan-500 text-black' : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    Diagrama
+                  </button>
+                </div>
+              )}
 
               <button
-                onClick={() => handlePlaySound(currentNote.scientific)}
+                onClick={() => handlePlaySound(activeScientificPitch)}
                 className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-400 border border-white/10 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
               >
                 <Play size={14} fill="currentColor" /> Tocar
+              </button>
+              <button
+                type="button"
+                onClick={handleStopSound}
+                disabled={!isPlayingAudio}
+                className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1 transition-colors cursor-pointer disabled:opacity-40"
+              >
+                <Square size={12} fill="currentColor" /> Parar
               </button>
             </div>
           </div>
@@ -1396,8 +1712,8 @@ export const SaxophoneStudio: React.FC = () => {
             {/* Background subtle glow */}
             <div className="absolute inset-0 bg-gradient-to-tr from-amber-500/5 via-red-500/5 to-transparent pointer-events-none"></div>
 
-            {/* Real Instrument Photo (Dynamic based on selected wind instrument) */}
-            {(diagramViewMode === 'both' || diagramViewMode === 'photo') && (
+            {/* Real Instrument Photo (only when available in /public/assets/instruments) */}
+            {currentInstInfo.hasPhoto && (diagramViewMode === 'both' || diagramViewMode === 'photo') && (
               <div className="flex flex-col items-center gap-2">
                 <div className="relative group rounded-2xl overflow-hidden border-2 border-amber-500/40 shadow-2xl bg-black/50 max-h-[460px]">
                   <img
@@ -1408,16 +1724,16 @@ export const SaxophoneStudio: React.FC = () => {
                         ? '/assets/instruments/tenor_sax.jpg'
                         : saxVoice === 'Soprano'
                         ? '/assets/instruments/soprano_sax.jpg'
+                        : saxVoice === 'Trombone'
+                        ? '/assets/instruments/trombone.jpg'
                         : '/assets/instruments/flauta.jpg'
                     }
-                    alt={saxVoice === 'Flauta' ? 'Flauta Transversal Real' : `Saxofone ${saxVoice} Real`}
+                    alt={currentInstInfo.label}
                     className="w-48 sm:w-52 h-[420px] object-cover transition-transform duration-500 group-hover:scale-105"
                   />
                   <div className="absolute top-2 left-2 right-2 bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-center">
                     <span className="text-[10px] font-bold uppercase tracking-wider text-amber-300">
-                      {saxVoice === 'Flauta'
-                        ? 'Flauta Transversal (C)'
-                        : `Saxofone ${saxVoice} (${saxVoice === 'Alto' ? 'Eb' : 'Bb'})`}
+                      {currentInstInfo.label}
                     </span>
                   </div>
                   <div className="absolute bottom-2 left-2 right-2 bg-black/80 backdrop-blur-md px-2.5 py-1 rounded-lg border border-white/10 text-center">
@@ -1428,6 +1744,8 @@ export const SaxophoneStudio: React.FC = () => {
                         ? 'Latão Dourado • Afinação Eb'
                         : saxVoice === 'Tenor'
                         ? 'Tubo Encurvado • Afinação Bb'
+                        : saxVoice === 'Trombone'
+                        ? 'Vara Deslizante • 7 Posições'
                         : 'Tubo Reto • Afinação Bb'}
                     </span>
                   </div>
@@ -1438,9 +1756,15 @@ export const SaxophoneStudio: React.FC = () => {
               </div>
             )}
 
-            {/* SVG Diagram: Flute Boehm Diagram when Flauta is selected; Saxophone Diagram otherwise */}
-            {(diagramViewMode === 'both' || diagramViewMode === 'diagram') && (
-              saxVoice === 'Flauta' ? (
+            {/* SVG Diagram: Clarinete / Trompete / Trombone / Flauta / Saxofone */}
+            {(!currentInstInfo.hasPhoto || diagramViewMode === 'both' || diagramViewMode === 'diagram') && (
+              saxVoice === 'Clarinete' ? (
+                <ClarinetSvgDiagram keys={currentClarinetNote.keys} />
+              ) : saxVoice === 'Trompete' ? (
+                <TrumpetSvgDiagram valves={currentTrumpetNote.valves} />
+              ) : saxVoice === 'Trombone' ? (
+                <TromboneSvgDiagram position={currentTromboneNote.position} />
+              ) : saxVoice === 'Flauta' ? (
                 /* --- FLUTE BOEHM DIAGRAM --- */
                 <div className="relative w-48 sm:w-56 h-[460px] flex items-center justify-center">
                   <svg viewBox="0 0 200 480" className="w-full h-full drop-shadow-2xl">
@@ -1878,49 +2202,89 @@ export const SaxophoneStudio: React.FC = () => {
               )
             )}
 
-            {/* Right: Technical Explanation of Fingers & Keys (Adapts to Wind Instrument) */}
+            {/* Right: Technical Explanation of Fingers & Keys (Adapts to Selected Wind/Brass Instrument) */}
             <div className="flex-1 space-y-4 text-xs">
               <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
                 <span className="font-bold text-red-400 uppercase tracking-wider block">
-                  {saxVoice === 'Flauta' ? 'Mão Esquerda (Polegar & Dedos 1, 2, 3)' : 'Mão Esquerda (Superior)'}
+                  {saxVoice === 'Flauta'
+                    ? 'Mão Esquerda (Polegar & Dedos 1, 2, 3)'
+                    : saxVoice === 'Clarinete'
+                    ? 'Mão Esquerda (Registro, Polegar & 1, 2, 3)'
+                    : saxVoice === 'Trompete'
+                    ? 'Combinação dos Pistos (Mão Direita)'
+                    : saxVoice === 'Trombone'
+                    ? 'Posição da Vara (Mão Direita)'
+                    : 'Mão Esquerda (Superior)'}
                 </span>
                 <p className="text-white font-medium">
-                  {saxVoice === 'Flauta' ? fluteData.text.left : currentNote.fingeringText.leftHand}
+                  {saxVoice === 'Flauta'
+                    ? fluteData.text.left
+                    : saxVoice === 'Clarinete'
+                    ? currentClarinetNote.leftHandText
+                    : saxVoice === 'Trompete'
+                    ? `Pistos ativos: ${currentTrumpetNote.valvesLabel}`
+                    : saxVoice === 'Trombone'
+                    ? `${currentTromboneNote.position}ª Posição da vara`
+                    : currentNote.fingeringText.leftHand}
                 </p>
               </div>
 
               <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
                 <span className="font-bold text-amber-400 uppercase tracking-wider block">
-                  {saxVoice === 'Flauta' ? 'Mão Direita (Dedos 4, 5, 6)' : 'Mão Direita (Inferior)'}
-                </span>
-                <p className="text-white font-medium">
-                  {saxVoice === 'Flauta' ? fluteData.text.right : currentNote.fingeringText.rightHand}
-                </p>
-              </div>
-
-              <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
-                <span className="font-bold text-cyan-400 uppercase tracking-wider block">
-                  {saxVoice === 'Flauta' ? 'Pé da Flauta & Chaves de Apoio' : 'Chaves Especiais / Laterais'}
+                  {saxVoice === 'Flauta'
+                    ? 'Mão Direita (Dedos 4, 5, 6)'
+                    : saxVoice === 'Clarinete'
+                    ? 'Mão Direita (Dedos 4, 5, 6 & Chaves)'
+                    : saxVoice === 'Trompete' || saxVoice === 'Trombone'
+                    ? 'Série Harmônica & Parcial'
+                    : 'Mão Direita (Inferior)'}
                 </span>
                 <p className="text-white font-medium">
                   {saxVoice === 'Flauta'
-                    ? (fluteData.keys.footEb
-                        ? 'Chave de Eb acionada (mindinho direito)'
-                        : fluteData.keys.footC
-                        ? 'Chaves de Dó e Dó# graves acionadas'
-                        : fluteData.keys.footCsharp
-                        ? 'Chave de Dó# grave acionada'
-                        : 'Pé livre (sem chave pressionada)')
-                    : currentNote.fingeringText.specialKeys}
+                    ? fluteData.text.right
+                    : saxVoice === 'Clarinete'
+                    ? currentClarinetNote.rightHandText
+                    : saxVoice === 'Trompete'
+                    ? currentTrumpetNote.partial
+                    : saxVoice === 'Trombone'
+                    ? currentTromboneNote.partial
+                    : currentNote.fingeringText.rightHand}
                 </p>
               </div>
+
+              {(saxVoice === 'Alto' || saxVoice === 'Tenor' || saxVoice === 'Soprano' || saxVoice === 'Flauta') && (
+                <div className="p-3.5 rounded-2xl bg-[#131722] border border-white/10 space-y-1">
+                  <span className="font-bold text-cyan-400 uppercase tracking-wider block">
+                    {saxVoice === 'Flauta' ? 'Pé da Flauta & Chaves de Apoio' : 'Chaves Especiais / Laterais'}
+                  </span>
+                  <p className="text-white font-medium">
+                    {saxVoice === 'Flauta'
+                      ? (fluteData.keys.footEb
+                          ? 'Chave de Eb acionada (mindinho direito)'
+                          : fluteData.keys.footC
+                          ? 'Chaves de Dó e Dó# graves acionadas'
+                          : fluteData.keys.footCsharp
+                          ? 'Chave de Dó# grave acionada'
+                          : 'Pé livre (sem chave pressionada)')
+                      : currentNote.fingeringText.specialKeys}
+                  </p>
+                </div>
+              )}
 
               <div className="p-3.5 rounded-2xl bg-gradient-to-r from-red-500/10 to-transparent border border-red-500/20 space-y-1">
                 <span className="font-bold text-rose-300 uppercase tracking-wider block flex items-center gap-1.5">
                   <Info size={14} /> Dica de Voicing & Embocadura
                 </span>
                 <p className="text-slate-300 leading-relaxed font-medium">
-                  {saxVoice === 'Flauta' ? fluteData.text.tip : currentNote.voicingTip}
+                  {saxVoice === 'Flauta'
+                    ? fluteData.text.tip
+                    : saxVoice === 'Clarinete'
+                    ? currentClarinetNote.tip
+                    : saxVoice === 'Trompete'
+                    ? currentTrumpetNote.tip
+                    : saxVoice === 'Trombone'
+                    ? currentTromboneNote.tip
+                    : currentNote.voicingTip}
                 </p>
               </div>
             </div>
