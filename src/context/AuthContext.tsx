@@ -292,16 +292,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const rawDbApproval = (dbSource?.approval_status as ApprovalStatus | undefined) || undefined;
         const latestReqStatus = solicitacaoData?.status as ('pendente' | 'aprovado' | 'rejeitado' | undefined);
 
-        if (rawDbRole === 'professor' && (rawDbApproval === 'aprovado' || latestReqStatus === 'aprovado' || !rawDbApproval)) {
-          resolvedRole = 'professor';
-          resolvedApproval = 'aprovado';
-        } else if (rawDbApproval === 'pendente' || latestReqStatus === 'pendente') {
+        // A professor role alone never grants access: explicit approval is required.
+        // A pending/rejected request must not be overridden by stale role data.
+        if (rawDbApproval === 'pendente' || latestReqStatus === 'pendente') {
           // Segurança: enquanto pendente, o usuário permanece com role = 'aluno'
           resolvedRole = 'aluno';
           resolvedApproval = 'pendente';
         } else if (rawDbApproval === 'rejeitado' || latestReqStatus === 'rejeitado') {
           resolvedRole = 'aluno';
           resolvedApproval = 'rejeitado';
+        } else if (rawDbRole === 'professor' && (rawDbApproval === 'aprovado' || latestReqStatus === 'aprovado')) {
+          resolvedRole = 'professor';
+          resolvedApproval = 'aprovado';
         } else {
           resolvedRole = 'aluno';
           resolvedApproval = rawDbApproval || 'aprovado';
