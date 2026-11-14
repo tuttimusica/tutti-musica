@@ -50,8 +50,7 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
     const { data, error: dbError } = await adminClient
       .from('administradores_autorizados')
       .select('email')
-      .ilike('email', user.email.trim())
-      .limit(1);
+      .limit(1000);
 
     if (dbError) {
       res.statusCode = 503;
@@ -59,7 +58,11 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       return;
     }
     res.statusCode = 200;
-    res.end(JSON.stringify({ isAdmin: Array.isArray(data) && data.length > 0 }));
+    const authenticatedEmail = user.email.trim().toLowerCase();
+    const isAdmin = Array.isArray(data) && data.some(row =>
+      typeof row.email === 'string' && row.email.trim().toLowerCase() === authenticatedEmail
+    );
+    res.end(JSON.stringify({ isAdmin }));
   } catch {
     res.statusCode = 503;
     res.end(JSON.stringify({ error: 'authorization_unavailable' }));
