@@ -206,19 +206,31 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const storeImageInputRef = useRef<HTMLInputElement>(null);
 
   const loadTeacherManagementData = useCallback(async () => {
-    // 1. Solicitações de Professores
+    // 1. Solicitações: only the authenticated administrator may request this list.
+    // The backend checks Supabase Auth and the administrator allowlist before reading.
     try {
       setIsLoadingRequests(true);
-      const { data: solData, error: solErr } = await supabase
-        .from('solicitacoes_professores')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!solErr) {
-        setRequests((solData as TeacherRequest[]) || []);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        setRequests([]);
+        console.warn('Sessão administrativa indisponível para carregar solicitações.');
+      } else {
+        const response = await fetch('/api/admin/teacher-requests', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: 'no-store'
+        });
+        if (!response.ok) {
+          setRequests([]);
+          console.warn('Falha ao consultar solicitações de professores:', response.status);
+        } else {
+          const payload = await response.json();
+          setRequests(Array.isArray(payload.requests) ? payload.requests as TeacherRequest[] : []);
+        }
       }
     } catch (err) {
-      console.warn('Supabase solicitacoes load note:', err);
+      setRequests([]);
+      console.warn('Não foi possível carregar solicitações de professores:', err);
     } finally {
       setIsLoadingRequests(false);
     }
