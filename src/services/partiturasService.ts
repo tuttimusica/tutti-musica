@@ -194,18 +194,26 @@ export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<nu
 
   // Também libera partituras pertencentes a conjuntos adquiridos pelo aluno
   try {
-    const { data: bundleAccess } = await supabase
+    const { data: bundleAccess, error: bundleAccessError } = await supabase
       .from('conjuntos_acessos')
       .select('conjunto_id')
       .eq('user_id', userId);
 
-    const bundleIds = (bundleAccess || []).map((b: any) => b.conjunto_id).filter(Boolean);
-    if (bundleIds.length > 0) {
-      const { data: bundleItems } = await supabase
-        .from('conjuntos_partituras_itens')
-        .select('partitura_id')
-        .in('conjunto_id', bundleIds);
-      (bundleItems || []).forEach((item: any) => unlocked.add(Number(item.partitura_id)));
+    if (bundleAccessError) {
+      console.warn('Não foi possível verificar o acesso aos conjuntos:', bundleAccessError.code);
+    } else {
+      const bundleIds = (bundleAccess || []).map((b: any) => b.conjunto_id).filter(Boolean);
+      if (bundleIds.length > 0) {
+        const { data: bundleItems, error: bundleItemsError } = await supabase
+          .from('conjuntos_partituras_itens')
+          .select('partitura_id')
+          .in('conjunto_id', bundleIds);
+        if (bundleItemsError) {
+          console.warn('Não foi possível verificar as partituras dos conjuntos:', bundleItemsError.code);
+        } else {
+          (bundleItems || []).forEach((item: any) => unlocked.add(Number(item.partitura_id)));
+        }
+      }
     }
   } catch {
     // fallback silencioso caso conjuntos ainda não existam na instância
