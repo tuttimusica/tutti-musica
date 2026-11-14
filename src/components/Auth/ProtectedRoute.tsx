@@ -1,7 +1,7 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
-import { Lock, LogIn, ShieldAlert, Clock, ArrowRight, UserCheck } from 'lucide-react';
+import { Lock, LogIn, ShieldAlert, Clock, ArrowRight, UserCheck, RefreshCw } from 'lucide-react';
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -18,8 +18,9 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   requiredRole,
   allowedRoles
 }) => {
-  const { user, profile, loading, logout } = useAuth();
+  const { user, profile, loading, logout, refreshProfile } = useAuth();
   const { currentPath, navigate, showToast } = useAppRouter();
+  const [isCheckingStatus, setIsCheckingStatus] = useState(false);
 
   useEffect(() => {
     // Only redirect if this protected route is currently active, loading finished, and user is unauthenticated
@@ -27,6 +28,22 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
       navigate('/auth', { redirectTo: currentPath });
     }
   }, [isActive, loading, user, currentPath]);
+
+  const handleCheckApprovalStatus = async () => {
+    setIsCheckingStatus(true);
+    try {
+      const updated = await refreshProfile();
+      if (updated?.role === 'professor' && updated?.approvalStatus === 'aprovado') {
+        showToast('Credenciamento aprovado! Bem-vindo(a) ao Painel do Professor.');
+      } else if (updated?.approvalStatus === 'rejeitado') {
+        showToast('Sua solicitação docente foi rejeitada pela equipe Tutti.');
+      } else {
+        showToast('Sua solicitação ainda está em análise pela equipe Tutti.');
+      }
+    } finally {
+      setIsCheckingStatus(false);
+    }
+  };
 
   // 1. Loading state: checking Supabase session
   if (loading) {
@@ -77,7 +94,7 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
   }
 
   const currentRole = profile?.role || 'aluno';
-  const approvalStatus = profile?.approvalStatus || 'aprovado';
+  const approvalStatus = profile?.approvalStatus || 'nao_solicitado';
 
   // 3. Role Validation: Developer Protected Route
   if (requiredRole === 'desenvolvedor' || (allowedRoles && allowedRoles.includes('desenvolvedor') && !allowedRoles.includes(currentRole))) {
@@ -98,14 +115,14 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <button
               onClick={() => navigate(currentRole === 'professor' ? '/professor' : '/aluno')}
-              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-2"
+              className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold transition flex items-center gap-2 cursor-pointer"
             >
               <span>Ir para meu ambiente ({currentRole})</span>
               <ArrowRight size={14} />
             </button>
             <button
               onClick={() => navigate('/')}
-              className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition"
+              className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition cursor-pointer"
             >
               Voltar ao Início
             </button>
@@ -117,111 +134,120 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
 
   // 4. Role Validation: Teacher Protected Route
   if (requiredRole === 'professor') {
-    // Developers have administrative access to teacher views
-    if (currentRole !== 'professor' && currentRole !== 'desenvolvedor') {
-      return (
-        <div className="min-h-[55vh] flex flex-col items-center justify-center p-6 text-center space-y-5 animate-in fade-in duration-300 max-w-lg mx-auto">
-          <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-xl">
-            <UserCheck size={30} />
-          </div>
-          <div className="space-y-2">
-            <h2 className="text-2xl font-syne font-black text-white">
-              Ambiente Restrito a Professores
-            </h2>
-            <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-              Esta área é destinada exclusivamente ao corpo docente credenciado da Tutti.
-            </p>
-          </div>
-          <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
-            <button
-              onClick={() => navigate('/aluno')}
-              className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition"
-            >
-              Ir para Área do Aluno
-            </button>
-            <button
-              onClick={() => navigate('/auth')}
-              className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition"
-            >
-              Solicitar Acesso como Professor
-            </button>
-          </div>
-        </div>
-      );
-    }
-
-    // Teacher Pending Approval Status Check (Mandatory Exact Phrase)
-    if (currentRole === 'professor' && approvalStatus === 'pendente') {
-      return (
-        <div className="max-w-2xl mx-auto py-12 px-4 animate-in fade-in duration-300">
-          <div className="bg-[#131722] border-2 border-amber-500/40 rounded-3xl p-8 sm:p-12 shadow-2xl text-center space-y-6 relative overflow-hidden">
-            <div className="w-20 h-20 rounded-3xl bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto text-3xl shadow-inner animate-pulse">
-              <Clock size={36} />
-            </div>
-
-            <div className="space-y-3">
-              <span className="px-3.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-wider border border-amber-500/30 inline-block">
-                Solicitação em Análise
-              </span>
-
-              {/* MANDATORY EXACT WORDING REQUIRED BY SPECIFICATION */}
-              <div className="p-5 rounded-2xl bg-[#0b0d14] border border-amber-500/30 text-amber-200 font-syne font-bold text-sm sm:text-base leading-relaxed">
-                &ldquo;Perfil em análise, aguarde! Utilize a sua conta como aluno até a sua aprovação. Grato!&rdquo;
+    if (currentRole !== 'desenvolvedor') {
+      // 4a. Candidato aguardando aprovação (role permanece 'student'/'aluno' + approvalStatus = 'pendente')
+      if (approvalStatus === 'pendente') {
+        return (
+          <div className="max-w-2xl mx-auto py-12 px-4 animate-in fade-in duration-300">
+            <div className="bg-[#131722] border-2 border-amber-500/40 rounded-3xl p-8 sm:p-12 shadow-2xl text-center space-y-6 relative overflow-hidden">
+              <div className="w-20 h-20 rounded-3xl bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto text-3xl shadow-inner animate-pulse">
+                <Clock size={36} />
               </div>
 
-              <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed pt-2">
-                Sua solicitação de acesso como Professor está registrada e aguarda aprovação da coordenação e do desenvolvedor da Tutti. Enquanto isso, aproveite as partituras, aulas e estúdio virtual na sua conta de aluno.
-              </p>
-            </div>
+              <div className="space-y-3">
+                <span className="px-3.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-wider border border-amber-500/30 inline-block">
+                  Credenciamento em Análise
+                </span>
 
-            <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
-              <button
-                onClick={() => navigate('/aluno')}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-syne font-bold text-xs shadow-lg transition"
-              >
-                Continuar como Aluno
-              </button>
-              <button
-                onClick={async () => {
-                  await logout();
-                  navigate('/auth');
-                  showToast('Sessão encerrada com sucesso.');
-                }}
-                className="px-5 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition"
-              >
-                Sair da Conta
-              </button>
+                <div className="p-5 rounded-2xl bg-[#0b0d14] border border-amber-500/30 text-amber-200 font-syne font-bold text-sm sm:text-base leading-relaxed">
+                  Seu cadastro foi recebido e está em análise pela equipe Tutti. Você receberá a liberação do acesso assim que seu credenciamento for aprovado.
+                </div>
+
+                <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed pt-2">
+                  Por segurança, o acesso ao Painel do Professor permanece bloqueado até a aprovação oficial. Enquanto aguarda, você pode utilizar normalmente sua conta na Área do Aluno.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center justify-center gap-3 pt-4">
+                <button
+                  onClick={handleCheckApprovalStatus}
+                  disabled={isCheckingStatus}
+                  className="px-5 py-3 rounded-2xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 font-syne font-bold text-xs transition flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={isCheckingStatus ? 'animate-spin' : ''} />
+                  <span>{isCheckingStatus ? 'Verificando...' : 'Verificar Status'}</span>
+                </button>
+                <button
+                  onClick={() => navigate('/aluno')}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-syne font-bold text-xs shadow-lg transition cursor-pointer"
+                >
+                  Continuar como Aluno
+                </button>
+                <button
+                  onClick={async () => {
+                    await logout();
+                    navigate('/auth');
+                    showToast('Sessão encerrada com sucesso.');
+                  }}
+                  className="px-5 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition cursor-pointer"
+                >
+                  Sair da Conta
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      );
-    }
+        );
+      }
 
-    // Teacher Rejected Status Check
-    if (currentRole === 'professor' && approvalStatus === 'rejeitado') {
-      return (
-        <div className="max-w-xl mx-auto py-12 px-4 animate-in fade-in duration-300">
-          <div className="bg-[#131722] border-2 border-rose-500/40 rounded-3xl p-8 sm:p-12 shadow-2xl text-center space-y-6">
-            <div className="w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto text-2xl">
-              <ShieldAlert size={32} />
+      // 4b. Candidato com solicitação rejeitada
+      if (approvalStatus === 'rejeitado') {
+        return (
+          <div className="max-w-xl mx-auto py-12 px-4 animate-in fade-in duration-300">
+            <div className="bg-[#131722] border-2 border-rose-500/40 rounded-3xl p-8 sm:p-12 shadow-2xl text-center space-y-6">
+              <div className="w-16 h-16 rounded-3xl bg-rose-500/10 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto text-2xl">
+                <ShieldAlert size={32} />
+              </div>
+              <div className="space-y-2">
+                <h2 className="text-2xl font-syne font-black text-white">Solicitação de Docência Não Aprovada</h2>
+                <p className="text-xs sm:text-sm text-slate-300">
+                  Sua solicitação de credenciamento não foi aprovada pela equipe Tutti. O acesso ao Painel do Professor está bloqueado, mas sua conta permanece ativa como Aluno.
+                </p>
+              </div>
+              <div className="flex justify-center gap-3">
+                <button onClick={() => navigate('/aluno')} className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs cursor-pointer">
+                  Acessar Área do Aluno
+                </button>
+                <button onClick={async () => { await logout(); navigate('/auth'); }} className="px-4 py-2.5 rounded-xl bg-white/5 text-slate-300 text-xs cursor-pointer">
+                  Sair da Conta
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      // 4c. Usuário comum sem perfil docente aprovado
+      if (currentRole !== 'professor' || approvalStatus !== 'aprovado') {
+        return (
+          <div className="min-h-[55vh] flex flex-col items-center justify-center p-6 text-center space-y-5 animate-in fade-in duration-300 max-w-lg mx-auto">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 shadow-xl">
+              <UserCheck size={30} />
             </div>
             <div className="space-y-2">
-              <h2 className="text-2xl font-syne font-black text-white">Solicitação de Docência Não Aprovada</h2>
-              <p className="text-xs sm:text-sm text-slate-300">
-                Sua solicitação de credenciamento não foi aprovada pelo corpo diretivo. Sua conta permanece ativa com acesso total aos conteúdos como Aluno.
+              <h2 className="text-2xl font-syne font-black text-white">
+                Ambiente Restrito a Professores
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                Esta área é destinada exclusivamente ao corpo docente credenciado e aprovado da Tutti Escola de Música.
               </p>
             </div>
-            <div className="flex justify-center gap-3">
-              <button onClick={() => navigate('/aluno')} className="px-6 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-bold text-xs">
-                Acessar Área do Aluno
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <button
+                onClick={() => navigate('/aluno')}
+                className="px-5 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-slate-950 text-xs font-bold transition cursor-pointer"
+              >
+                Ir para Área do Aluno
               </button>
-              <button onClick={async () => { await logout(); navigate('/auth'); }} className="px-4 py-2.5 rounded-xl bg-white/5 text-slate-300 text-xs">
-                Sair da Conta
+              <button
+                onClick={() => navigate('/auth')}
+                className="px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition cursor-pointer"
+              >
+                Portal de Acesso
               </button>
             </div>
           </div>
-        </div>
-      );
+        );
+      }
     }
   }
 

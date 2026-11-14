@@ -722,7 +722,11 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
                             }`}>
-                              {isPaid ? `Paga • R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}` : 'Gratuita'}
+                              {isPaid
+                                ? Number(item.preco || 0) > 0
+                                  ? `Paga • R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
+                                  : 'Exclusiva • Paga'
+                                : 'Gratuita'}
                             </span>
                           </div>
                         </div>
@@ -750,11 +754,21 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                           <button
                             type="button"
                             disabled={isBusy}
-                            onClick={() => handleBuyPaidPartitura(item)}
+                            onClick={() => {
+                              if (Number(item.preco || 0) <= 0) {
+                                showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
+                                return;
+                              }
+                              handleBuyPaidPartitura(item);
+                            }}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold transition cursor-pointer"
                           >
                             {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                            <span>Adquirir R$ {Number(item.preco || 0).toFixed(2).replace('.', ',')}</span>
+                            <span>
+                              {Number(item.preco || 0) > 0
+                                ? `Adquirir R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
+                                : 'Em Conjunto'}
+                            </span>
                           </button>
                         )}
                       </div>

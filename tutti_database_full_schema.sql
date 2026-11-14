@@ -29,7 +29,10 @@ CREATE TABLE IF NOT EXISTS public.usuarios (
   xp INTEGER DEFAULT 450,
   practice_hours INTEGER DEFAULT 26,
   completed_lessons INTEGER DEFAULT 8,
-  role TEXT DEFAULT 'student' CHECK (role IN ('student', 'teacher', 'admin'))
+  role TEXT DEFAULT 'student' CHECK (role IN ('student', 'teacher', 'admin')),
+  email TEXT,
+  approval_status TEXT DEFAULT 'aprovado' CHECK (approval_status IN ('nao_solicitado', 'pendente', 'aprovado', 'rejeitado')),
+  instrumento_principal TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_usuarios_user_id ON public.usuarios(user_id);
@@ -48,32 +51,88 @@ CREATE TRIGGER trg_usuarios_updated_at
   BEFORE UPDATE ON public.usuarios
   FOR EACH ROW EXECUTE FUNCTION public.set_current_timestamp_updated_at();
 
--- Trigger automático para criar o perfil em public.usuarios sempre que um aluno se cadastrar no auth.users
+-- Trigger automático para criar perfil em public.usuarios e solicitação pendente de professor via auth.users
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
+DECLARE
+  v_email TEXT;
+  v_nome TEXT;
+  v_avatar TEXT;
+  v_account_type TEXT;
+  v_instrumento TEXT;
+  v_bio TEXT;
+  v_is_admin_email BOOLEAN;
+  v_is_teacher_request BOOLEAN;
+  v_role TEXT;
+  v_approval_status TEXT;
 BEGIN
-  INSERT INTO public.usuarios (user_id, nome_completo, avatar_url, bio)
+  PERFORM set_config('app.bypass_role_protection', 'on', true);
+
+  v_email := LOWER(TRIM(COALESCE(NEW.email, '')));
+  v_nome := COALESCE(
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'full_name'), ''),
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'display_name'), ''),
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'name'), ''),
+    NULLIF(split_part(v_email, '@', 1), ''),
+    'Músico Tutti'
+  );
+  v_avatar := COALESCE(
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'avatar_url'), ''),
+    NULLIF(TRIM(NEW.raw_user_meta_data->>'picture'), ''),
+    NULL
+  );
+  v_account_type := LOWER(TRIM(COALESCE(NEW.raw_user_meta_data->>'account_type', 'student')));
+  v_instrumento := COALESCE(NULLIF(TRIM(NEW.raw_user_meta_data->>'instrumento'), ''), 'Saxofone Alto');
+  v_bio := COALESCE(NULLIF(TRIM(NEW.raw_user_meta_data->>'bio'), ''), 'Estudando no Tutti Escola de Música 🎶');
+
+  SELECT EXISTS (
+    SELECT 1 FROM public.administradores_autorizados WHERE LOWER(email) = v_email
+  ) OR v_email IN ('eliandrolucas.el@gmail.com', 'desenvolvedor@tutti.mus.br')
+  INTO v_is_admin_email;
+
+  v_is_teacher_request := (NOT v_is_admin_email) AND (v_account_type = 'teacher');
+
+  IF v_is_admin_email THEN
+    v_role := 'admin';
+    v_approval_status := 'aprovado';
+  ELSIF v_is_teacher_request THEN
+    v_role := 'student';
+    v_approval_status := 'pendente';
+  ELSE
+    v_role := 'student';
+    v_approval_status := 'aprovado';
+  END IF;
+
+  INSERT INTO public.usuarios (
+    user_id, email, nome_completo, avatar_url, bio,
+    current_instrument, instrumento_principal, role, approval_status
+  )
   VALUES (
-    NEW.id,
-    COALESCE(
-      NEW.raw_user_meta_data->>'full_name',
-      NEW.raw_user_meta_data->>'display_name',
-      NEW.raw_user_meta_data->>'name',
-      split_part(NEW.email, '@', 1)
-    ),
-    COALESCE(
-      NEW.raw_user_meta_data->>'avatar_url',
-      NEW.raw_user_meta_data->>'picture',
-      NULL
-    ),
-    'Estudando no Tutti Escola de Música 🎶'
+    NEW.id, v_email, v_nome, v_avatar, v_bio,
+    v_instrumento, v_instrumento, v_role, v_approval_status
   )
   ON CONFLICT (user_id) DO UPDATE SET
-    nome_completo = EXCLUDED.nome_completo,
-    avatar_url = COALESCE(EXCLUDED.avatar_url, public.usuarios.avatar_url);
+    email = COALESCE(NULLIF(public.usuarios.email, ''), EXCLUDED.email),
+    nome_completo = COALESCE(NULLIF(public.usuarios.nome_completo, ''), EXCLUDED.nome_completo),
+    avatar_url = COALESCE(EXCLUDED.avatar_url, public.usuarios.avatar_url),
+    updated_at = NOW();
+
+  IF v_is_teacher_request THEN
+    INSERT INTO public.solicitacoes_professores (
+      user_id, nome, email, instrumento, bio, status, created_at
+    )
+    SELECT
+      NEW.id::text, v_nome, v_email, v_instrumento, v_bio, 'pendente', NOW()
+    WHERE NOT EXISTS (
+      SELECT 1 FROM public.solicitacoes_professores
+      WHERE (LOWER(email) = v_email OR user_id = NEW.id::text)
+        AND status = 'pendente'
+    );
+  END IF;
+
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
@@ -577,23 +636,36 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 CREATE OR REPLACE FUNCTION public.protect_user_roles()
 RETURNS TRIGGER AS $$
 BEGIN
-  -- Se quem está atualizando NÃO é administrador autorizado, mantém o role e o approval_status anteriores
-  IF NOT public.is_admin() THEN
+  IF current_setting('app.bypass_role_protection', true) = 'on' OR public.is_admin() THEN
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'INSERT' THEN
+    NEW.role := 'student';
+    IF NEW.approval_status IS NULL OR NEW.approval_status NOT IN ('nao_solicitado', 'pendente') THEN
+      NEW.approval_status := 'nao_solicitado';
+    END IF;
+    RETURN NEW;
+  END IF;
+
+  IF TG_OP = 'UPDATE' THEN
     NEW.role := OLD.role;
     NEW.approval_status := OLD.approval_status;
+    RETURN NEW;
   END IF;
+
   RETURN NEW;
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 DROP TRIGGER IF EXISTS trg_protect_user_roles ON public.usuarios;
 CREATE TRIGGER trg_protect_user_roles
-  BEFORE UPDATE ON public.usuarios
+  BEFORE INSERT OR UPDATE ON public.usuarios
   FOR EACH ROW EXECUTE FUNCTION public.protect_user_roles();
 
 DROP TRIGGER IF EXISTS trg_protect_profiles_role ON public.profiles;
 CREATE TRIGGER trg_protect_profiles_role
-  BEFORE UPDATE ON public.profiles
+  BEFORE INSERT OR UPDATE ON public.profiles
   FOR EACH ROW EXECUTE FUNCTION public.protect_user_roles();
 
 -- Solicitações de Credenciamento de Professores
@@ -611,9 +683,9 @@ CREATE TABLE IF NOT EXISTS public.solicitacoes_professores (
 );
 
 CREATE INDEX IF NOT EXISTS idx_solicitacoes_status ON public.solicitacoes_professores(status);
-CREATE INDEX IF NOT EXISTS idx_solicitacoes_email ON public.solicitacoes_professores(email);
+CREATE INDEX IF NOT EXISTS idx_solicitacoes_email ON public.solicitacoes_professores(LOWER(email));
 -- Impede solicitações pendentes duplicadas para o mesmo e-mail
-CREATE UNIQUE INDEX IF NOT EXISTS idx_solicitacao_pendente_unica ON public.solicitacoes_professores(email) WHERE status = 'pendente';
+CREATE UNIQUE INDEX IF NOT EXISTS idx_solicitacao_pendente_unica ON public.solicitacoes_professores(LOWER(email)) WHERE status = 'pendente';
 
 -- Marcações de Aulas Individuais (Professor <-> Aluno)
 CREATE TABLE IF NOT EXISTS public.marcacoes_aulas (
@@ -770,38 +842,58 @@ DECLARE
   v_user_id TEXT;
   v_email TEXT;
   v_nome TEXT;
+  v_instrumento TEXT;
+  v_bio TEXT;
+  v_resolved_auth_id UUID;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Acesso negado: apenas o desenvolvedor autorizado pode aprovar professores.';
   END IF;
+
+  PERFORM set_config('app.bypass_role_protection', 'on', true);
 
   UPDATE public.solicitacoes_professores
   SET status = 'aprovado',
       decided_at = NOW(),
       decided_by = COALESCE(auth.jwt() ->> 'email', 'Desenvolvedor Autorizado')
   WHERE id = p_solicitacao_id
-  RETURNING user_id, email, nome INTO v_user_id, v_email, v_nome;
+  RETURNING user_id, email, nome, instrumento, bio INTO v_user_id, v_email, v_nome, v_instrumento, v_bio;
 
   IF NOT FOUND THEN
     RAISE EXCEPTION 'Solicitação de professor não encontrada.';
   END IF;
 
-  -- Promove o usuário na tabela usuarios
   IF v_user_id IS NOT NULL AND v_user_id <> 'anonimo' THEN
-    UPDATE public.usuarios
-    SET role = 'teacher',
-        approval_status = 'aprovado',
-        updated_at = NOW()
-    WHERE user_id::text = v_user_id;
-
-    UPDATE public.profiles
-    SET role = 'teacher',
-        approval_status = 'aprovado',
-        updated_at = NOW()
-    WHERE id::text = v_user_id;
+    BEGIN
+      v_resolved_auth_id := v_user_id::uuid;
+    EXCEPTION WHEN OTHERS THEN
+      v_resolved_auth_id := NULL;
+    END;
   END IF;
 
-  -- Registra na auditoria
+  IF v_resolved_auth_id IS NULL AND v_email IS NOT NULL THEN
+    SELECT id INTO v_resolved_auth_id FROM auth.users WHERE LOWER(email) = LOWER(v_email) LIMIT 1;
+  END IF;
+
+  IF v_resolved_auth_id IS NOT NULL THEN
+    INSERT INTO public.usuarios (
+      user_id, email, nome_completo, current_instrument, instrumento_principal, bio, role, approval_status
+    )
+    VALUES (
+      v_resolved_auth_id, LOWER(v_email), COALESCE(v_nome, 'Professor Tutti'),
+      COALESCE(v_instrumento, 'Saxofone Alto'), COALESCE(v_instrumento, 'Saxofone Alto'),
+      COALESCE(v_bio, 'Professor credenciado pela Tutti.'), 'teacher', 'aprovado'
+    )
+    ON CONFLICT (user_id) DO UPDATE SET
+      role = 'teacher',
+      approval_status = 'aprovado',
+      updated_at = NOW();
+
+    UPDATE public.profiles
+    SET role = 'teacher', approval_status = 'aprovado', updated_at = NOW()
+    WHERE id = v_resolved_auth_id;
+  END IF;
+
   INSERT INTO public.eventos_acesso (user_id, perfil, tipo_evento, detalhes)
   VALUES (
     auth.uid()::text,
@@ -810,9 +902,9 @@ BEGIN
     jsonb_build_object('solicitacao_id', p_solicitacao_id, 'email_professor', v_email, 'nome', v_nome)
   );
 
-  RETURN jsonb_build_object('success', true, 'status', 'aprovado', 'professor_email', v_email);
+  RETURN jsonb_build_object('success', true, 'status', 'aprovado', 'user_id', v_resolved_auth_id, 'professor_email', v_email);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
 -- RPC: Rejeição de Professor pelo Desenvolvedor
 CREATE OR REPLACE FUNCTION public.rejeitar_professor_rpc(p_solicitacao_id UUID)
@@ -820,10 +912,13 @@ RETURNS JSONB AS $$
 DECLARE
   v_user_id TEXT;
   v_email TEXT;
+  v_resolved_auth_id UUID;
 BEGIN
   IF NOT public.is_admin() THEN
     RAISE EXCEPTION 'Acesso negado: apenas o desenvolvedor autorizado pode rejeitar professores.';
   END IF;
+
+  PERFORM set_config('app.bypass_role_protection', 'on', true);
 
   UPDATE public.solicitacoes_professores
   SET status = 'rejeitado',
@@ -836,19 +931,26 @@ BEGIN
     RAISE EXCEPTION 'Solicitação de professor não encontrada.';
   END IF;
 
-  -- Mantém o usuário como aluno regular
   IF v_user_id IS NOT NULL AND v_user_id <> 'anonimo' THEN
+    BEGIN
+      v_resolved_auth_id := v_user_id::uuid;
+    EXCEPTION WHEN OTHERS THEN
+      v_resolved_auth_id := NULL;
+    END;
+  END IF;
+
+  IF v_resolved_auth_id IS NULL AND v_email IS NOT NULL THEN
+    SELECT id INTO v_resolved_auth_id FROM auth.users WHERE LOWER(email) = LOWER(v_email) LIMIT 1;
+  END IF;
+
+  IF v_resolved_auth_id IS NOT NULL THEN
     UPDATE public.usuarios
-    SET role = 'student',
-        approval_status = 'rejeitado',
-        updated_at = NOW()
-    WHERE user_id::text = v_user_id;
+    SET role = 'student', approval_status = 'rejeitado', updated_at = NOW()
+    WHERE user_id = v_resolved_auth_id;
 
     UPDATE public.profiles
-    SET role = 'student',
-        approval_status = 'rejeitado',
-        updated_at = NOW()
-    WHERE id::text = v_user_id;
+    SET role = 'student', approval_status = 'rejeitado', updated_at = NOW()
+    WHERE id = v_resolved_auth_id;
   END IF;
 
   INSERT INTO public.eventos_acesso (user_id, perfil, tipo_evento, detalhes)
@@ -859,17 +961,15 @@ BEGIN
     jsonb_build_object('solicitacao_id', p_solicitacao_id, 'email_professor', v_email)
   );
 
-  RETURN jsonb_build_object('success', true, 'status', 'rejeitado', 'professor_email', v_email);
+  RETURN jsonb_build_object('success', true, 'status', 'rejeitado', 'user_id', v_resolved_auth_id, 'professor_email', v_email);
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
--- Seeds de Demonstração
-INSERT INTO public.solicitacoes_professores (nome, email, instrumento, bio, status)
-VALUES
-  ('Profª Clara Vasconcelos', 'professora.clara@tutti.mus.br', 'Saxofone Tenor & Flauta', 'Especialista em Bossa Nova e MPB formada pela EMESP.', 'aprovado'),
-  ('Prof. Marcos Drumond', 'marcos.drumond@musica.br', 'Trompete & Metais', 'Spalla de trompete da orquestra sinfônica.', 'pendente'),
-  ('Prof. Thiago Alcantara', 'thiago.alcantara@gmail.com', 'Violão & Canto', 'Professor particular de harmonia e violão 7 cordas.', 'pendente')
-ON CONFLICT DO NOTHING;
+REVOKE ALL ON FUNCTION public.aprovar_professor_rpc(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.aprovar_professor_rpc(UUID) TO authenticated, service_role;
+
+REVOKE ALL ON FUNCTION public.rejeitar_professor_rpc(UUID) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.rejeitar_professor_rpc(UUID) TO authenticated, service_role;
 
 INSERT INTO public.marcacoes_aulas (aluno_nome, aluno_email, aluno_telefone, professor_nome, data_aula, hora_inicio, duracao_minutos, status, observacoes)
 VALUES

@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   LayoutDashboard, Globe, Music, Star, Users, UserCheck, 
   Clock, CheckCircle2, XCircle, AlertCircle, 
   Plus, Edit, Trash2, Search, Filter, Shield, Settings, 
-  BarChart3, RefreshCw, Check, X, FileText, ChevronRight, LogOut, 
+  BarChart3, RefreshCw, Check, X, FileText, ChevronRight, ChevronDown, LogOut, 
   Sparkles, Download, Eye, Upload, FileUp, CreditCard, Crown, ArrowUpDown,
   Copy, CheckCheck, ShoppingBag, Lock, Unlock, Image as ImageIcon, Package, Loader2, Tag
 } from 'lucide-react';
@@ -14,7 +14,18 @@ import { SheetMusic } from '../../data/musicData';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
 import { DbPlano } from '../Subscription/PlansModal';
-import { resolvePartituraPdfUrl } from '../../services/partiturasService';
+import {
+  resolvePartituraPdfUrl,
+  DbCompositor,
+  fetchCompositores,
+  ensureCompositorInDb,
+  normalizeComposerDisplay,
+  normalizeComposerKey,
+  normalizeSearchText,
+  getMusicalStyleOptions,
+  SHEET_STORAGE_BUCKETS,
+  normalizeDbPartitura,
+} from '../../services/partiturasService';
 
 export interface StoreDbProduct {
   id: number;
@@ -75,6 +86,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   // Real Registered Teachers (loaded from Supabase public.usuarios / profiles)
   const [teachers, setTeachers] = useState<any[]>([]);
@@ -108,13 +120,18 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [formTonality, setFormTonality] = useState('G');
   const [formDescription, setFormDescription] = useState('');
   const [formCategory, setFormCategory] = useState<'gratuita' | 'paga'>('gratuita');
-  const [formPrice, setFormPrice] = useState<string>('29.90');
   const [formPublished, setFormPublished] = useState<boolean>(true);
   const [selectedPdfFile, setSelectedPdfFile] = useState<File | null>(null);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
   const [isUploading, setIsUploading] = useState(false);
   const [markAsFeaturedOnCreate, setMarkAsFeaturedOnCreate] = useState(false);
+  const [sheetFormError, setSheetFormError] = useState<string | null>(null);
+  const [composersList, setComposersList] = useState<DbCompositor[]>([]);
+  const [isLoadingComposers, setIsLoadingComposers] = useState(false);
+  const [isComposerDropdownOpen, setIsComposerDropdownOpen] = useState(false);
+  const [isRegisteringComposer, setIsRegisteringComposer] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const composerComboboxRef = useRef<HTMLDivElement>(null);
 
   // Featured Sheets Selector Modal State (Option A vs Option B)
   const [isSelectFeaturedModalOpen, setIsSelectFeaturedModalOpen] = useState(false);
@@ -188,55 +205,77 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [isSavingProduct, setIsSavingProduct] = useState(false);
   const storeImageInputRef = useRef<HTMLInputElement>(null);
 
-  // Load all real data from Supabase on mount
-  useEffect(() => {
-    async function loadBackendData() {
-      // 1. Solicitacoes de Professores
-      try {
-        setIsLoadingRequests(true);
-        const { data: solData } = await supabase
-          .from('solicitacoes_professores')
-          .select('*')
-          .order('created_at', { ascending: false });
+  const loadTeacherManagementData = useCallback(async () => {
+    // 1. Solicitações de Professores
+    try {
+      setIsLoadingRequests(true);
+      const { data: solData, error: solErr } = await supabase
+        .from('solicitacoes_professores')
+        .select('*')
+        .order('created_at', { ascending: false });
 
+      if (!solErr) {
         setRequests((solData as TeacherRequest[]) || []);
-      } catch (err) {
-        console.warn('Supabase solicitacoes load note:', err);
-      } finally {
-        setIsLoadingRequests(false);
       }
+    } catch (err) {
+      console.warn('Supabase solicitacoes load note:', err);
+    } finally {
+      setIsLoadingRequests(false);
+    }
 
-      // 2. Professores Reais Cadastrados (tabela usuarios com role teacher/professor)
-      try {
-        setIsLoadingTeachers(true);
-        const { data: profData } = await supabase
-          .from('usuarios')
-          .select('*')
-          .in('role', ['teacher', 'professor'])
-          .order('created_at', { ascending: false });
+    // 2. Professores Aprovados (tabela usuarios com role teacher/professor e approval_status = aprovado)
+    try {
+      setIsLoadingTeachers(true);
+      const { data: profData, error: profErr } = await supabase
+        .from('usuarios')
+        .select('*')
+        .in('role', ['teacher', 'professor'])
+        .eq('approval_status', 'aprovado')
+        .order('created_at', { ascending: false });
 
+      if (!profErr) {
         setTeachers(profData || []);
-      } catch (err) {
-        console.warn('Supabase teachers load note:', err);
-      } finally {
-        setIsLoadingTeachers(false);
       }
+    } catch (err) {
+      console.warn('Supabase teachers load note:', err);
+    } finally {
+      setIsLoadingTeachers(false);
+    }
 
-      // 3. Alunos Reais Cadastrados (tabela usuarios com role student/aluno)
-      try {
-        setIsLoadingStudents(true);
-        const { data: alunoData } = await supabase
-          .from('usuarios')
-          .select('*')
-          .in('role', ['student', 'aluno'])
-          .order('created_at', { ascending: false });
+    // 3. Alunos Reais Cadastrados (tabela usuarios com role student/aluno)
+    try {
+      setIsLoadingStudents(true);
+      const { data: alunoData, error: alunoErr } = await supabase
+        .from('usuarios')
+        .select('*')
+        .in('role', ['student', 'aluno'])
+        .order('created_at', { ascending: false });
 
+      if (!alunoErr) {
         setStudents(alunoData || []);
-      } catch (err) {
-        console.warn('Supabase students load note:', err);
-      } finally {
-        setIsLoadingStudents(false);
       }
+    } catch (err) {
+      console.warn('Supabase students load note:', err);
+    } finally {
+      setIsLoadingStudents(false);
+    }
+  }, []);
+
+  // Load all real data from Supabase on mount + Realtime sync for solicitacoes/usuarios
+  useEffect(() => {
+    loadTeacherManagementData();
+
+    const teacherSyncChannel = supabase
+      .channel('dev-teacher-management-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'solicitacoes_professores' }, () => {
+        loadTeacherManagementData();
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'usuarios' }, () => {
+        loadTeacherManagementData();
+      })
+      .subscribe();
+
+    async function loadBackendData() {
 
       // 4. Marcacoes de Aulas ao Vivo
       try {
@@ -254,6 +293,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       }
 
       // 5. Partituras do Banco de Dados
+      let loadedSheets: SheetMusic[] = [];
       try {
         setIsLoadingSheets(true);
         const { data: pData, error: pErr } = await supabase
@@ -262,31 +302,35 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           .order('id', { ascending: false });
 
         if (!pErr && pData) {
-          const mapped: SheetMusic[] = pData.map((p: any) => ({
-            id: p.id,
-            title: p.titulo,
-            composer: p.compositor || 'Compositor Tutti',
-            instrument: p.instrumento || 'Saxofone Alto',
-            tonality: p.tonalidade || 'G',
-            originalKey: p.tom_original || 'G',
-            family: 'Madeiras',
-            level: p.nivel || 'Intermediário',
-            genre: p.genero || 'Bossa Nova',
-            tempo: p.tempo_bpm || 120,
-            timeSignature: p.compasso || '4/4',
-            melodyNotes: p.melodia_notas || [],
-            chords: p.cifras || [],
-            description: p.descricao || '',
-            pdfUrl: p.arquivo_pdf_url || undefined,
-            isFeatured: p.is_featured ?? false,
-            featuredOrder: p.featured_order ?? 0,
-            categoria: p.categoria === 'paga' ? 'paga' : 'gratuita',
-            preco: Number(p.preco ?? 0),
-            publicado: p.publicado ?? true,
-            storagePath: p.storage_path || undefined,
-            createdAt: p.created_at,
-            createdBy: p.created_by
-          }));
+          const mapped: SheetMusic[] = pData.map((raw: any) => {
+            const p = normalizeDbPartitura(raw);
+            return {
+              id: p.id,
+              title: p.titulo,
+              composer: p.compositor || 'Compositor Tutti',
+              instrument: p.instrumento || 'Saxofone Alto',
+              tonality: p.tonalidade || 'G',
+              originalKey: p.tom_original || p.tonalidade || 'G',
+              family: 'Madeiras',
+              level: (p.nivel || 'Intermediário') as 'Iniciante' | 'Intermediário' | 'Avançado',
+              genre: p.genero || 'Bossa Nova',
+              tempo: p.tempo_bpm || 120,
+              timeSignature: p.compasso || '4/4',
+              melodyNotes: p.melodia_notas || [],
+              chords: p.cifras || [],
+              description: p.descricao || '',
+              pdfUrl: p.categoria === 'paga' ? undefined : (p.arquivo_pdf_url || undefined),
+              isFeatured: p.is_featured ?? false,
+              featuredOrder: p.featured_order ?? 0,
+              categoria: p.categoria === 'paga' ? 'paga' : 'gratuita',
+              preco: Number(p.preco ?? 0),
+              publicado: p.publicado ?? true,
+              storagePath: p.storage_path || undefined,
+              createdAt: p.created_at,
+              createdBy: p.created_by || undefined,
+            };
+          });
+          loadedSheets = mapped;
           setSheetsList(mapped);
         }
       } catch (err) {
@@ -294,6 +338,9 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       } finally {
         setIsLoadingSheets(false);
       }
+
+      // 5B. Compositores persistidos no Supabase
+      await loadComposersList(loadedSheets);
 
       // 6. Planos Reais do Banco de Dados (public.planos)
       try {
@@ -393,7 +440,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
 
     loadBackendData();
-  }, []);
+
+    return () => {
+      supabase.removeChannel(teacherSyncChannel);
+    };
+  }, [loadTeacherManagementData]);
 
   // Helper: Read File as Data URL (safe client-side PDF preview fallback)
   const readFileAsDataUrl = (file: File): Promise<string> => {
@@ -405,6 +456,105 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     });
   };
 
+  // Carrega compositores do Supabase (tabela public.compositores + fallback dos registros existentes)
+  const loadComposersList = async (fallbackSheets?: SheetMusic[]) => {
+    setIsLoadingComposers(true);
+    try {
+      const dbComposers = await fetchCompositores();
+      const mapByNorm = new Map<string, DbCompositor>();
+      dbComposers.forEach((c) => {
+        mapByNorm.set(c.nome_normalizado, c);
+      });
+      (fallbackSheets || sheetsList).forEach((s) => {
+        const display = normalizeComposerDisplay(s.composer || '');
+        const norm = normalizeComposerKey(display);
+        if (display && norm && norm !== 'compositor tutti' && !mapByNorm.has(norm)) {
+          mapByNorm.set(norm, {
+            id: `legacy_${norm}`,
+            nome: display,
+            nome_normalizado: norm,
+          });
+        }
+      });
+      const sorted = Array.from(mapByNorm.values()).sort((a, b) =>
+        a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })
+      );
+      setComposersList(sorted);
+    } catch {
+      const mapByNorm = new Map<string, DbCompositor>();
+      (fallbackSheets || sheetsList).forEach((s) => {
+        const display = normalizeComposerDisplay(s.composer || '');
+        const norm = normalizeComposerKey(display);
+        if (display && norm && norm !== 'compositor tutti' && !mapByNorm.has(norm)) {
+          mapByNorm.set(norm, {
+            id: `legacy_${norm}`,
+            nome: display,
+            nome_normalizado: norm,
+          });
+        }
+      });
+      setComposersList(
+        Array.from(mapByNorm.values()).sort((a, b) =>
+          a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })
+        )
+      );
+    } finally {
+      setIsLoadingComposers(false);
+    }
+  };
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (
+        composerComboboxRef.current &&
+        !composerComboboxRef.current.contains(event.target as Node)
+      ) {
+        setIsComposerDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  const handleRegisterNewComposer = async (rawName: string) => {
+    const display = normalizeComposerDisplay(rawName);
+    const norm = normalizeComposerKey(display);
+    if (!display || !norm) {
+      showToast('Digite o nome do compositor antes de cadastrar.');
+      return;
+    }
+
+    const already = composersList.find((c) => c.nome_normalizado === norm);
+    if (already) {
+      setFormComposer(already.nome);
+      setIsComposerDropdownOpen(false);
+      showToast(`Compositor "${already.nome}" já está cadastrado e foi selecionado.`);
+      return;
+    }
+
+    setIsRegisteringComposer(true);
+    try {
+      const saved = await ensureCompositorInDb(display, user?.id);
+      if (saved) {
+        setComposersList((prev) => {
+          const filtered = prev.filter((c) => c.nome_normalizado !== saved.nome_normalizado);
+          return [...filtered, saved].sort((a, b) =>
+            a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })
+          );
+        });
+        setFormComposer(saved.nome);
+        setIsComposerDropdownOpen(false);
+        showToast(`Compositor "${saved.nome}" cadastrado no Supabase!`);
+      }
+    } catch (err: any) {
+      showToast(
+        `Não foi possível salvar o compositor na tabela public.compositores: ${err?.message || 'verifique a migração SQL.'}`
+      );
+    } finally {
+      setIsRegisteringComposer(false);
+    }
+  };
+
   // Handle PDF file selection with validation
   const handlePdfFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -413,96 +563,208 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     // Strict PDF validation
     const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
     if (!isPdf) {
-      alert('Arquivo inválido: apenas arquivos PDF são aceitos para as partituras.');
+      setSheetFormError('Arquivo inválido: apenas arquivos PDF (.pdf) são aceitos para partituras.');
+      showToast('Arquivo inválido: apenas arquivos PDF são aceitos.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
     // Size limit check (max 30MB)
     if (file.size > 30 * 1024 * 1024) {
-      alert('O arquivo selecionado ultrapassa o limite de 30MB.');
+      setSheetFormError('O arquivo selecionado ultrapassa o limite de 30MB.');
+      showToast('O arquivo selecionado ultrapassa o limite de 30MB.');
       if (fileInputRef.current) fileInputRef.current.value = '';
       return;
     }
 
+    setSheetFormError(null);
     setSelectedPdfFile(file);
     if (!formTitle.trim()) {
-      // Auto-populate title from filename without .pdf
       setFormTitle(file.name.replace(/\.pdf$/i, '').replace(/[-_]/g, ' '));
     }
   };
 
-  // Handle Sheet Music Upload and Creation (Free -> public bucket, Paid -> private bucket)
+  const uploadPdfWithBucketVerification = async (
+    targetBucket: string,
+    storagePath: string,
+    file: File
+  ) => {
+    const attemptUpload = async () =>
+      supabase.storage.from(targetBucket).upload(storagePath, file, {
+        cacheControl: '3600',
+        upsert: false,
+        contentType: 'application/pdf',
+      });
+
+    let { data, error } = await attemptUpload();
+
+    if (error && /bucket not found/i.test(error.message || '')) {
+      // Tenta provisionar automaticamente via backend autenticado caso SUPABASE_SERVICE_ROLE_KEY esteja configurada
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          const checkRes = await fetch('/api/admin/ensure-storage-buckets', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${session.access_token}`,
+            },
+          });
+          const checkJson = await checkRes.json().catch(() => ({}));
+          if (checkRes.ok && checkJson?.configured) {
+            const retry = await attemptUpload();
+            data = retry.data;
+            error = retry.error;
+          }
+        }
+      } catch {
+        // segue para tratamento explícito de erro abaixo
+      }
+    }
+
+    if (error || !data) {
+      const rawMsg = error?.message || '';
+      if (/bucket not found/i.test(rawMsg)) {
+        throw new Error(
+          `Bucket "${targetBucket}" não encontrado no Supabase Storage. Acesse Configurações -> Baixar Script .SQL Master e execute-o no SQL Editor do Supabase para criar os buckets "partituras" e "partituras-pagas".`
+        );
+      }
+      throw new Error(rawMsg || `Falha ao enviar o PDF para o bucket "${targetBucket}".`);
+    }
+
+    return data;
+  };
+
+  // Handle Sheet Music Upload and Creation (Free -> public bucket, Paid -> private bucket, with orphan rollback)
   const handleSaveSheet = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isUploading) return;
+
+    setSheetFormError(null);
+
     if (!formTitle.trim()) {
+      setSheetFormError('Informe o título da partitura.');
       showToast('Informe o título da partitura.');
       return;
     }
     if (!selectedPdfFile && !editingSheet) {
+      setSheetFormError('Selecione um arquivo PDF no seu computador.');
       showToast('Selecione um arquivo PDF no seu computador.');
       return;
     }
-
-    const parsedPrice = formCategory === 'paga' ? Number(formPrice.replace(',', '.')) : 0;
-    if (formCategory === 'paga' && (!Number.isFinite(parsedPrice) || parsedPrice <= 0)) {
-      showToast('Informe um preço válido maior que R$ 0,00 para partituras pagas.');
-      return;
+    if (selectedPdfFile) {
+      const isPdf =
+        selectedPdfFile.type === 'application/pdf' ||
+        selectedPdfFile.name.toLowerCase().endsWith('.pdf');
+      if (!isPdf) {
+        setSheetFormError('Somente arquivos .PDF são permitidos.');
+        return;
+      }
     }
 
     setIsUploading(true);
-    setUploadProgress(20);
+    setUploadProgress(15);
+
+    const targetBucket =
+      formCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
+    const previousCategory: 'gratuita' | 'paga' =
+      editingSheet?.categoria === 'paga' ? 'paga' : 'gratuita';
+    const previousBucket =
+      previousCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
+    const previousStoragePath = editingSheet?.storagePath || '';
+
+    let newlyUploadedObject: { bucket: string; path: string } | null = null;
+    let shouldDeletePreviousObject = false;
 
     try {
+      const composerDisplay = normalizeComposerDisplay(formComposer) || 'Compositor Tutti';
+
+      // Garante persistência e deduplicação do compositor informado em public.compositores
+      if (formComposer.trim()) {
+        try {
+          const savedComp = await ensureCompositorInDb(composerDisplay, user?.id);
+          if (savedComp) {
+            setComposersList((prev) => {
+              const filtered = prev.filter((c) => c.nome_normalizado !== savedComp.nome_normalizado);
+              return [...filtered, savedComp].sort((a, b) =>
+                a.nome.localeCompare(b.nome, 'pt-BR', { sensitivity: 'base' })
+              );
+            });
+          }
+        } catch {
+          // Não bloqueia se tabela compositores ainda estiver pendente de migração SQL
+        }
+      }
+
       let finalPdfUrl = formCategory === 'paga' ? '' : (editingSheet?.pdfUrl || '');
-      let storagePath = editingSheet?.storagePath || '';
-      const targetBucket = formCategory === 'paga' ? 'partituras-pagas' : 'partituras';
+      let storagePath = previousStoragePath;
 
       if (selectedPdfFile) {
         setUploadProgress(40);
         const safeName = selectedPdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         storagePath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${safeName}`;
 
-        const { data: uploadData, error: uploadErr } = await supabase.storage
-          .from(targetBucket)
-          .upload(storagePath, selectedPdfFile, {
-            cacheControl: '3600',
-            upsert: true,
-            contentType: 'application/pdf'
-          });
-
-        if (uploadErr || !uploadData) {
-          throw new Error(
-            uploadErr?.message ||
-              `Erro ao enviar PDF para o bucket "${targetBucket}". Verifique se a migração SQL foi executada.`
-          );
+        await uploadPdfWithBucketVerification(targetBucket, storagePath, selectedPdfFile);
+        newlyUploadedObject = { bucket: targetBucket, path: storagePath };
+        if (previousStoragePath && previousStoragePath !== storagePath) {
+          shouldDeletePreviousObject = true;
         }
 
         if (formCategory === 'gratuita') {
           const { data: pubData } = supabase.storage
-            .from('partituras')
+            .from(SHEET_STORAGE_BUCKETS.FREE)
             .getPublicUrl(storagePath);
           finalPdfUrl = pubData.publicUrl;
         } else {
-          // Partitura paga fica somente no bucket privado e nunca grava URL pública no banco
           finalPdfUrl = '';
+        }
+      } else if (editingSheet && previousStoragePath && previousCategory !== formCategory) {
+        // Mudou categoria (gratuita <-> paga) sem trocar o PDF: move objeto para o bucket correto
+        setUploadProgress(40);
+        const { data: downloadedBlob, error: dlErr } = await supabase.storage
+          .from(previousBucket)
+          .download(previousStoragePath);
+
+        if (!dlErr && downloadedBlob) {
+          const baseFile = previousStoragePath.split('/').pop() || `partitura_${editingSheet.id}.pdf`;
+          const movedPath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${baseFile}`;
+          const movedFile = new File([downloadedBlob], baseFile, { type: 'application/pdf' });
+          await uploadPdfWithBucketVerification(targetBucket, movedPath, movedFile);
+          newlyUploadedObject = { bucket: targetBucket, path: movedPath };
+          storagePath = movedPath;
+          shouldDeletePreviousObject = true;
+
+          if (formCategory === 'gratuita') {
+            const { data: pubData } = supabase.storage
+              .from(SHEET_STORAGE_BUCKETS.FREE)
+              .getPublicUrl(movedPath);
+            finalPdfUrl = pubData.publicUrl;
+          } else {
+            finalPdfUrl = '';
+          }
         }
       }
 
       setUploadProgress(75);
 
+      const preservedPrice = editingSheet ? Number(editingSheet.preco ?? 0) : 0;
+
       if (editingSheet) {
         const updatePayload: Record<string, any> = {
           titulo: formTitle.trim(),
-          compositor: formComposer.trim() || 'Compositor Tutti',
+          compositor: composerDisplay,
           instrumento: formInstrument,
           genero: formGenre,
+          estilo_musical: formGenre,
           nivel: formLevel,
+          nivel_dificuldade: formLevel,
           tonalidade: formTonality,
           descricao: formDescription.trim(),
           categoria: formCategory,
-          preco: parsedPrice,
+          preco: preservedPrice,
           publicado: formPublished,
+          is_featured: markAsFeaturedOnCreate,
+          featured_order: markAsFeaturedOnCreate ? (editingSheet.featuredOrder || 1) : 0,
           arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
           storage_path: storagePath || null,
           updated_at: new Date().toISOString(),
@@ -515,40 +777,56 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
         if (upErr) throw upErr;
 
-        setSheetsList(prev => prev.map(s => s.id === editingSheet.id ? {
-          ...s,
-          title: formTitle.trim(),
-          composer: formComposer.trim() || 'Compositor Tutti',
-          instrument: formInstrument,
-          genre: formGenre,
-          level: formLevel,
-          tonality: formTonality,
-          description: formDescription.trim(),
-          categoria: formCategory,
-          preco: parsedPrice,
-          publicado: formPublished,
-          pdfUrl: formCategory === 'paga' ? undefined : finalPdfUrl,
-          storagePath
-        } : s));
+        if (shouldDeletePreviousObject && previousStoragePath) {
+          await supabase.storage.from(previousBucket).remove([previousStoragePath]).catch(() => {});
+        }
+
+        setSheetsList(prev =>
+          prev.map(s =>
+            s.id === editingSheet.id
+              ? {
+                  ...s,
+                  title: formTitle.trim(),
+                  composer: composerDisplay,
+                  instrument: formInstrument,
+                  genre: formGenre,
+                  level: formLevel,
+                  tonality: formTonality,
+                  description: formDescription.trim(),
+                  categoria: formCategory,
+                  preco: preservedPrice,
+                  publicado: formPublished,
+                  isFeatured: markAsFeaturedOnCreate,
+                  featuredOrder: markAsFeaturedOnCreate ? (s.featuredOrder || 1) : 0,
+                  pdfUrl: formCategory === 'paga' ? undefined : (finalPdfUrl || undefined),
+                  storagePath,
+                }
+              : s
+          )
+        );
 
         showToast(`Partitura "${formTitle}" atualizada com sucesso!`);
       } else {
         const insertPayload = {
           titulo: formTitle.trim(),
-          compositor: formComposer.trim() || 'Compositor Tutti',
+          compositor: composerDisplay,
           instrumento: formInstrument,
           tonalidade: formTonality,
           tom_original: formTonality,
           nivel: formLevel,
+          nivel_dificuldade: formLevel,
           genero: formGenre,
+          estilo_musical: formGenre,
           descricao: formDescription.trim() || 'Partitura oficial em PDF catalogada pela Tutti.',
           categoria: formCategory,
-          preco: parsedPrice,
+          preco: 0,
           publicado: formPublished,
           arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
           storage_path: storagePath || null,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? 1 : 0,
+          file_size_bytes: selectedPdfFile?.size || 0,
+          created_by: user?.email || null,
         };
 
         const { data: inserted, error: insErr } = await supabase
@@ -559,31 +837,32 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
         if (insErr) throw insErr;
 
+        const normalized = normalizeDbPartitura(inserted);
         const newSheet: SheetMusic = {
-          id: Number(inserted.id),
-          title: inserted.titulo,
-          composer: inserted.compositor || 'Compositor Tutti',
-          instrument: inserted.instrumento,
-          tonality: inserted.tonalidade || formTonality,
-          originalKey: inserted.tom_original || formTonality,
+          id: normalized.id,
+          title: normalized.titulo,
+          composer: normalized.compositor || 'Compositor Tutti',
+          instrument: normalized.instrumento,
+          tonality: normalized.tonalidade || formTonality,
+          originalKey: normalized.tom_original || formTonality,
           family: 'Madeiras',
-          level: inserted.nivel || formLevel,
-          genre: inserted.genero || formGenre,
-          tempo: inserted.tempo_bpm || 120,
-          timeSignature: inserted.compasso || '4/4',
-          melodyNotes: inserted.melodia_notas || [],
-          chords: inserted.cifras || [],
-          description: inserted.descricao || '',
-          categoria: inserted.categoria === 'paga' ? 'paga' : 'gratuita',
-          preco: Number(inserted.preco ?? parsedPrice),
-          publicado: inserted.publicado ?? true,
-          pdfUrl: inserted.categoria === 'paga' ? undefined : (inserted.arquivo_pdf_url || undefined),
-          storagePath: inserted.storage_path || undefined,
-          isFeatured: inserted.is_featured ?? markAsFeaturedOnCreate,
-          featuredOrder: inserted.featured_order ?? 0,
+          level: (normalized.nivel || formLevel) as 'Iniciante' | 'Intermediário' | 'Avançado',
+          genre: normalized.genero || formGenre,
+          tempo: normalized.tempo_bpm || 120,
+          timeSignature: normalized.compasso || '4/4',
+          melodyNotes: normalized.melodia_notas || [],
+          chords: normalized.cifras || [],
+          description: normalized.descricao || '',
+          categoria: normalized.categoria === 'paga' ? 'paga' : 'gratuita',
+          preco: Number(normalized.preco ?? 0),
+          publicado: normalized.publicado ?? true,
+          pdfUrl: normalized.categoria === 'paga' ? undefined : (normalized.arquivo_pdf_url || undefined),
+          storagePath: normalized.storage_path || undefined,
+          isFeatured: normalized.is_featured ?? markAsFeaturedOnCreate,
+          featuredOrder: normalized.featured_order ?? 0,
           fileSizeBytes: selectedPdfFile?.size,
-          createdAt: inserted.created_at,
-          createdBy: user?.email || undefined
+          createdAt: normalized.created_at,
+          createdBy: user?.email || undefined,
         };
 
         setSheetsList(prev => [newSheet, ...prev]);
@@ -595,7 +874,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       setEditingSheet(null);
       resetForm();
     } catch (err: any) {
-      showToast(`Erro ao salvar partitura: ${err?.message || err}`);
+      // Rollback automático para não deixar PDF órfão no Storage se o banco falhar
+      if (newlyUploadedObject) {
+        await supabase.storage
+          .from(newlyUploadedObject.bucket)
+          .remove([newlyUploadedObject.path])
+          .catch(() => {});
+      }
+      const message = err?.message || String(err);
+      setSheetFormError(message);
+      showToast(`Erro ao salvar partitura: ${message}`);
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
@@ -603,6 +891,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   };
 
   const resetForm = () => {
+    setFormInstrument('Saxofone Alto');
     setFormTitle('');
     setFormComposer('');
     setFormGenre('Bossa Nova');
@@ -610,11 +899,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setFormTonality('G');
     setFormDescription('');
     setFormCategory('gratuita');
-    setFormPrice('29.90');
     setFormPublished(true);
     setSelectedPdfFile(null);
     setMarkAsFeaturedOnCreate(false);
+    setSheetFormError(null);
+    setIsComposerDropdownOpen(false);
     if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  const handleOpenAddSheetModal = () => {
+    setEditingSheet(null);
+    resetForm();
+    loadComposersList();
+    setIsAddSheetModalOpen(true);
   };
 
   const handleOpenEditSheet = (sheet: SheetMusic) => {
@@ -627,9 +924,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setFormTonality(sheet.tonality || 'G');
     setFormDescription(sheet.description || '');
     setFormCategory(sheet.categoria === 'paga' ? 'paga' : 'gratuita');
-    setFormPrice(sheet.preco && sheet.preco > 0 ? String(sheet.preco) : '29.90');
     setFormPublished(sheet.publicado ?? true);
+    setMarkAsFeaturedOnCreate(Boolean(sheet.isFeatured));
     setSelectedPdfFile(null);
+    setSheetFormError(null);
+    setIsComposerDropdownOpen(false);
+    loadComposersList();
     setIsAddSheetModalOpen(true);
   };
 
@@ -652,9 +952,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       setViewingSheetProtected(resolved.protected || sheet.categoria === 'paga');
       setViewingSheet(sheet);
     } catch (err: any) {
-      // Para o admin no painel, tenta fallback via client caso storage policy de admin esteja ativa
       if (sheet.storagePath) {
-        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
+        const bucket = sheet.categoria === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
         const { data } = await supabase.storage.from(bucket).createSignedUrl(sheet.storagePath, 120);
         if (data?.signedUrl) {
           setViewingSheetPdfUrl(data.signedUrl);
@@ -686,21 +985,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
   const handleToggleSheetCategory = async (sheet: SheetMusic) => {
     const nextCat: 'gratuita' | 'paga' = sheet.categoria === 'paga' ? 'gratuita' : 'paga';
-    const nextPrice = nextCat === 'paga' ? (sheet.preco && sheet.preco > 0 ? sheet.preco : 29.9) : 0;
     try {
       const { error } = await supabase
         .from('partituras')
         .update({
           categoria: nextCat,
-          preco: nextPrice,
           updated_at: new Date().toISOString(),
         })
         .eq('id', sheet.id);
       if (error) throw error;
-      setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat, preco: nextPrice } : s));
+      setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat } : s));
       showToast(
         nextCat === 'paga'
-          ? `"${sheet.title}" movida para Partituras Pagas (R$ ${nextPrice.toFixed(2).replace('.', ',')}).`
+          ? `"${sheet.title}" movida para Partituras Pagas (protegida para conjuntos).`
           : `"${sheet.title}" movida para Partituras Gratuitas.`
       );
     } catch {
@@ -1131,54 +1428,45 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     showToast('Ordem dos destaques atualizada!');
   };
 
-  // Approve Teacher Request
+  // Approve Teacher Request via RPC (aprovar_professor_rpc)
   const handleApproveTeacher = async (req: TeacherRequest) => {
     if (!window.confirm(`Confirmar a aprovação de "${req.nome}" como Professor oficial da Tutti?`)) return;
 
+    setProcessingRequestId(req.id);
     try {
-      await aprovarProfessor(req.id, req.user_id);
-      setRequests(prev => prev.map(r => r.id === req.id ? { 
-        ...r, 
-        status: 'aprovado', 
-        decided_at: new Date().toISOString(), 
-        decided_by: user?.email || 'eliandrolucas.EL@gmail.com' 
-      } : r));
+      const { error } = await aprovarProfessor(req.id, req.user_id);
+      if (error) {
+        throw error;
+      }
 
-      // Add to teachers list
-      setTeachers(prev => [{
-        id: req.id,
-        user_id: req.user_id,
-        nome_completo: req.nome,
-        email: req.email,
-        current_instrument: req.instrumento,
-        bio: req.bio,
-        role: 'teacher',
-        approval_status: 'aprovado',
-        created_at: req.created_at,
-        approved_at: new Date().toISOString()
-      }, ...prev]);
-
-      showToast(`Professor(a) ${req.nome} aprovado(a) com sucesso! ✓`);
+      await loadTeacherManagementData();
+      showToast(`Professor(a) ${req.nome} aprovado(a) com sucesso via backend!`);
     } catch (err: any) {
-      showToast('Erro ao aprovar professor no Supabase.');
+      const msg = err?.message || 'Erro ao aprovar professor via aprovar_professor_rpc.';
+      showToast(`Erro ao aprovar professor: ${msg}`);
+    } finally {
+      setProcessingRequestId(null);
     }
   };
 
-  // Reject Teacher Request
+  // Reject Teacher Request via RPC (rejeitar_professor_rpc)
   const handleRejectTeacher = async (req: TeacherRequest) => {
     if (!window.confirm(`Deseja rejeitar a solicitação de "${req.nome}"? O usuário não terá acesso ao painel de professor.`)) return;
 
+    setProcessingRequestId(req.id);
     try {
-      await rejeitarProfessor(req.id, req.user_id);
-      setRequests(prev => prev.map(r => r.id === req.id ? { 
-        ...r, 
-        status: 'rejeitado', 
-        decided_at: new Date().toISOString(), 
-        decided_by: user?.email || 'eliandrolucas.EL@gmail.com' 
-      } : r));
-      showToast(`Solicitação de ${req.nome} rejeitada.`);
+      const { error } = await rejeitarProfessor(req.id, req.user_id);
+      if (error) {
+        throw error;
+      }
+
+      await loadTeacherManagementData();
+      showToast(`Solicitação de ${req.nome} rejeitada com sucesso.`);
     } catch (err: any) {
-      showToast('Erro ao registrar rejeição.');
+      const msg = err?.message || 'Erro ao rejeitar professor via rejeitar_professor_rpc.';
+      showToast(`Erro ao rejeitar solicitação: ${msg}`);
+    } finally {
+      setProcessingRequestId(null);
     }
   };
 
@@ -1483,10 +1771,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </div>
 
                 <button
-                  onClick={() => {
-                    resetForm();
-                    setIsAddSheetModalOpen(true);
-                  }}
+                  onClick={handleOpenAddSheetModal}
                   className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500 text-black font-syne font-black text-xs flex items-center gap-2 shadow-lg hover:opacity-95 cursor-pointer self-start sm:self-auto"
                 >
                   <Plus size={16} />
@@ -1494,7 +1779,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </button>
               </div>
 
-              {/* Search and Instrument Filter */}
+              {/* Search, Category and Instrument Filter */}
               <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center gap-3">
                 <div className="relative flex-1 w-full">
                   <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1507,7 +1792,20 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                   />
                 </div>
 
-                <div className="w-full sm:w-64">
+                <div className="w-full sm:w-44">
+                  <select
+                    value={sheetCategoryFilter}
+                    onChange={e => setSheetCategoryFilter(e.target.value as any)}
+                    className="w-full bg-[#131722] text-white px-3.5 py-2.5 rounded-xl border border-white/10 text-xs outline-none focus:border-cyan-400"
+                  >
+                    <option value="todas">Todas categorias</option>
+                    <option value="gratuitas">Gratuitas</option>
+                    <option value="pagas">Pagas (Protegidas)</option>
+                    <option value="rascunhos">Ocultas / Rascunhos</option>
+                  </select>
+                </div>
+
+                <div className="w-full sm:w-56">
                   <select
                     value={sheetInstrumentFilter}
                     onChange={e => setSheetInstrumentFilter(e.target.value)}
@@ -1529,15 +1827,25 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                       <div>
                         <div className="flex items-start justify-between gap-2">
                           <h4 className="font-syne font-bold text-white text-base leading-snug">{sheet.title}</h4>
-                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
-                            sheet.level === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-300' :
-                            sheet.level === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
-                          }`}>
-                            {sheet.level}
-                          </span>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 ${
+                              sheet.categoria === 'paga'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                                : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/25'
+                            }`}>
+                              {sheet.categoria === 'paga' ? <Lock size={10} /> : <Unlock size={10} />}
+                              {sheet.categoria === 'paga' ? 'Paga' : 'Gratuita'}
+                            </span>
+                            <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                              sheet.level === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-300' :
+                              sheet.level === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
+                            }`}>
+                              {sheet.level}
+                            </span>
+                          </div>
                         </div>
                         <p className="text-xs text-amber-300 font-semibold mt-1">
-                          {sheet.instrument} • {sheet.composer}
+                          {sheet.instrument} • {sheet.composer} {sheet.genre ? `• ${sheet.genre}` : ''}
                         </p>
                         <p className="text-[11px] text-slate-400 line-clamp-2 mt-2 leading-relaxed">
                           {sheet.description || 'Partitura oficial cadastrada.'}
@@ -1547,7 +1855,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                       <div className="pt-3 border-t border-white/10 flex flex-wrap items-center justify-between gap-2 text-xs">
                         <div className="flex items-center gap-2">
                           <button
-                            onClick={() => setViewingSheet(sheet)}
+                            onClick={() => handlePreviewAdminSheet(sheet)}
                             className="px-3 py-1.5 rounded-xl bg-cyan-500/20 hover:bg-cyan-500 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
                             title="Visualizar PDF no leitor integrado"
                           >
@@ -1570,8 +1878,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
                         <div className="flex items-center gap-1">
                           <button
+                            onClick={() => handleToggleSheetPublished(sheet)}
+                            className={`px-2 py-1.5 rounded-xl text-[10px] font-bold transition-colors cursor-pointer ${
+                              sheet.publicado !== false
+                                ? 'bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20'
+                                : 'bg-slate-700/40 text-slate-400 hover:text-white'
+                            }`}
+                            title={sheet.publicado !== false ? 'Publicada (clique para ocultar)' : 'Oculta (clique para publicar)'}
+                          >
+                            {sheet.publicado !== false ? 'Publicada' : 'Oculta'}
+                          </button>
+                          <button
                             onClick={() => handleOpenEditSheet(sheet)}
-                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors"
+                            className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white transition-colors cursor-pointer"
                             title="Editar Metadados"
                           >
                             <Edit size={14} />
@@ -1666,7 +1985,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                         </div>
 
                         <button
-                          onClick={() => setViewingSheet(sheet)}
+                          onClick={() => handlePreviewAdminSheet(sheet)}
                           className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-cyan-300 text-xs font-bold flex items-center gap-1 cursor-pointer"
                         >
                           <Eye size={12} />
@@ -1752,10 +2071,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
               <div className="border-b border-white/10 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl sm:text-2xl font-syne font-black text-white">Solicitações de Professores</h2>
-                  <p className="text-xs text-slate-400">Aprovação e credenciamento oficial de docentes com segurança de backend.</p>
+                  <p className="text-xs text-slate-400">
+                    Dados em tempo real de <span className="font-mono text-cyan-300">public.solicitacoes_professores</span>. Aprovação e rejeição executadas exclusivamente via RPC no backend.
+                  </p>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() => loadTeacherManagementData()}
+                    className="px-3 py-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 cursor-pointer"
+                    title="Atualizar solicitações"
+                  >
+                    Atualizar
+                  </button>
                   {(['todos', 'pendente', 'aprovado', 'rejeitado'] as const).map(st => (
                     <button
                       key={st}
@@ -1772,52 +2100,90 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
               {filteredRequests.length > 0 ? (
                 <div className="space-y-4">
-                  {filteredRequests.map(req => (
-                    <div key={req.id} className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-4 shadow-lg">
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
-                        <div>
-                          <h4 className="font-syne font-black text-base text-white">{req.nome}</h4>
-                          <div className="text-xs text-slate-400">
-                            {req.email} • Especialidade: <strong className="text-cyan-300">{req.instrumento}</strong>
+                  {filteredRequests.map(req => {
+                    const isProcessing = processingRequestId === req.id;
+                    const requestDate = req.created_at
+                      ? new Date(req.created_at).toLocaleString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit'
+                        })
+                      : 'Data indisponível';
+
+                    return (
+                      <div key={req.id} className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-4 shadow-lg">
+                        <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3 border-b border-white/10 pb-3">
+                          <div className="space-y-1">
+                            <h4 className="font-syne font-black text-base text-white">{req.nome}</h4>
+                            <div className="text-xs text-slate-300 flex flex-wrap items-center gap-x-3 gap-y-1">
+                              <span>
+                                <strong>E-mail:</strong> {req.email}
+                              </span>
+                              <span>•</span>
+                              <span>
+                                <strong>Instrumento:</strong>{' '}
+                                <strong className="text-cyan-300">{req.instrumento}</strong>
+                              </span>
+                            </div>
+                            <div className="text-[11px] text-slate-400 font-mono">
+                              Data da solicitação: {requestDate}
+                            </div>
                           </div>
+
+                          <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider self-start ${
+                            req.status === 'aprovado'
+                              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                              : req.status === 'pendente'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                              : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                          }`}>
+                            {req.status}
+                          </span>
                         </div>
 
-                        <span className={`px-3 py-1 rounded-full text-xs font-bold uppercase tracking-wider ${
-                          req.status === 'aprovado'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : req.status === 'pendente'
-                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse'
-                            : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-                        }`}>
-                          {req.status}
-                        </span>
-                      </div>
-
-                      <div className="text-xs text-slate-300 leading-relaxed bg-[#131722] p-3 rounded-xl border border-white/5">
-                        <span className="text-[10px] text-slate-500 uppercase font-bold block mb-1">Currículo & Proposta Pedagógica:</span>
-                        {req.bio || 'Sem biografia informada.'}
-                      </div>
-
-                      {req.status === 'pendente' && (
-                        <div className="flex items-center justify-end gap-3 pt-2">
-                          <button
-                            onClick={() => handleRejectTeacher(req)}
-                            className="px-4 py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <X size={14} />
-                            <span>Rejeitar Solicitação</span>
-                          </button>
-                          <button
-                            onClick={() => handleApproveTeacher(req)}
-                            className="px-5 py-2 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:opacity-90 text-black text-xs font-black flex items-center gap-1.5 shadow-md cursor-pointer"
-                          >
-                            <Check size={14} />
-                            <span>Aprovar Professor</span>
-                          </button>
+                        <div className="text-xs text-slate-300 leading-relaxed bg-[#131722] p-3.5 rounded-xl border border-white/5">
+                          <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">
+                            Biografia / Apresentação Profissional:
+                          </span>
+                          {req.bio || 'Sem biografia informada.'}
                         </div>
-                      )}
-                    </div>
-                  ))}
+
+                        {req.decided_at && (
+                          <div className="text-[11px] text-slate-400 flex flex-wrap items-center justify-between gap-2">
+                            <span>
+                              Decisão registrada em {new Date(req.decided_at).toLocaleString('pt-BR')}
+                              {req.decided_by ? ` por ${req.decided_by}` : ''}
+                            </span>
+                          </div>
+                        )}
+
+                        {req.status === 'pendente' && (
+                          <div className="flex flex-wrap items-center justify-end gap-3 pt-2">
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleRejectTeacher(req)}
+                              className="px-4 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/30 text-xs font-bold uppercase tracking-wide flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            >
+                              <X size={14} />
+                              <span>{isProcessing ? 'Processando...' : 'REJEITAR PROFESSOR'}</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={isProcessing}
+                              onClick={() => handleApproveTeacher(req)}
+                              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-400 to-cyan-400 hover:opacity-90 text-black text-xs font-black uppercase tracking-wide flex items-center gap-1.5 shadow-md cursor-pointer disabled:opacity-50"
+                            >
+                              <Check size={14} />
+                              <span>{isProcessing ? 'Processando...' : 'APROVAR PROFESSOR'}</span>
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="p-12 text-center rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
@@ -2455,7 +2821,14 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
             </div>
 
             <form onSubmit={handleSaveSheet} className="space-y-4 text-xs">
-              {/* Etapa 1: Selecionar o Instrumento */}
+              {sheetFormError && (
+                <div className="p-3.5 rounded-2xl bg-rose-500/15 border border-rose-500/40 text-rose-200 text-xs flex items-start gap-2.5">
+                  <AlertCircle size={16} className="text-rose-400 shrink-0 mt-0.5" />
+                  <div className="leading-relaxed">{sheetFormError}</div>
+                </div>
+              )}
+
+              {/* 1. Instrumento Musical */}
               <div>
                 <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
                   1. Instrumento Musical *
@@ -2465,13 +2838,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                   onChange={e => setFormInstrument(e.target.value)}
                   className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-3 text-xs outline-none focus:border-cyan-400"
                 >
-                  {INSTRUMENT_OPTIONS.map(inst => (
+                  {(formInstrument && !INSTRUMENT_OPTIONS.includes(formInstrument)
+                    ? [formInstrument, ...INSTRUMENT_OPTIONS]
+                    : INSTRUMENT_OPTIONS
+                  ).map(inst => (
                     <option key={inst} value={inst}>{inst}</option>
                   ))}
                 </select>
               </div>
 
-              {/* Etapa 2: Selecionar o Arquivo PDF */}
+              {/* 2. Arquivo PDF no Computador */}
               <div>
                 <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
                   2. Arquivo PDF no Computador {editingSheet ? '(Opcional: manter atual ou substituir)' : '*'}
@@ -2489,17 +2865,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     <FileUp size={28} className="mx-auto text-cyan-400" />
                     <div>
                       <span className="text-xs font-bold text-white block">
-                        {selectedPdfFile ? selectedPdfFile.name : (editingSheet?.pdfUrl ? 'PDF já anexado (Clique para substituir)' : 'Clique para selecionar o PDF do computador')}
+                        {selectedPdfFile
+                          ? selectedPdfFile.name
+                          : (editingSheet?.storagePath || editingSheet?.pdfUrl
+                            ? 'PDF já armazenado (Clique para substituir)'
+                            : 'Clique para selecionar o PDF do computador')}
                       </span>
                       <span className="text-[10px] text-slate-400 block mt-0.5">
-                        {selectedPdfFile ? `${(selectedPdfFile.size / 1024).toFixed(1)} KB • Pronto para upload` : 'Exclusivamente arquivos no formato .PDF'}
+                        {selectedPdfFile ? `${(selectedPdfFile.size / 1024).toFixed(1)} KB • Pronto para upload` : 'Exclusivamente arquivos no formato .PDF (até 30MB)'}
                       </span>
                     </div>
                   </label>
                 </div>
               </div>
 
-              {/* Etapa 3: Informar o Título */}
+              {/* 3. Título da Partitura */}
               <div>
                 <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
                   3. Título da Partitura *
@@ -2514,48 +2894,129 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 />
               </div>
 
-              {/* Etapa 4: Compositor, Gênero e Nível */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                    Compositor
+              {/* 4. Compositor (Busca + Autocomplete Persistente no Supabase) */}
+              <div ref={composerComboboxRef} className="relative">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                    4. Compositor *
                   </label>
+                  <span className="text-[10px] text-slate-400">
+                    {isLoadingComposers ? 'Carregando compositores...' : `${composersList.length} cadastrado(s)`}
+                  </span>
+                </div>
+                <div className="relative">
                   <input
                     type="text"
+                    required
                     value={formComposer}
-                    onChange={e => setFormComposer(e.target.value)}
-                    placeholder="Ex: Tom Jobim"
-                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2 text-xs outline-none focus:border-cyan-400"
+                    onFocus={() => setIsComposerDropdownOpen(true)}
+                    onClick={() => setIsComposerDropdownOpen(true)}
+                    onChange={e => {
+                      setFormComposer(e.target.value);
+                      setIsComposerDropdownOpen(true);
+                    }}
+                    placeholder="Clique para escolher ou digite para cadastrar novo compositor..."
+                    autoComplete="off"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl pl-3.5 pr-9 py-2.5 text-xs outline-none focus:border-cyan-400"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setIsComposerDropdownOpen(prev => !prev)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1 cursor-pointer"
+                    tabIndex={-1}
+                    title="Listar compositores cadastrados"
+                  >
+                    <ChevronDown size={15} />
+                  </button>
                 </div>
 
+                {isComposerDropdownOpen && (() => {
+                  const queryNorm = normalizeSearchText(formComposer);
+                  const exactNorm = normalizeComposerKey(formComposer);
+                  const filteredComposers = composersList.filter(c =>
+                    !queryNorm || normalizeSearchText(c.nome).includes(queryNorm)
+                  );
+                  const hasExactMatch = Boolean(
+                    exactNorm && composersList.some(c => c.nome_normalizado === exactNorm)
+                  );
+                  const canCreateNew = Boolean(formComposer.trim()) && !hasExactMatch;
+
+                  return (
+                    <div className="absolute z-30 left-0 right-0 mt-1.5 bg-[#0b0d14] border border-cyan-500/40 rounded-2xl shadow-2xl overflow-hidden max-h-52 overflow-y-auto">
+                      {canCreateNew && (
+                        <button
+                          type="button"
+                          disabled={isRegisteringComposer}
+                          onClick={() => handleRegisterNewComposer(formComposer)}
+                          className="w-full px-3.5 py-2.5 text-left text-xs bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 font-bold flex items-center justify-between border-b border-white/10 cursor-pointer"
+                        >
+                          <span className="flex items-center gap-1.5">
+                            <Plus size={13} />
+                            Cadastrar novo compositor: "{normalizeComposerDisplay(formComposer)}"
+                          </span>
+                          {isRegisteringComposer && <Loader2 size={13} className="animate-spin" />}
+                        </button>
+                      )}
+
+                      {filteredComposers.length > 0 ? (
+                        filteredComposers.map(comp => {
+                          const isSelected = normalizeComposerKey(formComposer) === comp.nome_normalizado;
+                          return (
+                            <button
+                              key={comp.id}
+                              type="button"
+                              onClick={() => {
+                                setFormComposer(comp.nome);
+                                setIsComposerDropdownOpen(false);
+                              }}
+                              className={`w-full px-3.5 py-2 text-left text-xs flex items-center justify-between transition-colors cursor-pointer ${
+                                isSelected
+                                  ? 'bg-cyan-500/20 text-cyan-300 font-bold'
+                                  : 'text-slate-200 hover:bg-white/5'
+                              }`}
+                            >
+                              <span>{comp.nome}</span>
+                              {isSelected && <Check size={13} className="text-cyan-400" />}
+                            </button>
+                          );
+                        })
+                      ) : (
+                        !canCreateNew && (
+                          <div className="px-3.5 py-3 text-[11px] text-slate-400 text-center">
+                            Nenhum compositor cadastrado ainda. Digite um nome acima para cadastrar.
+                          </div>
+                        )
+                      )}
+                    </div>
+                  );
+                })()}
+              </div>
+
+              {/* 5. Estilo Musical & 6. Nível de Dificuldade */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                    Estilo Musical
+                    5. Estilo Musical *
                   </label>
                   <select
                     value={formGenre}
                     onChange={e => setFormGenre(e.target.value)}
-                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2 text-xs outline-none focus:border-cyan-400"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
                   >
-                    <option value="Bossa Nova">Bossa Nova</option>
-                    <option value="Choro">Choro</option>
-                    <option value="MPB">MPB</option>
-                    <option value="Jazz">Jazz</option>
-                    <option value="Clássico">Clássico</option>
-                    <option value="Samba">Samba</option>
-                    <option value="Outro">Outro</option>
+                    {getMusicalStyleOptions(editingSheet?.genre).map(style => (
+                      <option key={style} value={style}>{style}</option>
+                    ))}
                   </select>
                 </div>
 
                 <div>
                   <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                    Nível de Dificuldade
+                    6. Nível de Dificuldade *
                   </label>
                   <select
                     value={formLevel}
                     onChange={e => setFormLevel(e.target.value as any)}
-                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2 text-xs outline-none focus:border-cyan-400"
+                    className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
                   >
                     <option value="Iniciante">Iniciante</option>
                     <option value="Intermediário">Intermediário</option>
@@ -2564,61 +3025,44 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </div>
               </div>
 
-              {/* Etapa 4B: Tipo (Gratuita vs Paga), Preço e Publicação */}
+              {/* 7. Categoria de Acesso (Gratuita ou Paga) & 8. Publicar Imediatamente */}
               <div className="p-4 rounded-2xl bg-[#0b0d14] border border-white/10 space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                      Categoria de Acesso *
-                    </label>
-                    <select
-                      value={formCategory}
-                      onChange={e => setFormCategory(e.target.value as 'gratuita' | 'paga')}
-                      className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3 py-2 text-xs outline-none focus:border-cyan-400"
-                    >
-                      <option value="gratuita">Partitura Gratuita (Bucket Público)</option>
-                      <option value="paga">Partitura Paga (Bucket Privado Protegido)</option>
-                    </select>
-                  </div>
-
-                  {formCategory === 'paga' ? (
-                    <div>
-                      <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                        Preço em R$ (BRL) *
-                      </label>
-                      <input
-                        type="text"
-                        required
-                        value={formPrice}
-                        onChange={e => setFormPrice(e.target.value)}
-                        placeholder="29.90"
-                        className="w-full bg-[#131722] text-emerald-300 font-mono font-bold border border-emerald-500/30 rounded-xl px-3 py-2 text-xs outline-none focus:border-emerald-400"
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-end pb-2">
-                      <span className="text-[11px] text-emerald-400 font-semibold">
-                        Acesso livre para download e leitura na plataforma.
-                      </span>
-                    </div>
-                  )}
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
+                    7. Categoria de Acesso *
+                  </label>
+                  <select
+                    value={formCategory}
+                    onChange={e => setFormCategory(e.target.value as 'gratuita' | 'paga')}
+                    className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
+                  >
+                    <option value="gratuita">Partitura Gratuita (Bucket Público)</option>
+                    <option value="paga">Partitura Paga (Bucket Privado Protegido)</option>
+                  </select>
+                  <p className="text-[11px] mt-1.5 font-medium text-slate-400">
+                    {formCategory === 'paga'
+                      ? 'Armazenada no bucket privado protegido. A comercialização será feita em conjuntos de partituras.'
+                      : 'Armazenada no bucket público com acesso livre para leitura e download na plataforma.'}
+                  </p>
                 </div>
 
-                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer">
+                <label className="flex items-center gap-2 text-xs text-slate-300 cursor-pointer pt-1">
                   <input
                     type="checkbox"
                     checked={formPublished}
                     onChange={e => setFormPublished(e.target.checked)}
                     className="rounded text-emerald-500 cursor-pointer"
                   />
-                  <span>Publicar imediatamente no catálogo público e painéis</span>
+                  <span>
+                    <strong>8.</strong> Publicar imediatamente no catálogo e painéis
+                  </span>
                 </label>
               </div>
 
-              {/* Descrição Opcional */}
+              {/* 9. Descrição ou Orientações de Estudo */}
               <div>
                 <label className="block text-slate-300 font-bold uppercase tracking-wider text-[10px] mb-1.5">
-                  Descrição ou Orientações de Estudo
+                  9. Descrição ou Orientações de Estudo
                 </label>
                 <textarea
                   rows={2}
@@ -2629,20 +3073,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 />
               </div>
 
-              {!editingSheet && (
-                <div className="flex items-center gap-2 pt-1">
-                  <input
-                    type="checkbox"
-                    id="featured-check"
-                    checked={markAsFeaturedOnCreate}
-                    onChange={e => setMarkAsFeaturedOnCreate(e.target.checked)}
-                    className="rounded text-amber-500 focus:ring-0 cursor-pointer"
-                  />
-                  <label htmlFor="featured-check" className="text-xs text-slate-300 cursor-pointer">
-                    Adicionar imediatamente à seção <strong>Partituras em Destaque</strong> da Home
-                  </label>
-                </div>
-              )}
+              {/* 10. Adicionar às Partituras em Destaque da Home */}
+              <div className="flex items-center gap-2 pt-1">
+                <input
+                  type="checkbox"
+                  id="featured-check"
+                  checked={markAsFeaturedOnCreate}
+                  onChange={e => setMarkAsFeaturedOnCreate(e.target.checked)}
+                  className="rounded text-amber-500 focus:ring-0 cursor-pointer"
+                />
+                <label htmlFor="featured-check" className="text-xs text-slate-300 cursor-pointer">
+                  <strong>10.</strong> Adicionar às <strong>Partituras em Destaque</strong> da Home
+                </label>
+              </div>
 
               {/* Upload Progress Bar */}
               {isUploading && (
@@ -2717,8 +3160,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
               <button
                 onClick={() => {
                   setIsSelectFeaturedModalOpen(false);
+                  setEditingSheet(null);
                   resetForm();
                   setMarkAsFeaturedOnCreate(true);
+                  loadComposersList();
                   setIsAddSheetModalOpen(true);
                 }}
                 className="px-4 py-2.5 rounded-xl bg-cyan-500 hover:bg-cyan-400 text-black font-syne font-bold text-xs flex items-center gap-1.5 shadow-md flex-shrink-0 cursor-pointer"

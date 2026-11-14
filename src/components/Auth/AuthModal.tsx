@@ -71,6 +71,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
     if (msg.includes('Email not confirmed')) {
       return 'E-mail ainda não confirmado. Verifique sua caixa de entrada.';
     }
+    if (msg.toLowerCase().includes('rate limit') || msg.includes('over_email_send_rate_limit')) {
+      return 'Limite temporário de envio de e-mails atingido. Aguarde alguns minutos e tente novamente.';
+    }
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
       return 'Erro de conexão com o Supabase. Verifique sua internet.';
     }
@@ -115,14 +118,18 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
 
     try {
       if (authMode === 'signin') {
-        const { error, data } = await loginWithEmail(email, password);
-        if (error) throw error;
+        const res = await loginWithEmail(email, password);
+        if (res.error) throw res.error;
         setSuccessMsg('Login efetuado com sucesso!');
         showToast('Login realizado com sucesso! Bem-vindo(a) ♪');
         setTimeout(() => {
           onClose();
-          const role = profile?.role || data?.user?.user_metadata?.role;
-          navigate(routeByRole(role));
+          const role = res.profile?.role;
+          if (res.profile?.approvalStatus === 'pendente') {
+            navigate('/professor');
+          } else {
+            navigate(routeByRole(role));
+          }
         }, 400);
       } else if (authMode === 'signup') {
         const res = await signUpWithEmail(email, password, displayName || 'Músico Tutti', 'aluno');

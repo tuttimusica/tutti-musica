@@ -1,5 +1,55 @@
 import { supabase } from '../lib/supabase';
 
+export const SHEET_STORAGE_BUCKETS = {
+  FREE: 'partituras',
+  PAID: 'partituras-pagas',
+} as const;
+
+export const MUSICAL_STYLE_OPTIONS = [
+  'Bossa Nova',
+  'Choro',
+  'MPB',
+  'Jazz',
+  'Clássico',
+  'Samba',
+  'Pagode/Samba',
+  'Sertanejo',
+  'Gospel',
+  'Internacional',
+  'Outro',
+] as const;
+
+export function getMusicalStyleOptions(currentValue?: string | null): string[] {
+  const base: string[] = [...MUSICAL_STYLE_OPTIONS];
+  const trimmed = (currentValue || '').trim();
+  if (trimmed && !base.some((s) => s.toLowerCase() === trimmed.toLowerCase())) {
+    return [trimmed, ...base];
+  }
+  return base;
+}
+
+export interface DbCompositor {
+  id: string;
+  nome: string;
+  nome_normalizado: string;
+  created_by?: string | null;
+  created_at?: string;
+}
+
+export function normalizeComposerDisplay(name: string): string {
+  return name.trim().replace(/\s+/g, ' ');
+}
+
+export function normalizeComposerKey(name: string): string {
+  return normalizeComposerDisplay(name).toLowerCase();
+}
+
+export function normalizeSearchText(text: string): string {
+  return normalizeComposerKey(text)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
 export interface DbPartitura {
   id: number;
   titulo: string;
@@ -26,6 +76,85 @@ export interface DbPartitura {
   visualizacoes?: number;
   downloads?: number;
   created_at?: string;
+  created_by?: string | null;
+}
+
+export function normalizeDbPartitura(row: any): DbPartitura {
+  return {
+    id: Number(row.id),
+    titulo: row.titulo,
+    compositor: row.compositor || 'Compositor Tutti',
+    instrumento: row.instrumento || row.instrumento_id || 'Saxofone Alto',
+    tonalidade: row.tonalidade || 'C',
+    tom_original: row.tom_original || row.tonalidade || 'C',
+    nivel: row.nivel || row.nivel_dificuldade || 'Intermediário',
+    genero: row.genero || row.estilo_musical || 'Bossa Nova',
+    tempo_bpm: row.tempo_bpm ?? 120,
+    compasso: row.compasso || '4/4',
+    descricao: row.descricao || '',
+    arquivo_pdf_url: row.arquivo_pdf_url || null,
+    storage_path: row.storage_path || null,
+    is_featured: Boolean(row.is_featured),
+    featured_order: Number(row.featured_order ?? 0),
+    file_size_bytes: Number(row.file_size_bytes ?? 0),
+    categoria: row.categoria === 'paga' ? 'paga' : 'gratuita',
+    preco: Number(row.preco ?? 0),
+    publicado: row.publicado !== false,
+    youtube_url: row.youtube_url || null,
+    cifras: Array.isArray(row.cifras) ? row.cifras : [],
+    melodia_notas: Array.isArray(row.melodia_notas) ? row.melodia_notas : [],
+    visualizacoes: Number(row.visualizacoes ?? 0),
+    downloads: Number(row.downloads ?? 0),
+    created_at: row.created_at,
+    created_by: row.created_by || null,
+  };
+}
+
+export async function fetchCompositores(): Promise<DbCompositor[]> {
+  const { data, error } = await supabase
+    .from('compositores')
+    .select('id, nome, nome_normalizado, created_by, created_at')
+    .order('nome', { ascending: true });
+
+  if (error) {
+    throw error;
+  }
+  return (data || []) as DbCompositor[];
+}
+
+export async function ensureCompositorInDb(
+  rawName: string,
+  userId?: string | null
+): Promise<DbCompositor | null> {
+  const nome = normalizeComposerDisplay(rawName);
+  const nome_normalizado = normalizeComposerKey(nome);
+  if (!nome || !nome_normalizado) return null;
+
+  const { data: existing } = await supabase
+    .from('compositores')
+    .select('id, nome, nome_normalizado, created_by, created_at')
+    .eq('nome_normalizado', nome_normalizado)
+    .maybeSingle();
+
+  if (existing) {
+    return existing as DbCompositor;
+  }
+
+  const { data: inserted, error } = await supabase
+    .from('compositores')
+    .upsert(
+      {
+        nome,
+        nome_normalizado,
+        ...(userId ? { created_by: userId } : {}),
+      },
+      { onConflict: 'nome_normalizado' }
+    )
+    .select('id, nome, nome_normalizado, created_by, created_at')
+    .single();
+
+  if (error) throw error;
+  return inserted as DbCompositor;
 }
 
 export async function fetchPublishedPartituras(): Promise<DbPartitura[]> {
@@ -38,30 +167,51 @@ export async function fetchPublishedPartituras(): Promise<DbPartitura[]> {
     .order('id', { ascending: false });
 
   if (error) {
-    // Fallback caso a coluna 'publicado' ainda não exista na instância
     const fallback = await supabase
       .from('partituras')
       .select('*')
-      .order('is_featured', { ascending: false })
       .order('id', { ascending: false });
     if (fallback.error) throw fallback.error;
-    return (fallback.data || []) as DbPartitura[];
+    return (fallback.data || []).filter((r: any) => r.publicado !== false).map(normalizeDbPartitura);
   }
-  return (data || []) as DbPartitura[];
+  return (data || []).map(normalizeDbPartitura);
 }
 
 export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<number>> {
   if (!userId) return new Set();
+  const unlocked = new Set<number>();
   try {
     const { data, error } = await supabase
       .from('partituras_acessos')
       .select('partitura_id')
       .eq('user_id', userId);
-    if (error || !data) return new Set();
-    return new Set(data.map((row: any) => Number(row.partitura_id)));
+    if (!error && data) {
+      data.forEach((row: any) => unlocked.add(Number(row.partitura_id)));
+    }
   } catch {
-    return new Set();
+    // fallback silencioso se tabela ainda não existir
   }
+
+  // Também libera partituras pertencentes a conjuntos adquiridos pelo aluno
+  try {
+    const { data: bundleAccess } = await supabase
+      .from('conjuntos_acessos')
+      .select('conjunto_id')
+      .eq('user_id', userId);
+
+    const bundleIds = (bundleAccess || []).map((b: any) => b.conjunto_id).filter(Boolean);
+    if (bundleIds.length > 0) {
+      const { data: bundleItems } = await supabase
+        .from('conjuntos_partituras_itens')
+        .select('partitura_id')
+        .in('conjunto_id', bundleIds);
+      (bundleItems || []).forEach((item: any) => unlocked.add(Number(item.partitura_id)));
+    }
+  } catch {
+    // fallback silencioso caso conjuntos ainda não existam na instância
+  }
+
+  return unlocked;
 }
 
 /**

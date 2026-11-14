@@ -275,6 +275,49 @@ async function startServer() {
   // ============================================================================
   // PARTITURAS PAGAS & GRATUITAS: URL ASSINADA TEMPORÁRIA + CHECKOUT STRIPE
   // ============================================================================
+  // Verificação e provisionamento server-side de buckets do Storage (exclusivo Desenvolvedor)
+  app.post('/api/admin/ensure-storage-buckets', async (req, res) => {
+    try {
+      const user = await getAuthUser(req);
+      const isAdmin = Boolean(user?.email && DEVELOPER_EMAILS.includes(user.email.toLowerCase()));
+      if (!isAdmin) {
+        return res.status(403).json({ error: 'Apenas o desenvolvedor autorizado pode verificar os buckets.' });
+      }
+
+      if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+        return res.json({
+          configured: false,
+          reason: 'service_role_missing',
+          buckets: { partituras: 'unknown', 'partituras-pagas': 'unknown' },
+        });
+      }
+
+      const required = [
+        { id: 'partituras', public: true },
+        { id: 'partituras-pagas', public: false },
+      ];
+      const results: Record<string, string> = {};
+
+      for (const spec of required) {
+        const { data: existing } = await supabaseAdmin.storage.getBucket(spec.id);
+        if (existing) {
+          results[spec.id] = 'exists';
+          continue;
+        }
+        const { error: createErr } = await supabaseAdmin.storage.createBucket(spec.id, {
+          public: spec.public,
+          fileSizeLimit: 52428800,
+          allowedMimeTypes: ['application/pdf'],
+        });
+        results[spec.id] = createErr ? `error:${createErr.message}` : 'created';
+      }
+
+      return res.json({ configured: true, buckets: results });
+    } catch (err: any) {
+      return res.status(401).json({ error: err?.message || 'Não autorizado.' });
+    }
+  });
+
   app.post('/api/partituras/signed-url', async (req, res) => {
     try {
       const partituraId = Number(req.body?.partitura_id);
@@ -325,6 +368,27 @@ async function startServer() {
       }
 
       if (!hasAccess) {
+        try {
+          const { data: bundleItens } = await supabaseAdmin
+            .from('conjuntos_partituras_itens')
+            .select('conjunto_id')
+            .eq('partitura_id', partitura.id);
+          const conjuntoIds = (bundleItens || []).map((i: any) => i.conjunto_id).filter(Boolean);
+          if (conjuntoIds.length > 0) {
+            const { data: bundleAccess } = await supabaseAdmin
+              .from('conjuntos_acessos')
+              .select('id')
+              .eq('user_id', user.id)
+              .in('conjunto_id', conjuntoIds)
+              .limit(1);
+            hasAccess = Boolean(bundleAccess && bundleAccess.length > 0);
+          }
+        } catch {
+          // tabela de conjuntos opcional
+        }
+      }
+
+      if (!hasAccess) {
         return res.status(403).json({ error: 'Partitura paga ainda não adquirida por esta conta.' });
       }
 
@@ -368,8 +432,13 @@ async function startServer() {
         return res.status(404).json({ error: 'Partitura paga não encontrada ou indisponível.' });
       }
 
-      if (partitura.categoria !== 'paga' || Number(partitura.preco) <= 0) {
-        return res.status(400).json({ error: 'Esta partitura não exige pagamento.' });
+      if (partitura.categoria !== 'paga') {
+        return res.status(400).json({ error: 'Esta partitura é gratuita e não exige pagamento.' });
+      }
+      if (Number(partitura.preco) <= 0) {
+        return res.status(400).json({
+          error: 'Esta partitura paga será disponibilizada por meio de conjuntos de partituras.',
+        });
       }
 
       if (!stripe) {

@@ -19,7 +19,8 @@ import {
   FileText,
   X,
   HelpCircle,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
@@ -35,7 +36,8 @@ export const AuthPage: React.FC = () => {
     resetPassword,
     resendConfirmationEmail,
     loginWithGoogle,
-    logout
+    logout,
+    refreshProfile
   } = useAuth();
   const { queryParams, navigate, showToast } = useAppRouter();
 
@@ -76,6 +78,8 @@ export const AuthPage: React.FC = () => {
   const [emailConfirmedBanner, setEmailConfirmedBanner] = useState(false);
   const [canResendConfirmation, setCanResendConfirmation] = useState(false);
   const [resendingEmail, setResendingEmail] = useState(false);
+  const [pendingNeedsEmailConfirm, setPendingNeedsEmailConfirm] = useState(false);
+  const [isRefreshingStatus, setIsRefreshingStatus] = useState(false);
 
   // Inspect URL parameters and Hash on component mount for Email Confirmation, PKCE Code, or OAuth errors
   useEffect(() => {
@@ -161,13 +165,20 @@ export const AuthPage: React.FC = () => {
     inspectCallback();
   }, []);
 
-  // When user is already authenticated or becomes authenticated via OAuth on /auth, redirect seamlessly
+  // When user is authenticated on /auth, redirect only if not awaiting teacher review
   useEffect(() => {
     if (!loading && user && profile) {
-      const dest = queryParams.redirectTo || routeByRole(profile?.role);
-      // Small timeout to allow state to settle
+      if (profile.role === 'aluno' && (profile.approvalStatus === 'pendente' || profile.approvalStatus === 'rejeitado')) {
+        // Mantém na tela de acompanhamento do credenciamento (a menos que o usuário clique para ir à Área do Aluno)
+        return;
+      }
+      const dest = queryParams.redirectTo || routeByRole(profile.role);
       const timer = setTimeout(() => {
-        showToast('Login realizado com sucesso! Bem-vindo(a) à Tutti ♪');
+        showToast(
+          profile.role === 'professor'
+            ? 'Credenciamento docente ativo! Bem-vindo(a) ao Painel do Professor.'
+            : 'Login realizado com sucesso! Bem-vindo(a) à Tutti ♪'
+        );
         navigate(dest);
       }, 350);
       return () => clearTimeout(timer);
@@ -204,6 +215,9 @@ export const AuthPage: React.FC = () => {
     if (msg.includes('Email not confirmed')) {
       setCanResendConfirmation(true);
       return 'E-mail ainda não confirmado. Verifique sua caixa de entrada ou clique abaixo para reenviar o link de confirmação.';
+    }
+    if (msg.toLowerCase().includes('rate limit') || msg.includes('over_email_send_rate_limit')) {
+      return 'Limite temporário de envio de e-mails atingido no servidor de autenticação. Aguarde alguns minutos e tente novamente.';
     }
     if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) {
       return 'Falha de comunicação com o servidor de autenticação. Verifique sua conexão com a internet.';
@@ -257,13 +271,28 @@ export const AuthPage: React.FC = () => {
 
     setIsSubmitting(true);
     try {
-      const { error, data } = await loginWithEmail(cleanEmail, password);
-      if (error) throw error;
+      const res = await loginWithEmail(cleanEmail, password);
+      if (res.error) throw res.error;
+
+      const dbProfile = res.profile;
+      if (dbProfile?.role === 'aluno' && dbProfile?.approvalStatus === 'pendente') {
+        showToast('Seu credenciamento docente está em análise pela equipe Tutti.');
+        if (queryParams.redirectTo === '/professor') {
+          navigate('/professor');
+        }
+        return;
+      }
+
+      if (dbProfile?.role === 'aluno' && dbProfile?.approvalStatus === 'rejeitado') {
+        showToast('Sua solicitação docente não foi aprovada. Acesso liberado como Aluno.');
+        if (queryParams.redirectTo === '/professor') {
+          navigate('/professor');
+        }
+        return;
+      }
 
       showToast('Login realizado com sucesso! Bem-vindo(a) à Tutti ♪');
-
-      const userRole = profile?.role || data?.user?.user_metadata?.role;
-      const targetPath = routeByRole(userRole);
+      const targetPath = routeByRole(dbProfile?.role);
       navigate(queryParams.redirectTo || targetPath);
     } catch (err: any) {
       setErrorMsg(translateAuthError(err));
@@ -331,6 +360,7 @@ export const AuthPage: React.FC = () => {
     const cleanEmail = email.trim();
     const cleanName = displayName.trim();
     const finalInstrumento = instrumento === 'Outro' ? outroInstrumento.trim() : instrumento;
+    const cleanBio = bio.trim();
 
     if (!cleanName) {
       setErrorMsg('Informe o seu nome completo.');
@@ -352,6 +382,10 @@ export const AuthPage: React.FC = () => {
       setErrorMsg('Informe o(s) instrumento(s) que você leciona.');
       return;
     }
+    if (!cleanBio) {
+      setErrorMsg('Informe sua biografia ou apresentação profissional.');
+      return;
+    }
     if (!acceptTerms) {
       setErrorMsg('Você precisa aceitar os termos de credenciamento docente para enviar sua solicitação.');
       return;
@@ -361,16 +395,35 @@ export const AuthPage: React.FC = () => {
     try {
       const res = await signUpWithEmail(cleanEmail, password, cleanName, 'professor', {
         instrumento: finalInstrumento,
-        bio: bio.trim() || 'Docente musical solicitando credenciamento.'
+        bio: cleanBio
       });
       if (res.error) throw res.error;
 
+      setPendingNeedsEmailConfirm(!res.data?.session);
+      setCanResendConfirmation(!res.data?.session);
       setPendingTeacherNotice(true);
-      showToast('Solicitação de credenciamento enviada!');
+      showToast('Cadastro recebido! Solicitação de credenciamento enviada para análise.');
     } catch (err: any) {
       setErrorMsg(translateAuthError(err));
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleRefreshTeacherStatus = async () => {
+    setIsRefreshingStatus(true);
+    try {
+      const updated = await refreshProfile();
+      if (updated?.role === 'professor' && updated?.approvalStatus === 'aprovado') {
+        showToast('Credenciamento aprovado! Redirecionando para o Painel do Professor...');
+        navigate('/professor');
+      } else if (updated?.approvalStatus === 'rejeitado') {
+        showToast('Sua solicitação de credenciamento não foi aprovada.');
+      } else {
+        showToast('Sua solicitação continua em análise pela equipe Tutti.');
+      }
+    } finally {
+      setIsRefreshingStatus(false);
     }
   };
 
@@ -509,10 +562,18 @@ export const AuthPage: React.FC = () => {
               </div>
               <div>
                 <p className="text-xs text-slate-400">Você está conectado como:</p>
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm font-bold text-white">{profile?.displayName || user.email}</span>
                   <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    {profile?.role === 'desenvolvedor' ? 'Desenvolvedor' : profile?.role === 'professor' ? 'Professor' : 'Aluno'}
+                    {profile?.role === 'desenvolvedor'
+                      ? 'Desenvolvedor'
+                      : profile?.role === 'professor'
+                      ? 'Professor Aprovado'
+                      : profile?.approvalStatus === 'pendente'
+                      ? 'Aluno • Credenciamento Pendente'
+                      : profile?.approvalStatus === 'rejeitado'
+                      ? 'Aluno • Docência Não Aprovada'
+                      : 'Aluno'}
                   </span>
                 </div>
               </div>
@@ -533,6 +594,64 @@ export const AuthPage: React.FC = () => {
               >
                 <LogOut className="w-3.5 h-3.5" />
                 <span>Sair</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tela de Acompanhamento quando logado e aguardando análise ou rejeitado */}
+        {user && profile && profile.role === 'aluno' && (profile.approvalStatus === 'pendente' || profile.approvalStatus === 'rejeitado') && !pendingTeacherNotice && (
+          <div className={`p-6 rounded-3xl border space-y-4 relative z-10 text-center ${
+            profile.approvalStatus === 'pendente'
+              ? 'bg-[#0b0d14] border-amber-500/40'
+              : 'bg-[#0b0d14] border-rose-500/40'
+          }`}>
+            <div className={`w-14 h-14 rounded-2xl mx-auto flex items-center justify-center ${
+              profile.approvalStatus === 'pendente'
+                ? 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+                : 'bg-rose-500/15 text-rose-400 border border-rose-500/30'
+            }`}>
+              {profile.approvalStatus === 'pendente' ? <Clock size={28} /> : <AlertCircle size={28} />}
+            </div>
+
+            {profile.approvalStatus === 'pendente' ? (
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 text-[11px] font-bold uppercase tracking-wider border border-amber-500/30 inline-block">
+                  Solicitação Docente em Análise
+                </span>
+                <p className="text-sm sm:text-base font-serif font-bold text-amber-200 leading-relaxed max-w-lg mx-auto">
+                  Seu cadastro foi recebido e está em análise pela equipe Tutti. Você receberá a liberação do acesso assim que seu credenciamento for aprovado.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <span className="px-3 py-1 rounded-full bg-rose-500/20 text-rose-300 text-[11px] font-bold uppercase tracking-wider border border-rose-500/30 inline-block">
+                  Credenciamento Não Aprovado
+                </span>
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-lg mx-auto">
+                  Sua solicitação de credenciamento como professor não foi aprovada pela equipe Tutti. O Painel do Professor permanece bloqueado, mas você pode utilizar normalmente sua conta na Área do Aluno.
+                </p>
+              </div>
+            )}
+
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-1">
+              {profile.approvalStatus === 'pendente' && (
+                <button
+                  type="button"
+                  onClick={handleRefreshTeacherStatus}
+                  disabled={isRefreshingStatus}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw size={14} className={isRefreshingStatus ? 'animate-spin' : ''} />
+                  <span>{isRefreshingStatus ? 'Verificando...' : 'Verificar Liberação Agora'}</span>
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => navigate('/aluno')}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-bold cursor-pointer"
+              >
+                Acessar Área do Aluno
               </button>
             </div>
           </div>
@@ -1102,12 +1221,13 @@ export const AuthPage: React.FC = () => {
                 {/* Breve biografia / currículo */}
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-bold text-slate-300 uppercase tracking-wider block">
-                    Breve Biografia / Experiência Musical
+                    Biografia / Apresentação Profissional
                   </label>
                   <textarea
                     value={bio}
                     onChange={(e) => setBio(e.target.value)}
                     rows={3}
+                    required
                     placeholder="Conte sobre sua formação, experiência com aulas e trajetória musical..."
                     className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-2xl p-3.5 text-xs sm:text-sm outline-none focus:border-amber-400 transition-colors shadow-inner resize-none"
                   ></textarea>
@@ -1229,29 +1349,40 @@ export const AuthPage: React.FC = () => {
 
             <div className="space-y-3">
               <span className="px-3.5 py-1 rounded-full bg-amber-500/20 text-amber-300 text-xs font-bold uppercase tracking-wider border border-amber-500/30 inline-block">
-                Solicitação Recebida
+                Solicitação Recebida • Aguardando Aprovação
               </span>
 
               {/* MANDATORY EXACT WORDING PRESCRIBED BY USER SPECIFICATION */}
               <div className="p-5 rounded-2xl bg-[#0b0d14] border border-amber-500/30 text-amber-200 font-serif font-bold text-sm sm:text-base leading-relaxed max-w-lg mx-auto">
-                &ldquo;Perfil em análise, aguarde! Utilize a sua conta como aluno até a sua aprovação. Grato!&rdquo;
+                Seu cadastro foi recebido e está em análise pela equipe Tutti. Você receberá a liberação do acesso assim que seu credenciamento for aprovado.
               </div>
 
+              {pendingNeedsEmailConfirm && (
+                <div className="p-4 rounded-2xl bg-cyan-500/10 border border-cyan-500/30 text-cyan-200 text-xs max-w-lg mx-auto leading-relaxed">
+                  <strong>Confirme também seu e-mail:</strong> enviamos um link de validação para <strong>{email.trim()}</strong>. Após confirmar seu e-mail e receber a aprovação do administrador, o acesso ao Painel do Professor será liberado automaticamente.
+                </div>
+              )}
+
               <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed pt-1">
-                Seus dados foram enviados para o painel de aprovação. Enquanto a equipe docente avalia seu credenciamento, você já pode explorar partituras, estúdios e recursos como aluno.
+                Sua conta foi registrada como Aluno com status de credenciamento <strong>pendente</strong> até a decisão do Desenvolvedor.
               </p>
             </div>
 
             <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              {user && (
+                <button
+                  onClick={() => navigate('/aluno')}
+                  className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg transition flex items-center gap-2 cursor-pointer"
+                >
+                  <span>Acessar Área do Aluno Agora</span>
+                  <ChevronRight size={15} />
+                </button>
+              )}
               <button
-                onClick={() => navigate('/aluno')}
-                className="px-6 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-xs shadow-lg transition flex items-center gap-2 cursor-pointer"
-              >
-                <span>Acessar Área do Aluno Agora</span>
-                <ChevronRight size={15} />
-              </button>
-              <button
-                onClick={() => setPendingTeacherNotice(false)}
+                onClick={() => {
+                  setPendingTeacherNotice(false);
+                  switchMode('signin');
+                }}
                 className="px-4 py-3 rounded-2xl bg-white/5 hover:bg-white/10 text-slate-300 text-xs font-bold border border-white/10 transition cursor-pointer"
               >
                 Voltar à tela de login

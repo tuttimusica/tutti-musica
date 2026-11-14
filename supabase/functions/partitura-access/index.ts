@@ -106,6 +106,27 @@ serve(async (req: Request) => {
     }
 
     if (!hasAccess) {
+      try {
+        const { data: bundleItens } = await supabaseAdmin
+          .from('conjuntos_partituras_itens')
+          .select('conjunto_id')
+          .eq('partitura_id', partitura.id);
+        const conjuntoIds = (bundleItens || []).map((i: any) => i.conjunto_id).filter(Boolean);
+        if (conjuntoIds.length > 0) {
+          const { data: bundleAccess } = await supabaseAdmin
+            .from('conjuntos_acessos')
+            .select('id')
+            .eq('user_id', user.id)
+            .in('conjunto_id', conjuntoIds)
+            .limit(1);
+          hasAccess = Boolean(bundleAccess && bundleAccess.length > 0);
+        }
+      } catch {
+        // tabela de conjuntos opcional
+      }
+    }
+
+    if (!hasAccess) {
       return new Response(
         JSON.stringify({ error: 'Acesso bloqueado: partitura paga não adquirida por esta conta.' }),
         { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }

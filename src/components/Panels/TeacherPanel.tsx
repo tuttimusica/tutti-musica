@@ -769,7 +769,11 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                           <div className="flex items-center gap-1">
                             {p.is_featured && <Star size={12} className="text-amber-400 fill-amber-400" />}
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                              {isPaid ? `Paga • R$ ${Number(p.preco || 0).toFixed(2).replace('.', ',')}` : 'Gratuita'}
+                              {isPaid
+                                ? Number(p.preco || 0) > 0
+                                  ? `Paga • R$ ${Number(p.preco).toFixed(2).replace('.', ',')}`
+                                  : 'Exclusiva • Paga'
+                                : 'Gratuita'}
                             </span>
                           </div>
                         </div>
@@ -792,6 +796,10 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                             type="button"
                             disabled={openingId === p.id}
                             onClick={async () => {
+                              if (Number(p.preco || 0) <= 0) {
+                                showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
+                                return;
+                              }
                               try {
                                 setOpeningId(p.id);
                                 const { url } = await createPaidSheetCheckout(p.id);
@@ -804,7 +812,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                             className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                           >
                             <Lock size={13} />
-                            <span>Adquirir</span>
+                            <span>{Number(p.preco || 0) > 0 ? 'Adquirir' : 'Em Conjunto'}</span>
                           </button>
                         )}
                       </div>

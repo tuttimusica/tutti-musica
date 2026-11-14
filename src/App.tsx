@@ -710,7 +710,9 @@ const HomePage: React.FC = () => {
                           {isPaid
                             ? isUnlocked
                               ? 'Paga • Liberada'
-                              : `Paga • R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}`
+                              : Number(item.preco || 0) > 0
+                                ? `Paga • R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
+                                : 'Exclusiva • Paga'
                             : 'Gratuita'}
                         </span>
                       </div>
@@ -737,7 +739,11 @@ const HomePage: React.FC = () => {
                       ) : (
                         <Lock size={13} />
                       )}
-                      {isUnlocked ? 'Visualizar Partitura' : 'Adquirir Partitura'}
+                      {isUnlocked
+                        ? 'Visualizar Partitura'
+                        : Number(item.preco || 0) > 0
+                          ? 'Adquirir Partitura'
+                          : 'Disponível em Conjunto'}
                     </span>
                     <div className="w-8 h-8 rounded-full bg-cyan-500/20 text-cyan-400 flex items-center justify-center group-hover:bg-cyan-400 group-hover:text-black transition-colors shadow-sm">
                       <ChevronRight size={16} />
@@ -1288,6 +1294,10 @@ const PartiturasPage: React.FC = () => {
   };
 
   const handleBuyPaidSheet = async (item: DbPartitura) => {
+    if (Number(item.preco || 0) <= 0) {
+      showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
+      return;
+    }
     if (!user) {
       showToast('Faça login para adquirir esta partitura paga.');
       navigate('/auth');
@@ -1308,6 +1318,7 @@ const PartiturasPage: React.FC = () => {
     const isPaid = item.categoria === 'paga';
     const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
     const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
+    const hasIndividualPrice = Number(item.preco || 0) > 0;
     const priceLabel = `R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}`;
 
     return (
@@ -1335,7 +1346,11 @@ const PartiturasPage: React.FC = () => {
                   : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
               }`}>
                 {isPaid ? (isUnlocked ? <Unlock size={10} /> : <Lock size={10} />) : <Unlock size={10} />}
-                {isPaid ? (isUnlocked ? `Liberada • ${priceLabel}` : `Paga • ${priceLabel}`) : 'Gratuita'}
+                {isPaid
+                  ? isUnlocked
+                    ? hasIndividualPrice ? `Liberada • ${priceLabel}` : 'Exclusiva • Liberada'
+                    : hasIndividualPrice ? `Paga • ${priceLabel}` : 'Exclusiva • Paga'
+                  : 'Gratuita'}
               </span>
             </div>
           </div>
@@ -1395,7 +1410,7 @@ const PartiturasPage: React.FC = () => {
                 ) : (
                   <Lock size={12} />
                 )}
-                <span>Adquirir ({priceLabel})</span>
+                <span>{hasIndividualPrice ? `Adquirir (${priceLabel})` : 'Em Conjunto'}</span>
               </button>
             )}
           </div>
