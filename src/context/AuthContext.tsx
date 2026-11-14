@@ -507,6 +507,64 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
+  // Complete teacher signup only after Supabase has established an authenticated session.
+  // This also handles email confirmation and later logins without creating duplicates.
+  useEffect(() => {
+    if (!user?.id || !user.email_confirmed_at) return;
+    if (user.user_metadata?.account_type !== 'teacher') return;
+
+    let cancelled = false;
+    const ensureTeacherRequest = async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        const verifiedUser = authData.user;
+        if (cancelled || authError || !verifiedUser?.id || verifiedUser.id !== user.id ||
+            !verifiedUser.email || !verifiedUser.email_confirmed_at) return;
+
+        const { data: existing, error: lookupError } = await supabase
+          .from('solicitacoes_professores')
+          .select('id, status')
+          .eq('user_id', verifiedUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (lookupError) {
+          console.warn('Não foi possível consultar a solicitação de professor:', lookupError.code);
+          return;
+        }
+        // Do not recreate requests that are pending, approved, or rejected.
+        if (existing) return;
+
+        const metadata = verifiedUser.user_metadata || {};
+        const nome = String(metadata.full_name || metadata.display_name ||
+          verifiedUser.email.split('@')[0] || 'Professor Tutti').trim();
+        const instrumento = String(metadata.instrumento || 'Não informado').trim();
+        const { error: insertError } = await supabase
+          .from('solicitacoes_professores')
+          .insert({
+            user_id: verifiedUser.id,
+            nome,
+            email: verifiedUser.email.trim().toLowerCase(),
+            instrumento,
+            bio: String(metadata.bio || '').trim() || null,
+            status: 'pendente'
+          });
+        if (insertError) {
+          // A unique constraint or concurrent request may already have created it.
+          console.warn('Solicitação de professor não registrada:', insertError.code);
+          return;
+        }
+        if (!cancelled) await loadProfile(verifiedUser);
+      } catch (error) {
+        console.warn('Não foi possível concluir a solicitação de professor:', error);
+      }
+    };
+
+    void ensureTeacherRequest();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email_confirmed_at, user?.user_metadata?.account_type]);
+
   const loginWithGoogle = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
