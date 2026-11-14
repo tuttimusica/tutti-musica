@@ -1033,7 +1033,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
 
     try {
-      await supabase.from('partituras').delete().eq('id', sheet.id);
+      const { error: deleteError } = await supabase.from('partituras').delete().eq('id', sheet.id);
+      if (deleteError) throw deleteError;
 
       if (sheet.storagePath) {
         const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
