@@ -36,7 +36,7 @@ export default async function handler(req, res) {
       auth: { autoRefreshToken: false, persistSession: false },
     });
     const { data: { user }, error } = await authClient.auth.getUser(bearer[1]);
-    if (error || !user || !user.email) {
+    if (error || !user || !user.email || !user.email_confirmed_at) {
       res.statusCode = 401;
       res.end(JSON.stringify({ error: 'unauthorized' }));
       return;
