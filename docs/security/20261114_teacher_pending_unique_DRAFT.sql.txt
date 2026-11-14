@@ -1,0 +1,16 @@
+-- DRAFT ONLY — DO NOT EXECUTE IN PRODUCTION WITHOUT BACKUP AND REVIEW
+-- Tutti: ensure only one pending teacher request per authenticated user.
+-- This migration intentionally does not modify existing rows.
+--
+-- Preflight (must return zero rows):
+-- SELECT user_id, count(*) FROM public.solicitacoes_professores
+-- WHERE status='pendente' GROUP BY user_id HAVING count(*) > 1;
+--
+-- The unique partial index blocks concurrent pending requests for the same user.
+-- Approved/rejected historical requests remain unaffected.
+CREATE UNIQUE INDEX IF NOT EXISTS solicitacoes_professores_one_pending_per_user
+ON public.solicitacoes_professores (user_id)
+WHERE status = 'pendente';
+
+-- Rollback:
+-- DROP INDEX IF EXISTS public.solicitacoes_professores_one_pending_per_user;
