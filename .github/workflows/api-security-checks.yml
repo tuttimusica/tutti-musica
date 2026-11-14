@@ -1,0 +1,29 @@
+name: Tutti API security checks
+
+on:
+  push:
+    branches:
+      - audit/backend-auth-safe-fixes-20261114
+  pull_request:
+    paths:
+      - 'api/**'
+      - 'tests/**'
+      - 'package.json'
+      - '.github/workflows/api-security-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  api-security:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.4.0'
+      - run: bun install --frozen-lockfile
+      - name: Run API security tests
+        run: bun run test:api
