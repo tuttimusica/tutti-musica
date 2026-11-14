@@ -799,7 +799,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Supabase Auth is authoritative; React state may still be null immediately after login.
       const { data: authData, error: authError } = await supabase.auth.getUser();
       const currentUser = authData.user;
-      if (authError || !currentUser?.id || !currentUser.email) {
+      if (authError || !currentUser?.id || !currentUser.email || !currentUser.email_confirmed_at) {
         return { error: new Error('Confirme seu e-mail e entre na sua conta antes de solicitar o cadastro como professor.') };
       }
 
