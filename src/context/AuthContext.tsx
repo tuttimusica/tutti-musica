@@ -258,21 +258,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select('*')
           .eq('id', authUser.id)
           .maybeSingle(),
-        cleanEmail
-          ? supabase
-              .from('solicitacoes_professores')
-              .select('id, status, instrumento, bio, created_at')
-              .or(`user_id.eq.${authUser.id},email.eq.${cleanEmail}`)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-          : supabase
-              .from('solicitacoes_professores')
-              .select('id, status, instrumento, bio, created_at')
-              .eq('user_id', authUser.id)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
+        supabase
+          .from('solicitacoes_professores')
+          .select('id, status, instrumento, bio, created_at')
+          .eq('user_id', authUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
       ]);
 
       const usuarioData = !usuarioRes.error ? usuarioRes.data : null;
