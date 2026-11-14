@@ -768,8 +768,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: rpcErr } = await supabase.rpc('aprovar_professor_rpc', {
-        p_solicitacao_id: solicitacaoId
+      const { data, error: rpcErr } = await supabase.rpc('tutti_decidir_solicitacao_professor', {
+        p_solicitacao_id: solicitacaoId,
+        p_aprovar: true
       });
 
       if (rpcErr) {
@@ -790,8 +791,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: rpcErr } = await supabase.rpc('rejeitar_professor_rpc', {
-        p_solicitacao_id: solicitacaoId
+      const { data, error: rpcErr } = await supabase.rpc('tutti_decidir_solicitacao_professor', {
+        p_solicitacao_id: solicitacaoId,
+        p_aprovar: false
       });
 
       if (rpcErr) {
