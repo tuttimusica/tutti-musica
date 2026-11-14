@@ -584,8 +584,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!res.error && res.data.user) {
-        // A criação em public.usuarios e public.solicitacoes_professores ocorre automaticamente
-        // via trigger on_auth_user_created no backend Supabase (mesmo com session = null).
+        // O backend cria o perfil básico em public.usuarios. A solicitação de professor
+        // exige um fluxo separado após autenticação; não presumir criação automática.
         if (res.data.session) {
           setUser(res.data.user);
           await loadProfile(res.data.user);
@@ -746,33 +746,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Solicitar cadastro como professor (com validação anti-duplicidade)
   const solicitarCadastroProfessor = async (nome: string, email: string, instrumento: string, bio?: string) => {
     try {
-      const cleanEmail = email.trim().toLowerCase();
-
-      // Verificar se já existe solicitação pendente
-      const { data: existing } = await supabase
-        .from('solicitacoes_professores')
-        .select('id, status')
-        .eq('email', cleanEmail)
-        .eq('status', 'pendente')
-        .maybeSingle();
-
-      if (existing) {
-        return {
-          error: new Error('Já existe uma solicitação pendente para este e-mail. Aguarde a análise do Desenvolvedor.')
-        };
+      // Supabase Auth is authoritative; React state may still be null immediately after login.
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const currentUser = authData.user;
+      if (authError || !currentUser?.id || !currentUser.email) {
+        return { error: new Error('Confirme seu e-mail e entre na sua conta antes de solicitar o cadastro como professor.') };
       }
 
-      const res = await supabase.from('solicitacoes_professores').insert({
-        user_id: user?.id || 'anonimo',
-        nome,
+      const cleanEmail = currentUser.email.trim().toLowerCase();
+      if (email.trim().toLowerCase() !== cleanEmail) {
+        return { error: new Error('A solicitação deve usar o e-mail da conta autenticada.') };
+      }
+      if (!nome.trim() || !instrumento.trim()) {
+        return { error: new Error('Informe seu nome e instrumento para solicitar o cadastro como professor.') };
+      }
+
+      // Only inspect the authenticated user's own requests; never rely on an email-only lookup.
+      const { data: existing, error: lookupError } = await supabase
+        .from('solicitacoes_professores')
+        .select('id, status')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lookupError) return { error: lookupError };
+      if (existing?.status === 'pendente') {
+        return { error: new Error('Já existe uma solicitação pendente. Aguarde a análise do Desenvolvedor.') };
+      }
+      if (existing?.status === 'aprovado') {
+        return { error: new Error('Sua solicitação de professor já foi aprovada.') };
+      }
+
+      const { error: insertError } = await supabase.from('solicitacoes_professores').insert({
+        user_id: currentUser.id,
+        nome: nome.trim(),
         email: cleanEmail,
-        instrumento,
-        bio,
-        status: 'pendente',
-        created_at: new Date().toISOString()
+        instrumento: instrumento.trim(),
+        bio: bio?.trim() || null,
+        status: 'pendente'
       });
-      await registrarEventoAcesso('solicitacao_professor_criada', { email: cleanEmail, instrumento });
-      return { error: res.error };
+      if (insertError) return { error: insertError };
+
+      await registrarEventoAcesso('solicitacao_professor_criada', { instrumento: instrumento.trim() });
+      return { error: null };
     } catch (error) {
       return { error };
     }
