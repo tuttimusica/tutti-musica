@@ -189,17 +189,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Log Access Events in Supabase (tabela eventos_acesso)
    */
   const registrarEventoAcesso = async (tipo: string, detalhes: any = {}) => {
+    // Access events require a real auth UUID and a role supported by the database.
+    // RLS currently permits admin writes only; do not bypass it from the browser.
     try {
-      await supabase.from('eventos_acesso').insert({
-        user_id: user?.id || 'anonimo',
-        perfil: profile?.role || 'visitante',
+      const { data: { user: authenticatedUser }, error: authError } = await supabase.auth.getUser();
+      if (authError || !authenticatedUser) return;
+
+      const currentRole = profile?.role;
+      const dbRole =
+        currentRole === 'desenvolvedor' ? 'admin' :
+        currentRole === 'professor' ? 'teacher' : 'student';
+
+      const { error: insertError } = await supabase.from('eventos_acesso').insert({
+        user_id: authenticatedUser.id,
+        perfil: dbRole,
         tipo_evento: tipo,
-        detalhes: detalhes,
+        detalhes,
         created_at: new Date().toISOString()
       });
-    } catch (e) {
-      // Non-blocking log
-      console.debug('Log access event notice:', e);
+
+      if (insertError) {
+        // The existing RLS policy may reject non-admin writes. This must be
+        // addressed with a reviewed server-side logging policy, not a service key.
+        console.debug('Access event was not stored:', insertError.code);
+      }
+    } catch (error) {
+      console.debug('Access event logging unavailable:', error);
     }
   };
 
