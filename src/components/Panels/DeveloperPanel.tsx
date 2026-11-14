@@ -86,6 +86,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [requestsLoadError, setRequestsLoadError] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   // Real Registered Teachers (loaded from Supabase public.usuarios / profiles)
@@ -210,9 +211,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     // The backend checks Supabase Auth and the administrator allowlist before reading.
     try {
       setIsLoadingRequests(true);
+      setRequestsLoadError(null);
       const { data: { session }, error: sessionError } = await supabase.auth.getSession();
       if (sessionError || !session?.access_token) {
         setRequests([]);
+        setRequestsLoadError('Sessão expirada ou indisponível. Entre novamente como desenvolvedor e tente atualizar.');
         console.warn('Sessão administrativa indisponível para carregar solicitações.');
       } else {
         const response = await fetch('/api/admin/teacher-requests', {
@@ -222,14 +225,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         });
         if (!response.ok) {
           setRequests([]);
+          setRequestsLoadError(response.status === 401 ? 'Sua sessão não foi reconhecida. Entre novamente.' : response.status === 403 ? 'Acesso negado pelo servidor. Verifique a autorização administrativa no Supabase.' : 'Não foi possível consultar as solicitações (HTTP ' + response.status + '). Tente atualizar.');
           console.warn('Falha ao consultar solicitações de professores:', response.status);
         } else {
           const payload = await response.json();
-          setRequests(Array.isArray(payload.requests) ? payload.requests as TeacherRequest[] : []);
+          if (!Array.isArray(payload.requests)) {
+            setRequests([]);
+            setRequestsLoadError('O servidor retornou dados inesperados. Tente atualizar.');
+          } else {
+            setRequests(payload.requests as TeacherRequest[]);
+          }
         }
       }
     } catch (err) {
       setRequests([]);
+      setRequestsLoadError('Falha de conexão ao carregar solicitações. Verifique a rede e tente atualizar.');
       console.warn('Não foi possível carregar solicitações de professores:', err);
     } finally {
       setIsLoadingRequests(false);
@@ -2110,7 +2120,17 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </div>
               </div>
 
-              {filteredRequests.length > 0 ? (
+              {requestsLoadError && (
+                <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+                  <p className="font-bold">Erro ao carregar solicitações</p>
+                  <p className="mt-1">{requestsLoadError}</p>
+                  <button type="button" onClick={() => loadTeacherManagementData()} className="mt-3 rounded-lg border border-red-300/30 px-3 py-1.5 font-bold hover:bg-red-500/10">Tentar novamente</button>
+                </div>
+              )}
+
+              {isLoadingRequests && <p role="status" className="text-sm text-slate-300">Carregando solicitações...</p>}
+
+              {!requestsLoadError && !isLoadingRequests && filteredRequests.length > 0 ? (
                 <div className="space-y-4">
                   {filteredRequests.map(req => {
                     const isProcessing = processingRequestId === req.id;
