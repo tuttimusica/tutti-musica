@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import health from '../api/health.js';
 import check from '../api/auth/check.js';
 import adminStatus from '../api/auth/admin-status.js';
+import teacherRequests from '../api/admin/teacher-requests.js';
 
 function invoke(handler, { method = 'GET', authorization } = {}) {
   const headers = {};
@@ -51,4 +52,21 @@ test('auth endpoints reject POST requests', async () => {
     assert.equal(result.status, 405);
     assert.equal(result.headers.allow, 'GET');
   }
+});
+
+test('teacher requests reject unauthenticated access', async () => {
+  const result = await invoke(teacherRequests);
+  assert.equal(result.status, 401);
+  assert.deepEqual(result.body, { error: 'unauthorized' });
+});
+
+test('teacher requests reject non-GET methods', async () => {
+  const result = await invoke(teacherRequests, { method: 'POST' });
+  assert.equal(result.status, 405);
+  assert.equal(result.headers.allow, 'GET');
+});
+
+test('teacher requests reject malformed authorization headers', async () => {
+  const result = await invoke(teacherRequests, { authorization: 'Basic test' });
+  assert.equal(result.status, 401);
 });
