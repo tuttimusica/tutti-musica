@@ -18,7 +18,7 @@ export interface Instrument {
 }
 
 export interface SheetMusic {
-  id: number;
+  id: string | number;
   title: string;
   composer: string;
   instrument: string;
