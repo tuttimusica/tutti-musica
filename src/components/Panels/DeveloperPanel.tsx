@@ -321,7 +321,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const { data: pData, error: pErr } = await supabase
           .from('partituras')
           .select('*')
-          .order('id', { ascending: false });
+          .order('created_at', { ascending: false });
 
         if (!pErr && pData) {
           const mapped: SheetMusic[] = pData.map((raw: any) => {
@@ -739,10 +739,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         }
 
         if (formCategory === 'gratuita') {
-          const { data: pubData } = supabase.storage
-            .from(SHEET_STORAGE_BUCKETS.FREE)
-            .getPublicUrl(storagePath);
-          finalPdfUrl = pubData.publicUrl;
+          finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
         } else {
           finalPdfUrl = '';
         }
@@ -767,10 +764,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           shouldDeletePreviousObject = true;
 
           if (formCategory === 'gratuita') {
-            const { data: pubData } = supabase.storage
-              .from(SHEET_STORAGE_BUCKETS.FREE)
-              .getPublicUrl(movedPath);
-            finalPdfUrl = pubData.publicUrl;
+            finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
           } else {
             finalPdfUrl = '';
           }
@@ -785,10 +779,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const updatePayload: Record<string, any> = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento: formInstrument,
-          genero: formGenre,
+          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
           estilo_musical: formGenre,
-          nivel: formLevel,
           nivel_dificuldade: formLevel,
           tonalidade: formTonality,
           descricao: formDescription.trim(),
@@ -797,17 +789,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           publicado: formPublished,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? (editingSheet.featuredOrder || 1) : 0,
-          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
-          storage_path: storagePath || null,
+          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
+          storage_path: storagePath,
           updated_at: new Date().toISOString(),
         };
 
-        const { error: upErr } = await supabase
+        const { data: updatedRows, error: upErr } = await supabase
           .from('partituras')
           .update(updatePayload)
-          .eq('id', editingSheet.id);
+          .eq('id', editingSheet.id)
+          .select('id');
 
         if (upErr) throw upErr;
+        if (!updatedRows || updatedRows.length !== 1) throw new Error('Nenhum registro atualizado no banco.');
 
         if (shouldDeletePreviousObject && previousStoragePath) {
           await supabase.storage.from(previousBucket).remove([previousStoragePath]).catch(() => {});
@@ -842,23 +836,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const insertPayload = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento: formInstrument,
+          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
           tonalidade: formTonality,
           tom_original: formTonality,
-          nivel: formLevel,
           nivel_dificuldade: formLevel,
-          genero: formGenre,
           estilo_musical: formGenre,
           descricao: formDescription.trim() || 'Partitura oficial em PDF catalogada pela Tutti.',
           categoria: formCategory,
           preco: 0,
           publicado: formPublished,
-          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
-          storage_path: storagePath || null,
+          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
+          storage_path: storagePath,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? 1 : 0,
-          file_size_bytes: selectedPdfFile?.size || 0,
-          created_by: user?.email || null,
+          tamanho_bytes: selectedPdfFile?.size || 0,
+          enviado_por: user?.id || null,
         };
 
         const { data: inserted, error: insErr } = await supabase
@@ -1003,11 +995,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetPublished = async (sheet: SheetMusic) => {
     const nextPub = !(sheet.publicado ?? true);
     try {
-      const { error } = await supabase
+      const { data: updatedVisibility, error } = await supabase
         .from('partituras')
         .update({ publicado: nextPub, updated_at: new Date().toISOString() })
         .eq('id', sheet.id);
       if (error) throw error;
+      if (!updatedVisibility || updatedVisibility.length !== 1) throw new Error('Visibilidade não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, publicado: nextPub } : s));
       showToast(nextPub ? `"${sheet.title}" publicada no catálogo!` : `"${sheet.title}" movida para rascunhos/oculta.`);
     } catch {
@@ -1018,14 +1011,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetCategory = async (sheet: SheetMusic) => {
     const nextCat: 'gratuita' | 'paga' = sheet.categoria === 'paga' ? 'gratuita' : 'paga';
     try {
-      const { error } = await supabase
+      const { data: updatedCategory, error } = await supabase
         .from('partituras')
         .update({
           categoria: nextCat,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', sheet.id);
+        .eq('id', sheet.id)
+        .select('id');
       if (error) throw error;
+      if (!updatedCategory || updatedCategory.length !== 1) throw new Error('Categoria não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat } : s));
       showToast(
         nextCat === 'paga'
@@ -1043,11 +1038,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
 
     try {
-      const { error: deleteError } = await supabase.from('partituras').delete().eq('id', sheet.id);
+      const { data: deletedRows, error: deleteError } = await supabase.from('partituras').delete().eq('id', sheet.id).select('id');
       if (deleteError) throw deleteError;
+      if (!deletedRows || deletedRows.length !== 1) throw new Error('Exclusão não confirmada no banco.');
 
       if (sheet.storagePath) {
-        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
+        const bucket = SHEET_STORAGE_BUCKETS.FREE;
         await supabase.storage.from(bucket).remove([sheet.storagePath]);
       }
 
