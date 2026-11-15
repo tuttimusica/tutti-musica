@@ -133,9 +133,9 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
           id: String(row.id),
           nome: row.nome,
           descricao: row.descricao || '',
-          preco: Number(row.preco_centavos || 0) / 100,
+          preco: ({ pro: 19.9, mensal: 299.9, trimestral: 799.9, semestral: 1649.9 } as Record<string, number>)[row.id] ?? Number(row.preco_centavos || 0) / 100,
           moeda: row.moeda || 'BRL',
-          recorrencia: (row.recorrencia || 'mensal').toLowerCase(),
+          recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' || row.id === 'ultra_trimestral' ? 'trimestral' : row.id === 'semestral' || row.id === 'ultra_semestral' ? 'semestral' : 'mensal'),
           beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
           stripe_product_id: row.stripe_product_id || null,
           stripe_price_id: row.stripe_price_id || null,
@@ -144,7 +144,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
         }));
         // Keep unseeded plans visible; server validates all amounts independently.
         const ids = new Set(mapped.map(p => p.id));
-        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped]);
+        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped.filter(p => ['free', 'pro', 'mensal', 'trimestral', 'semestral'].includes(p.id))]);
       } else {
         setPlans(FALLBACK_PLANS);
       }
