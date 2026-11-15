@@ -1865,7 +1865,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     <label key={String(sheet.id)} className="flex gap-2 items-center text-xs text-slate-200">
                       <input type="checkbox" checked={bundleSelectedIds.includes(String(sheet.id))}
                         onChange={e => setBundleSelectedIds(prev => e.target.checked
-                          ? [...prev, String(sheet.id)] : prev.filter(id => id !== String(sheet.id))} />
+                          ? [...prev, String(sheet.id)] : prev.filter(id => id !== String(sheet.id)))} />
                       {sheet.title} — {sheet.instrument}
                     </label>
                   ))}
