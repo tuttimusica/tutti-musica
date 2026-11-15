@@ -238,9 +238,26 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           cache: 'no-store'
         });
         if (!response.ok) {
-          setRequests([]);
-          setRequestsLoadError(response.status === 401 ? 'Sua sessão não foi reconhecida. Entre novamente.' : response.status === 403 ? 'Acesso negado pelo servidor. Verifique a autorização administrativa no Supabase.' : 'Não foi possível consultar as solicitações (HTTP ' + response.status + '). Tente atualizar.');
-          console.warn('Falha ao consultar solicitações de professores:', response.status);
+          if (response.status === 503) {
+            // Preview intentionally lacks a Vercel service-role key. Fall back
+            // ONLY to Supabase's server-enforced developer RLS (never anon data).
+            const { data: requestsFromDb, error: dbError } = await supabase
+              .from('solicitacoes_professores')
+              .select('id,user_id,nome,email,instrumento,bio,status,created_at,decided_at,decided_by')
+              .order('created_at', { ascending: false })
+              .limit(100);
+            if (dbError) {
+              setRequests([]);
+              setRequestsLoadError('Não foi possível acessar as solicitações com as permissões atuais.');
+            } else {
+              setRequests((requestsFromDb || []) as TeacherRequest[]);
+              setRequestsLoadError(null);
+            }
+          } else {
+            setRequests([]);
+            setRequestsLoadError(response.status === 401 ? 'Sua sessão não foi reconhecida. Entre novamente.' : response.status === 403 ? 'Acesso negado pelo servidor. Verifique a autorização administrativa no Supabase.' : 'Não foi possível consultar as solicitações (HTTP ' + response.status + '). Tente atualizar.');
+            console.warn('Falha ao consultar solicitações de professores:', response.status);
+          }
         } else {
           const payload = await response.json();
           if (!Array.isArray(payload.requests)) {
