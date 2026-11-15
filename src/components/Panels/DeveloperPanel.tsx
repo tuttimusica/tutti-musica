@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth, TeacherRequest, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
-import { supabase } from '../../lib/supabase';
+import { supabase, SUPABASE_PROJECT_ID, testSupabaseConnection } from '../../lib/supabase';
 import { SheetMusic } from '../../data/musicData';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
@@ -82,6 +82,15 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const { user, profile, logout, aprovarProfessor, rejeitarProfessor } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<DevTab>('dashboard');
+  const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking');
+  useEffect(() => {
+    let active = true;
+    testSupabaseConnection()
+      .then(result => { if (active) setDatabaseStatus(result.ok ? 'connected' : 'unavailable'); })
+      .catch(() => { if (active) setDatabaseStatus('unavailable'); });
+    return () => { active = false; };
+  }, []);
+
 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
@@ -2834,10 +2843,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 <div className="flex items-center justify-between pb-3 border-b border-white/5">
                   <div>
                     <span className="font-bold text-white block">Conexão com Banco de Dados</span>
-                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto viwxalwpvuvgcyxsdjbi)</span>
+                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto {SUPABASE_PROJECT_ID})</span>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
-                    ✓ Conectado
+                  <span className={`px-2.5 py-1 rounded-full font-bold ${databaseStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : databaseStatus === 'checking' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {databaseStatus === 'connected' ? '✓ Conectado' : databaseStatus === 'checking' ? 'Verificando...' : 'Sem conexão'}
                   </span>
                 </div>
 
