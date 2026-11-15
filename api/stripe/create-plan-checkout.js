@@ -17,6 +17,12 @@ export default async function handler(req, res) {
   let plan;
   try { plan = getPlan(planId); } catch { return send(res,400,{error:'invalid_plan'}); }
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  // Security boundary: the backend must never query a different Supabase project
+  // from the frontend build. Fail closed instead of crossing production/staging.
+  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL)
+    return send(res,503,{error:'supabase_environment_mismatch'});
+
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const key = process.env.STRIPE_SECRET_KEY;
   const origin = process.env.TUTTI_TEST_ORIGIN;
