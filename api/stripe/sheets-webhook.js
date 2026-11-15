@@ -25,6 +25,12 @@ export default async function handler(req,res) {
   const secret=process.env.STRIPE_WEBHOOK_SECRET;
   const stripeKey=process.env.STRIPE_SECRET_KEY;
   const url=process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  // Security boundary: the backend must never query a different Supabase project
+  // from the frontend build. Fail closed instead of crossing production/staging.
+  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL)
+    return send(res,503,{error:'supabase_environment_mismatch'});
+
   const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
   if(!secret||!stripeKey?.startsWith('sk_test_')||!url||!serviceKey) return send(res,503,{error:'test_webhook_unconfigured'});
   const signature=req.headers['stripe-signature'];
