@@ -1,6 +1,19 @@
 -- REVIEW ONLY. Apply to a separate staging database after backup/review.
 -- All writes to this function are performed by a trusted, signature-verifying Stripe webhook.
 -- Never expose this RPC to anon/authenticated.
+-- Existing staging schema currently has only ultra_trimestral and ultra_semestral.
+-- The FK on assinaturas_usuarios.plano_id requires corresponding rows.
+-- Keep the legacy periodo enum for Pro as 'mensal' but define recurrence as 'unico';
+-- frontend must NOT infer billing from periodo.
+insert into public.planos (id,nome,ativo,periodo,preco_centavos,descricao,recorrencia)
+values
+  ('pro','Tutti Pro Vitalício',true,'mensal',1990,'Pagamento único; acesso digital vitalício, sem aulas particulares','unico'),
+  ('mensal','Tutti Ultra Mensal',true,'mensal',29990,'Pagamento antecipado; renovação manual','unico'),
+  ('trimestral','Tutti Ultra Trimestral',true,'trimestral',79990,'Pagamento antecipado; renovação manual','unico'),
+  ('semestral','Tutti Ultra Semestral',true,'semestral',164990,'Pagamento antecipado; renovação manual','unico')
+on conflict (id) do nothing;
+-- IMPORTANT: review existing ultra_* IDs and reconcile them before enabling checkout.
+
 create schema if not exists tutti_private;
 
 create table if not exists tutti_private.plan_checkout_grants (
@@ -84,7 +97,7 @@ revoke all on function public.tutti_apply_paid_plan(text,text,uuid,text,integer,
 grant execute on function public.tutti_apply_paid_plan(text,text,uuid,text,integer,timestamptz) to service_role;
 
 -- A separate review is required before rollout:
--- 1. Existing plans/RLS may rely on different columns or uniqueness constraints.
+-- 1. Existing plans/RLS may rely on different columns or uniqueness constraints; legacy IDs ultra_trimestral/ultra_semestral require reconciliation.
 -- 2. Implement refunds/chargebacks, and enforce access by checking unexpired grants.
 -- 3. Audit existing policies on marcacoes_aulas and professor visibility.
 -- 4. Grant the service_role access to the private schema/table as needed by the function owner.
