@@ -747,7 +747,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           .from(previousBucket)
           .download(previousStoragePath);
 
-        if (!dlErr && downloadedBlob) {
+        if (dlErr || !downloadedBlob) {
+          throw new Error('Não foi possível mover o PDF para a nova categoria. A categoria anterior foi preservada.');
+        }
+
+        {
           const baseFile = previousStoragePath.split('/').pop() || `partitura_${editingSheet.id}.pdf`;
           const movedPath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${baseFile}`;
           const movedFile = new File([downloadedBlob], baseFile, { type: 'application/pdf' });
