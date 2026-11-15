@@ -40,6 +40,9 @@ export interface PaymentHistoryItem {
  * Cria uma sessão do Stripe Checkout via Backend autenticado e retorna a URL segura
  */
 export async function createStripeCheckoutSession(planoId: string): Promise<{ url: string; sessionId?: string }> {
+  if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
+    throw new Error('As inscrições nos planos pagos ainda não estão abertas. Explore os recursos gratuitos da Tutti.');
+  }
   // 1. Obter sessão atual do usuário
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
