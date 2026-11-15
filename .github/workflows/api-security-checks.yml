@@ -3,6 +3,7 @@ name: Tutti API security checks
 on:
   push:
     branches:
+      - main
       - audit/backend-auth-safe-fixes-20261114
   pull_request:
     paths:
