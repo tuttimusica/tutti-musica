@@ -55,6 +55,19 @@ create table if not exists public.conjuntos_partituras_itens (
 );
 create index if not exists conjuntos_itens_partitura_idx on public.conjuntos_partituras_itens(partitura_id);
 
+-- Ledger de eventos Stripe para idempotência do webhook.
+create table if not exists public.stripe_eventos (
+ id text primary key,
+ tipo text not null,
+ payload jsonb not null,
+ processado boolean not null default false,
+ processado_em timestamptz,
+ erro text,
+ created_at timestamptz not null default now()
+);
+alter table public.stripe_eventos enable row level security;
+-- Sem políticas client-side: apenas service_role pode ler/gravar eventos.
+
 create table if not exists public.partituras_acessos (
  id uuid primary key default gen_random_uuid(),
  user_id uuid not null references auth.users(id) on delete cascade,
@@ -117,6 +130,7 @@ create policy tutti_partituras_read_free_only on storage.objects
 -- O acesso aos PDFs pagos usa URL assinada gerada pela API com service_role APÓS conferir a compra.
 
 grant select on public.compositores,public.conjuntos_partituras,public.conjuntos_partituras_itens,public.partituras_acessos,public.conjuntos_acessos to authenticated;
+revoke all on public.stripe_eventos from anon,authenticated;
 grant select on public.conjuntos_partituras to anon;
 grant insert,update,delete on public.compositores,public.conjuntos_partituras,public.conjuntos_partituras_itens to authenticated;
 commit;
