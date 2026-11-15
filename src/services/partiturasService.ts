@@ -1,8 +1,8 @@
 import { supabase } from '../lib/supabase';
 
 export const SHEET_STORAGE_BUCKETS = {
-  FREE: 'partituras',
-  PAID: 'partituras-pagas',
+  FREE: 'tutti-partituras',
+  PAID: 'tutti-partituras',
 } as const;
 
 export const MUSICAL_STYLE_OPTIONS = [
@@ -51,7 +51,7 @@ export function normalizeSearchText(text: string): string {
 }
 
 export interface DbPartitura {
-  id: number;
+  id: string;
   titulo: string;
   compositor: string;
   instrumento: string;
@@ -81,7 +81,7 @@ export interface DbPartitura {
 
 export function normalizeDbPartitura(row: any): DbPartitura {
   return {
-    id: Number(row.id),
+    id: String(row.id),
     titulo: row.titulo,
     compositor: row.compositor || 'Compositor Tutti',
     instrumento: row.instrumento || row.instrumento_id || 'Saxofone Alto',
@@ -164,21 +164,13 @@ export async function fetchPublishedPartituras(): Promise<DbPartitura[]> {
     .eq('publicado', true)
     .order('created_at', { ascending: false });
 
-  if (error) {
-    const fallback = await supabase
-      .from('partituras')
-      .select('*')
-      .eq('publicado', true)
-      .order('created_at', { ascending: false });
-    if (fallback.error) throw fallback.error;
-    return (fallback.data || []).filter((r: any) => r.publicado !== false).map(normalizeDbPartitura);
-  }
+  if (error) throw error;
   return (data || []).map(normalizeDbPartitura);
 }
 
-export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<number>> {
+export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<string>> {
   if (!userId) return new Set();
-  const unlocked = new Set<number>();
+  const unlocked = new Set<string>();
   try {
     const { data, error } = await supabase
       .from('partituras_acessos')
@@ -187,7 +179,7 @@ export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<nu
     if (error) {
       console.warn('Não foi possível verificar os acessos individuais às partituras:', error.code);
     } else if (data) {
-      data.forEach((row: any) => unlocked.add(Number(row.partitura_id)));
+      data.forEach((row: any) => unlocked.add(String(row.partitura_id)));
     }
   } catch (accessErr) {
     console.warn('Falha inesperada ao verificar acessos individuais às partituras:', accessErr);
@@ -212,7 +204,7 @@ export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<nu
         if (bundleItemsError) {
           console.warn('Não foi possível verificar as partituras dos conjuntos:', bundleItemsError.code);
         } else {
-          (bundleItems || []).forEach((item: any) => unlocked.add(Number(item.partitura_id)));
+          (bundleItems || []).forEach((item: any) => unlocked.add(String(item.partitura_id)));
         }
       }
     }
@@ -282,7 +274,7 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
   return { url: null, protected: isPaid };
 }
 
-export async function createPaidSheetCheckout(partituraId: number): Promise<{ url: string }> {
+export async function createPaidSheetCheckout(partituraId: string): Promise<{ url: string }> {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session?.access_token) {
     throw new Error('Faça login para adquirir esta partitura.');
