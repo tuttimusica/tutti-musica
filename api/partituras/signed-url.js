@@ -14,6 +14,10 @@ export default async function handler(req, res) {
   if (typeof id !== 'string' || !uuidPattern.test(id)) {
     return send(res, 400, { error: 'partitura_id inválido' });
   }
+  // Until the server key is verified for this exact Supabase project,
+  // direct Storage RLS is authoritative; never use a key from another project.
+  if (process.env.TUTTI_PRIVILEGED_BACKEND_ENABLED !== 'true')
+    return send(res,503,{error:'storage_unconfigured'});
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
   // Security boundary: the backend must never query a different Supabase project
