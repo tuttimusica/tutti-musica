@@ -230,7 +230,8 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
     headers['Authorization'] = `Bearer ${session.access_token}`;
   }
 
-  // URLs assinadas são emitidas apenas pela API Vercel após autorização no servidor.\n  const res = await fetch('/api/partituras/signed-url', {
+  // URLs assinadas são emitidas apenas pela API Vercel após autorização no servidor.
+  const res = await fetch('/api/partituras/signed-url', {
     method: 'POST',
     headers,
     body: JSON.stringify({ partitura_id: partitura.id }),
