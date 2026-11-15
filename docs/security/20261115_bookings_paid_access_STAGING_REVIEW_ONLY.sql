@@ -14,7 +14,7 @@ as $$
     where g.user_id = p_student
       and g.plano_id in ('mensal','trimestral','semestral')
       and g.granted_at <= p_at and g.access_until > p_at
-      -- A separate refund/chargeback revocation state must be added before production.
+      and g.revoked_at is null
   );
 $$;
 revoke all on function tutti_private.student_has_paid_ultra(uuid,timestamptz) from public, anon;
@@ -32,6 +32,7 @@ with check (
   and status = 'agendada'
   and private.user_has_role(professor_id,'teacher')
   and tutti_private.student_has_paid_ultra(aluno_id, now())
+  and tutti_private.student_has_paid_ultra(aluno_id, (data_aula::timestamp at time zone 'America/Sao_Paulo'))
 );
 
 -- Do not allow students or teachers to rewrite participant identities via direct UPDATE.
@@ -60,6 +61,7 @@ using (
 
 -- NOTE: verify no other permissive INSERT/UPDATE/SELECT policies bypass these.
 -- NOTE: test whether existing teacher approval logic is truly backed by private.user_has_role.
--- NOTE: booking should additionally verify entitlement at actual lesson time,
--- not merely booking time, and confirm available teacher slots atomically.
+-- NOTE: the lesson-date check assumes local midnight America/Sao_Paulo; revise to actual
+-- lesson start datetime using data_aula + hora_inicio and approved timezone before rollout.
+-- NOTE: confirm available teacher slots atomically.
 -- NOTE: refunds/chargebacks must revoke grants before this is production-safe.
