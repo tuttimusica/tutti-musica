@@ -224,34 +224,13 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 }> {
   const isPaid = partitura.categoria === 'paga';
 
-  // Para gratuitas com URL pública direta sem bloqueio
-  if (!isPaid && partitura.arquivo_pdf_url && !partitura.storage_path) {
-    return { url: partitura.arquivo_pdf_url, protected: false };
-  }
-
   const { data: { session } } = await supabase.auth.getSession();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (session?.access_token) {
     headers['Authorization'] = `Bearer ${session.access_token}`;
   }
 
-  // 1. Tentar Edge Function 'partitura-access'
-  try {
-    const { data, error } = await supabase.functions.invoke('partitura-access', {
-      body: { partitura_id: partitura.id },
-    });
-    if (!error && data?.url) {
-      return { url: data.url, protected: Boolean(data.protected) };
-    }
-    if (error && (error as any)?.context?.status === 403) {
-      throw new Error('Partitura paga: adquira ou solicite liberação para visualizar o PDF.');
-    }
-  } catch (edgeErr: any) {
-    if (edgeErr?.message?.includes('Partitura paga')) throw edgeErr;
-  }
-
-  // 2. Endpoint backend Express (/api/partituras/signed-url)
-  const res = await fetch('/api/partituras/signed-url', {
+  // URLs assinadas são emitidas apenas pela API Vercel após autorização no servidor.\n  const res = await fetch('/api/partituras/signed-url', {
     method: 'POST',
     headers,
     body: JSON.stringify({ partitura_id: partitura.id }),
@@ -264,11 +243,6 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 
   if (json.url) {
     return { url: json.url, protected: Boolean(json.protected) };
-  }
-
-  // Fallback apenas para partitura gratuita já pública
-  if (!isPaid && partitura.arquivo_pdf_url) {
-    return { url: partitura.arquivo_pdf_url, protected: false };
   }
 
   return { url: null, protected: isPaid };
