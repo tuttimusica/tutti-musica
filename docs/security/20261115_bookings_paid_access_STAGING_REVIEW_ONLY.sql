@@ -32,7 +32,7 @@ with check (
   and status = 'agendada'
   and private.user_has_role(professor_id,'teacher')
   and tutti_private.student_has_paid_ultra(aluno_id, now())
-  and tutti_private.student_has_paid_ultra(aluno_id, (data_aula::timestamp at time zone 'America/Sao_Paulo'))
+  and tutti_private.student_has_paid_ultra(aluno_id, ((data_aula + hora_inicio) at time zone 'America/Sao_Paulo'))
 );
 
 -- Do not allow students or teachers to rewrite participant identities via direct UPDATE.
@@ -61,7 +61,7 @@ using (
 
 -- NOTE: verify no other permissive INSERT/UPDATE/SELECT policies bypass these.
 -- NOTE: test whether existing teacher approval logic is truly backed by private.user_has_role.
--- NOTE: the lesson-date check assumes local midnight America/Sao_Paulo; revise to actual
--- lesson start datetime using data_aula + hora_inicio and approved timezone before rollout.
+-- NOTE: lesson start is interpreted in America/Sao_Paulo; verify school timezone
+-- and daylight-saving behavior before rollout.
 -- NOTE: confirm available teacher slots atomically.
 -- NOTE: refunds/chargebacks must revoke grants before this is production-safe.
