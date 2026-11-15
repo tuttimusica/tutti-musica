@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import { useAuth, TeacherRequest, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
-import { supabase } from '../../lib/supabase';
+import { supabase, SUPABASE_PROJECT_ID, testSupabaseConnection } from '../../lib/supabase';
 import { SheetMusic } from '../../data/musicData';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
@@ -82,10 +82,20 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const { user, profile, logout, aprovarProfessor, rejeitarProfessor } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<DevTab>('dashboard');
+  const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking');
+  useEffect(() => {
+    let active = true;
+    testSupabaseConnection()
+      .then(result => { if (active) setDatabaseStatus(result.ok ? 'connected' : 'unavailable'); })
+      .catch(() => { if (active) setDatabaseStatus('unavailable'); });
+    return () => { active = false; };
+  }, []);
+
 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
+  const [requestsLoadError, setRequestsLoadError] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   // Real Registered Teachers (loaded from Supabase public.usuarios / profiles)
@@ -103,6 +113,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Sheets Management State (loaded from Supabase public.partituras)
   const [sheetsList, setSheetsList] = useState<SheetMusic[]>([]);
   const [isLoadingSheets, setIsLoadingSheets] = useState(false);
+  const [bundleTitle, setBundleTitle] = useState('');
+  const [bundlePrice, setBundlePrice] = useState('');
+  const [bundleSelectedIds, setBundleSelectedIds] = useState<string[]>([]);
+  const [bundleList, setBundleList] = useState<{ id: string; titulo: string; preco: number; publicado: boolean }[]>([]);
+  const [bundleSaving, setBundleSaving] = useState(false);
 
   // Modal / Viewer State for Sheet Music
   const [viewingSheet, setViewingSheet] = useState<SheetMusic | null>(null);
@@ -206,19 +221,57 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const storeImageInputRef = useRef<HTMLInputElement>(null);
 
   const loadTeacherManagementData = useCallback(async () => {
-    // 1. Solicitações de Professores
+    // 1. Solicitações: only the authenticated administrator may request this list.
+    // The backend checks Supabase Auth and the administrator allowlist before reading.
     try {
       setIsLoadingRequests(true);
-      const { data: solData, error: solErr } = await supabase
-        .from('solicitacoes_professores')
-        .select('*')
-        .order('created_at', { ascending: false });
-
-      if (!solErr) {
-        setRequests((solData as TeacherRequest[]) || []);
+      setRequestsLoadError(null);
+      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
+      if (sessionError || !session?.access_token) {
+        setRequests([]);
+        setRequestsLoadError('Sessão expirada ou indisponível. Entre novamente como desenvolvedor e tente atualizar.');
+        console.warn('Sessão administrativa indisponível para carregar solicitações.');
+      } else {
+        const response = await fetch('/api/admin/teacher-requests', {
+          method: 'GET',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          cache: 'no-store'
+        });
+        if (!response.ok) {
+          if (response.status === 503) {
+            // Preview intentionally lacks a Vercel service-role key. Fall back
+            // ONLY to Supabase's server-enforced developer RLS (never anon data).
+            const { data: requestsFromDb, error: dbError } = await supabase
+              .from('solicitacoes_professores')
+              .select('id,user_id,nome,email,instrumento,bio,status,created_at,decided_at,decided_by')
+              .order('created_at', { ascending: false })
+              .limit(100);
+            if (dbError) {
+              setRequests([]);
+              setRequestsLoadError('Não foi possível acessar as solicitações com as permissões atuais.');
+            } else {
+              setRequests((requestsFromDb || []) as TeacherRequest[]);
+              setRequestsLoadError(null);
+            }
+          } else {
+            setRequests([]);
+            setRequestsLoadError(response.status === 401 ? 'Sua sessão não foi reconhecida. Entre novamente.' : response.status === 403 ? 'Acesso negado pelo servidor. Verifique a autorização administrativa no Supabase.' : 'Não foi possível consultar as solicitações (HTTP ' + response.status + '). Tente atualizar.');
+            console.warn('Falha ao consultar solicitações de professores:', response.status);
+          }
+        } else {
+          const payload = await response.json();
+          if (!Array.isArray(payload.requests)) {
+            setRequests([]);
+            setRequestsLoadError('O servidor retornou dados inesperados. Tente atualizar.');
+          } else {
+            setRequests(payload.requests as TeacherRequest[]);
+          }
+        }
       }
     } catch (err) {
-      console.warn('Supabase solicitacoes load note:', err);
+      setRequests([]);
+      setRequestsLoadError('Falha de conexão ao carregar solicitações. Verifique a rede e tente atualizar.');
+      console.warn('Não foi possível carregar solicitações de professores:', err);
     } finally {
       setIsLoadingRequests(false);
     }
@@ -299,7 +352,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const { data: pData, error: pErr } = await supabase
           .from('partituras')
           .select('*')
-          .order('id', { ascending: false });
+          .order('created_at', { ascending: false });
 
         if (!pErr && pData) {
           const mapped: SheetMusic[] = pData.map((raw: any) => {
@@ -652,6 +705,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       showToast('Selecione um arquivo PDF no seu computador.');
       return;
     }
+    if (editingSheet && !selectedPdfFile && editingSheet.categoria !== formCategory && !editingSheet.storagePath) {
+      const message = 'Selecione um PDF para mudar a categoria: a partitura atual não possui arquivo armazenado para transferência.';
+      setSheetFormError(message);
+      showToast(message);
+      return;
+    }
     if (selectedPdfFile) {
       const isPdf =
         selectedPdfFile.type === 'application/pdf' ||
@@ -711,10 +770,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         }
 
         if (formCategory === 'gratuita') {
-          const { data: pubData } = supabase.storage
-            .from(SHEET_STORAGE_BUCKETS.FREE)
-            .getPublicUrl(storagePath);
-          finalPdfUrl = pubData.publicUrl;
+          finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
         } else {
           finalPdfUrl = '';
         }
@@ -725,7 +781,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           .from(previousBucket)
           .download(previousStoragePath);
 
-        if (!dlErr && downloadedBlob) {
+        if (dlErr || !downloadedBlob) {
+          throw new Error('Não foi possível mover o PDF para a nova categoria. A categoria anterior foi preservada.');
+        }
+
+        {
           const baseFile = previousStoragePath.split('/').pop() || `partitura_${editingSheet.id}.pdf`;
           const movedPath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${baseFile}`;
           const movedFile = new File([downloadedBlob], baseFile, { type: 'application/pdf' });
@@ -735,10 +795,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           shouldDeletePreviousObject = true;
 
           if (formCategory === 'gratuita') {
-            const { data: pubData } = supabase.storage
-              .from(SHEET_STORAGE_BUCKETS.FREE)
-              .getPublicUrl(movedPath);
-            finalPdfUrl = pubData.publicUrl;
+            finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
           } else {
             finalPdfUrl = '';
           }
@@ -753,10 +810,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const updatePayload: Record<string, any> = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento: formInstrument,
-          genero: formGenre,
+          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
           estilo_musical: formGenre,
-          nivel: formLevel,
           nivel_dificuldade: formLevel,
           tonalidade: formTonality,
           descricao: formDescription.trim(),
@@ -765,17 +820,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           publicado: formPublished,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? (editingSheet.featuredOrder || 1) : 0,
-          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
-          storage_path: storagePath || null,
+          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
+          storage_path: storagePath,
           updated_at: new Date().toISOString(),
         };
 
-        const { error: upErr } = await supabase
+        const { data: updatedRows, error: upErr } = await supabase
           .from('partituras')
           .update(updatePayload)
-          .eq('id', editingSheet.id);
+          .eq('id', editingSheet.id)
+          .select('id');
 
         if (upErr) throw upErr;
+        if (!updatedRows || updatedRows.length !== 1) throw new Error('Nenhum registro atualizado no banco.');
 
         if (shouldDeletePreviousObject && previousStoragePath) {
           await supabase.storage.from(previousBucket).remove([previousStoragePath]).catch(() => {});
@@ -810,23 +867,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const insertPayload = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento: formInstrument,
+          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
           tonalidade: formTonality,
           tom_original: formTonality,
-          nivel: formLevel,
           nivel_dificuldade: formLevel,
-          genero: formGenre,
           estilo_musical: formGenre,
           descricao: formDescription.trim() || 'Partitura oficial em PDF catalogada pela Tutti.',
           categoria: formCategory,
           preco: 0,
           publicado: formPublished,
-          arquivo_pdf_url: formCategory === 'paga' ? null : (finalPdfUrl || null),
-          storage_path: storagePath || null,
+          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
+          storage_path: storagePath,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? 1 : 0,
-          file_size_bytes: selectedPdfFile?.size || 0,
-          created_by: user?.email || null,
+          tamanho_bytes: selectedPdfFile?.size || 0,
+          enviado_por: user?.id || null,
         };
 
         const { data: inserted, error: insErr } = await supabase
@@ -971,11 +1026,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetPublished = async (sheet: SheetMusic) => {
     const nextPub = !(sheet.publicado ?? true);
     try {
-      const { error } = await supabase
+      const { data: updatedVisibility, error } = await supabase
         .from('partituras')
         .update({ publicado: nextPub, updated_at: new Date().toISOString() })
         .eq('id', sheet.id);
       if (error) throw error;
+      if (!updatedVisibility || updatedVisibility.length !== 1) throw new Error('Visibilidade não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, publicado: nextPub } : s));
       showToast(nextPub ? `"${sheet.title}" publicada no catálogo!` : `"${sheet.title}" movida para rascunhos/oculta.`);
     } catch {
@@ -986,14 +1042,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetCategory = async (sheet: SheetMusic) => {
     const nextCat: 'gratuita' | 'paga' = sheet.categoria === 'paga' ? 'gratuita' : 'paga';
     try {
-      const { error } = await supabase
+      const { data: updatedCategory, error } = await supabase
         .from('partituras')
         .update({
           categoria: nextCat,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', sheet.id);
+        .eq('id', sheet.id)
+        .select('id');
       if (error) throw error;
+      if (!updatedCategory || updatedCategory.length !== 1) throw new Error('Categoria não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat } : s));
       showToast(
         nextCat === 'paga'
@@ -1005,21 +1063,78 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== 'partituras') return;
+    let active = true;
+    supabase.from('conjuntos_partituras').select('id,titulo,preco,publicado')
+      .order('created_at', { ascending: false }).then(({ data, error }) => {
+        if (active && !error) setBundleList((data || []).map(b => ({ ...b, preco: Number(b.preco) })));
+      });
+    return () => { active = false; };
+  }, [activeTab]);
+
+  const handleCreateBundle = async () => {
+    const price = Number(bundlePrice.replace(',', '.'));
+    if (!bundleTitle.trim() || !Number.isFinite(price) || price <= 0 || bundleSelectedIds.length === 0) {
+      showToast('Informe nome, preço válido e selecione ao menos uma partitura.');
+      return;
+    }
+    setBundleSaving(true);
+    let createdId: string | null = null;
+    try {
+      const { data, error } = await supabase.from('conjuntos_partituras')
+        .insert({ titulo: bundleTitle.trim(), preco: price, publicado: false })
+        .select('id,titulo,preco,publicado').single();
+      if (error || !data) throw error || new Error('Não foi possível criar o conjunto.');
+      createdId = data.id;
+      const { error: itemsError } = await supabase.from('conjuntos_partituras_itens')
+        .insert(bundleSelectedIds.map(partitura_id => ({ conjunto_id: data.id, partitura_id })));
+      if (itemsError) throw itemsError;
+      setBundleList(prev => [{ ...data, preco: Number(data.preco) }, ...prev]);
+      setBundleTitle('');
+      setBundlePrice('');
+      setBundleSelectedIds([]);
+      showToast('Conjunto criado como rascunho. Publique após conferir os itens.');
+    } catch (err: any) {
+      if (createdId) await supabase.from('conjuntos_partituras').delete().eq('id', createdId);
+      showToast(err?.message || 'Não foi possível criar o conjunto.');
+    } finally {
+      setBundleSaving(false);
+    }
+  };
+
+  const handlePublishBundle = async (id: string, published: boolean) => {
+    const { data, error } = await supabase.from('conjuntos_partituras')
+      .update({ publicado: !published }).eq('id', id).select('id');
+    if (error || data?.length !== 1) {
+      showToast('Não foi possível atualizar a publicação do conjunto.');
+      return;
+    }
+    setBundleList(prev => prev.map(b => b.id === id ? { ...b, publicado: !published } : b));
+    showToast(!published ? 'Conjunto publicado.' : 'Conjunto ocultado.');
+  };
+
   const handleDeleteSheet = async (sheet: SheetMusic) => {
     if (!window.confirm(`Tem certeza de que deseja excluir a partitura oficial "${sheet.title}"? Esta ação removerá o arquivo da biblioteca.`)) {
       return;
     }
 
     try {
-      await supabase.from('partituras').delete().eq('id', sheet.id);
+      const { data: deletedRows, error: deleteError } = await supabase.from('partituras').delete().eq('id', sheet.id).select('id');
+      if (deleteError) throw deleteError;
+      if (!deletedRows || deletedRows.length !== 1) throw new Error('Exclusão não confirmada no banco.');
 
+      let storageCleanupError = false;
       if (sheet.storagePath) {
-        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
-        await supabase.storage.from(bucket).remove([sheet.storagePath]);
+        const bucket = SHEET_STORAGE_BUCKETS.FREE;
+        const { error: removalError } = await supabase.storage.from(bucket).remove([sheet.storagePath]);
+        storageCleanupError = Boolean(removalError);
       }
 
       setSheetsList(prev => prev.filter(s => s.id !== sheet.id));
-      showToast(`Partitura "${sheet.title}" excluída com sucesso.`);
+      showToast(storageCleanupError
+        ? 'Registro excluído, mas o PDF não pôde ser removido do armazenamento. Verifique o Storage.'
+        : `Partitura "${sheet.title}" excluída com sucesso.`);
     } catch {
       showToast('Erro ao excluir partitura no Supabase.');
     }
@@ -1382,16 +1497,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   };
 
   // Toggle or reorder featured sheets
-  const handleToggleFeatured = async (sheetId: number) => {
+  const handleToggleFeatured = async (sheetId: string | number) => {
     const sheet = sheetsList.find(s => s.id === sheetId);
     if (!sheet) return;
 
     const nextFeatured = !sheet.isFeatured;
     try {
-      await supabase
+      const { data: updatedFeatured, error: featuredError } = await supabase
         .from('partituras')
         .update({ is_featured: nextFeatured })
-        .eq('id', sheetId);
+        .eq('id', sheetId)
+        .select('id');
+      if (featuredError) throw featuredError;
+      if (!updatedFeatured || updatedFeatured.length !== 1) {
+        throw new Error('A atualização do destaque não foi confirmada pelo banco de dados.');
+      }
 
       setSheetsList(prev => prev.map(s => s.id === sheetId ? { ...s, isFeatured: nextFeatured } : s));
       showToast(nextFeatured ? `"${sheet.title}" adicionada aos destaques! ★` : `"${sheet.title}" removida dos destaques.`);
@@ -1400,32 +1520,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
-  // Reorder featured sheets
-  const handleMoveFeatured = async (sheetId: number, direction: 'up' | 'down') => {
-    const featured = sheetsList.filter(s => s.isFeatured);
-    const index = featured.findIndex(s => s.id === sheetId);
-    if (index < 0) return;
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === featured.length - 1) return;
-
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const reordered = [...featured];
-    const temp = reordered[index];
-    reordered[index] = reordered[targetIndex];
-    reordered[targetIndex] = temp;
-
-    // Update order in state
-    setSheetsList(prev => {
-      return prev.map(item => {
-        const foundIdx = reordered.findIndex(r => r.id === item.id);
-        if (foundIdx >= 0) {
-          return { ...item, featuredOrder: foundIdx + 1 };
-        }
-        return item;
-      });
-    });
-
-    showToast('Ordem dos destaques atualizada!');
+  // Reordering requires a persisted featured_order column and an authorized backend.
+  // Never pretend a local-only reorder was saved to the shared catalog.
+  const handleMoveFeatured = async (_sheetId: string | number, _direction: 'up' | 'down') => {
+    showToast('Reordenação indisponível: é necessário configurar e validar a ordem dos destaques no Supabase.');
   };
 
   // Approve Teacher Request via RPC (aprovar_professor_rpc)
@@ -1779,6 +1877,38 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </button>
               </div>
 
+              <section className="rounded-2xl border border-amber-400/20 bg-[#0b0d14] p-5 space-y-4">
+                <h3 className="text-amber-300 font-bold text-sm">Conjuntos de partituras para venda</h3>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input value={bundleTitle} onChange={e => setBundleTitle(e.target.value)}
+                    placeholder="Nome do conjunto" className="flex-1 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
+                  <input value={bundlePrice} onChange={e => setBundlePrice(e.target.value)}
+                    placeholder="Preço R$" inputMode="decimal" className="sm:w-32 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
+                </div>
+                <p className="text-xs text-slate-400">Selecione as partituras que farão parte deste conjunto:</p>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {sheetsList.map(sheet => (
+                    <label key={String(sheet.id)} className="flex gap-2 items-center text-xs text-slate-200">
+                      <input type="checkbox" checked={bundleSelectedIds.includes(String(sheet.id))}
+                        onChange={e => setBundleSelectedIds(prev => e.target.checked
+                          ? [...prev, String(sheet.id)] : prev.filter(id => id !== String(sheet.id)))} />
+                      {sheet.title} — {sheet.instrument}
+                    </label>
+                  ))}
+                </div>
+                <button type="button" disabled={bundleSaving} onClick={handleCreateBundle}
+                  className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg text-xs disabled:opacity-50">
+                  {bundleSaving ? 'Salvando...' : 'Criar conjunto (rascunho)'}
+                </button>
+                {bundleList.map(bundle => (
+                  <div key={bundle.id} className="flex items-center justify-between gap-2 text-xs border-t border-white/10 pt-3">
+                    <span className="text-white">{bundle.titulo} — R$ {bundle.preco.toFixed(2).replace('.', ',')}</span>
+                    <button type="button" onClick={() => handlePublishBundle(bundle.id, bundle.publicado)}
+                      className="text-amber-300 underline">{bundle.publicado ? 'Ocultar' : 'Publicar'}</button>
+                  </div>
+                ))}
+              </section>
+
               {/* Search, Category and Instrument Filter */}
               <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center gap-3">
                 <div className="relative flex-1 w-full">
@@ -2098,7 +2228,17 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </div>
               </div>
 
-              {filteredRequests.length > 0 ? (
+              {requestsLoadError && (
+                <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
+                  <p className="font-bold">Erro ao carregar solicitações</p>
+                  <p className="mt-1">{requestsLoadError}</p>
+                  <button type="button" onClick={() => loadTeacherManagementData()} className="mt-3 rounded-lg border border-red-300/30 px-3 py-1.5 font-bold hover:bg-red-500/10">Tentar novamente</button>
+                </div>
+              )}
+
+              {isLoadingRequests && <p role="status" className="text-sm text-slate-300">Carregando solicitações...</p>}
+
+              {!requestsLoadError && !isLoadingRequests && filteredRequests.length > 0 ? (
                 <div className="space-y-4">
                   {filteredRequests.map(req => {
                     const isProcessing = processingRequestId === req.id;
@@ -2720,10 +2860,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 <div className="flex items-center justify-between pb-3 border-b border-white/5">
                   <div>
                     <span className="font-bold text-white block">Conexão com Banco de Dados</span>
-                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto viwxalwpvuvgcyxsdjbi)</span>
+                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto {SUPABASE_PROJECT_ID})</span>
                   </div>
-                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
-                    ✓ Conectado
+                  <span className={`px-2.5 py-1 rounded-full font-bold ${databaseStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : databaseStatus === 'checking' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {databaseStatus === 'connected' ? '✓ Conectado' : databaseStatus === 'checking' ? 'Verificando...' : 'Sem conexão'}
                   </span>
                 </div>
 

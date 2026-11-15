@@ -1,8 +1,8 @@
 import { supabase } from '../lib/supabase';
 
 export const SHEET_STORAGE_BUCKETS = {
-  FREE: 'partituras',
-  PAID: 'partituras-pagas',
+  FREE: 'tutti-partituras',
+  PAID: 'tutti-partituras',
 } as const;
 
 export const MUSICAL_STYLE_OPTIONS = [
@@ -51,7 +51,7 @@ export function normalizeSearchText(text: string): string {
 }
 
 export interface DbPartitura {
-  id: number;
+  id: string;
   titulo: string;
   compositor: string;
   instrumento: string;
@@ -79,12 +79,20 @@ export interface DbPartitura {
   created_by?: string | null;
 }
 
+const INSTRUMENT_LABELS: Record<string, string> = {
+  saxofone_alto: 'Saxofone Alto', saxofone_tenor: 'Saxofone Tenor',
+  saxofone_soprano: 'Saxofone Soprano', clarinete: 'Clarinete',
+  trombone: 'Trombone', trompete: 'Trompete', teclado: 'Teclado',
+  contrabaixo: 'Contrabaixo', guitarra: 'Guitarra',
+  outros: 'Outros instrumentos',
+};
+
 export function normalizeDbPartitura(row: any): DbPartitura {
   return {
-    id: Number(row.id),
+    id: String(row.id),
     titulo: row.titulo,
     compositor: row.compositor || 'Compositor Tutti',
-    instrumento: row.instrumento || row.instrumento_id || 'Saxofone Alto',
+    instrumento: row.instrumento || INSTRUMENT_LABELS[row.instrumento_id] || row.instrumento_id || 'Saxofone Alto',
     tonalidade: row.tonalidade || 'C',
     tom_original: row.tom_original || row.tonalidade || 'C',
     nivel: row.nivel || row.nivel_dificuldade || 'Intermediário',
@@ -96,7 +104,7 @@ export function normalizeDbPartitura(row: any): DbPartitura {
     storage_path: row.storage_path || null,
     is_featured: Boolean(row.is_featured),
     featured_order: Number(row.featured_order ?? 0),
-    file_size_bytes: Number(row.file_size_bytes ?? 0),
+    file_size_bytes: Number(row.tamanho_bytes ?? row.file_size_bytes ?? 0),
     categoria: row.categoria === 'paga' ? 'paga' : 'gratuita',
     preco: Number(row.preco ?? 0),
     publicado: row.publicado !== false,
@@ -106,7 +114,7 @@ export function normalizeDbPartitura(row: any): DbPartitura {
     visualizacoes: Number(row.visualizacoes ?? 0),
     downloads: Number(row.downloads ?? 0),
     created_at: row.created_at,
-    created_by: row.created_by || null,
+    created_by: row.enviado_por || row.created_by || null,
   };
 }
 
@@ -161,51 +169,52 @@ export async function fetchPublishedPartituras(): Promise<DbPartitura[]> {
   const { data, error } = await supabase
     .from('partituras')
     .select('*')
-    .neq('publicado', false)
-    .order('is_featured', { ascending: false })
-    .order('featured_order', { ascending: true })
-    .order('id', { ascending: false });
+    .eq('publicado', true)
+    .order('created_at', { ascending: false });
 
-  if (error) {
-    const fallback = await supabase
-      .from('partituras')
-      .select('*')
-      .order('id', { ascending: false });
-    if (fallback.error) throw fallback.error;
-    return (fallback.data || []).filter((r: any) => r.publicado !== false).map(normalizeDbPartitura);
-  }
+  if (error) throw error;
   return (data || []).map(normalizeDbPartitura);
 }
 
-export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<number>> {
+export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<string>> {
   if (!userId) return new Set();
-  const unlocked = new Set<number>();
+  const unlocked = new Set<string>();
   try {
     const { data, error } = await supabase
       .from('partituras_acessos')
       .select('partitura_id')
       .eq('user_id', userId);
-    if (!error && data) {
-      data.forEach((row: any) => unlocked.add(Number(row.partitura_id)));
+    if (error) {
+      console.warn('Não foi possível verificar os acessos individuais às partituras:', error.code);
+    } else if (data) {
+      data.forEach((row: any) => unlocked.add(String(row.partitura_id)));
     }
-  } catch {
-    // fallback silencioso se tabela ainda não existir
+  } catch (accessErr) {
+    console.warn('Falha inesperada ao verificar acessos individuais às partituras:', accessErr);
   }
 
   // Também libera partituras pertencentes a conjuntos adquiridos pelo aluno
   try {
-    const { data: bundleAccess } = await supabase
+    const { data: bundleAccess, error: bundleAccessError } = await supabase
       .from('conjuntos_acessos')
       .select('conjunto_id')
       .eq('user_id', userId);
 
-    const bundleIds = (bundleAccess || []).map((b: any) => b.conjunto_id).filter(Boolean);
-    if (bundleIds.length > 0) {
-      const { data: bundleItems } = await supabase
-        .from('conjuntos_partituras_itens')
-        .select('partitura_id')
-        .in('conjunto_id', bundleIds);
-      (bundleItems || []).forEach((item: any) => unlocked.add(Number(item.partitura_id)));
+    if (bundleAccessError) {
+      console.warn('Não foi possível verificar o acesso aos conjuntos:', bundleAccessError.code);
+    } else {
+      const bundleIds = (bundleAccess || []).map((b: any) => b.conjunto_id).filter(Boolean);
+      if (bundleIds.length > 0) {
+        const { data: bundleItems, error: bundleItemsError } = await supabase
+          .from('conjuntos_partituras_itens')
+          .select('partitura_id')
+          .in('conjunto_id', bundleIds);
+        if (bundleItemsError) {
+          console.warn('Não foi possível verificar as partituras dos conjuntos:', bundleItemsError.code);
+        } else {
+          (bundleItems || []).forEach((item: any) => unlocked.add(String(item.partitura_id)));
+        }
+      }
     }
   } catch {
     // fallback silencioso caso conjuntos ainda não existam na instância
@@ -223,33 +232,13 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 }> {
   const isPaid = partitura.categoria === 'paga';
 
-  // Para gratuitas com URL pública direta sem bloqueio
-  if (!isPaid && partitura.arquivo_pdf_url && !partitura.storage_path) {
-    return { url: partitura.arquivo_pdf_url, protected: false };
-  }
-
   const { data: { session } } = await supabase.auth.getSession();
   const headers: Record<string, string> = { 'Content-Type': 'application/json' };
   if (session?.access_token) {
     headers['Authorization'] = `Bearer ${session.access_token}`;
   }
 
-  // 1. Tentar Edge Function 'partitura-access'
-  try {
-    const { data, error } = await supabase.functions.invoke('partitura-access', {
-      body: { partitura_id: partitura.id },
-    });
-    if (!error && data?.url) {
-      return { url: data.url, protected: Boolean(data.protected) };
-    }
-    if (error && (error as any)?.context?.status === 403) {
-      throw new Error('Partitura paga: adquira ou solicite liberação para visualizar o PDF.');
-    }
-  } catch (edgeErr: any) {
-    if (edgeErr?.message?.includes('Partitura paga')) throw edgeErr;
-  }
-
-  // 2. Endpoint backend Express (/api/partituras/signed-url)
+  // URLs assinadas são emitidas apenas pela API Vercel após autorização no servidor.
   const res = await fetch('/api/partituras/signed-url', {
     method: 'POST',
     headers,
@@ -258,6 +247,20 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Preview may intentionally run without a privileged Vercel service key.
+    // Supabase Storage RLS must independently authorize BOTH free and paid PDFs.
+    // Only fall back when the backend explicitly lacks configuration; never bypass
+    // a 401/403/404 result or an entitlement verification failure.
+    if (res.status === 503 && json.error === 'storage_unconfigured') {
+      if (!partitura.storage_path) throw new Error('Esta partitura ainda não possui PDF publicado.');
+      const { data: signed, error: storageError } = await supabase.storage
+        .from('tutti-partituras')
+        .createSignedUrl(partitura.storage_path, isPaid ? 120 : 300);
+      if (storageError || !signed?.signedUrl) {
+        throw new Error('Acesso ao PDF negado ou arquivo indisponível.');
+      }
+      return { url: signed.signedUrl, protected: isPaid };
+    }
     throw new Error(json.error || 'Acesso negado a esta partitura.');
   }
 
@@ -265,36 +268,49 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
     return { url: json.url, protected: Boolean(json.protected) };
   }
 
-  // Fallback apenas para partitura gratuita já pública
-  if (!isPaid && partitura.arquivo_pdf_url) {
-    return { url: partitura.arquivo_pdf_url, protected: false };
-  }
-
   return { url: null, protected: isPaid };
 }
 
-export async function createPaidSheetCheckout(partituraId: number): Promise<{ url: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('Faça login para adquirir esta partitura.');
-  }
+export async function createPaidSheetCheckout(_partituraId: string): Promise<{ url: string }> {
+  // Tutti sells paid PDFs in bundles, not individual files.
+  // Calling the bundle-only endpoint with partitura_id previously returned a 400.
+  throw new Error('Partituras pagas são adquiridas exclusivamente em conjuntos. Escolha um conjunto na biblioteca.');
+}
 
+export interface DbConjuntoPartituras {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  preco: number;
+  publicado: boolean;
+}
+
+export async function fetchPublishedConjuntos(): Promise<DbConjuntoPartituras[]> {
+  const { data, error } = await supabase.from('conjuntos_partituras')
+    .select('id,titulo,descricao,preco,publicado')
+    .eq('publicado', true)
+    .order('titulo', { ascending: true });
+  if (error) {
+    console.warn('Catálogo de conjuntos indisponível:', error.code);
+    return [];
+  }
+  return (data || []).map(row => ({ ...row, preco: Number(row.preco || 0) }));
+}
+
+export async function createBundleCheckout(conjuntoId: string): Promise<string> {
+  if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
+    throw new Error('A compra de conjuntos de partituras estará disponível em breve.');
+  }
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Entre na sua conta para comprar conjuntos.');
   const res = await fetch('/api/stripe/create-sheet-checkout', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({
-      partitura_id: partituraId,
-      return_url: window.location.origin,
-    }),
+    headers: { 'Content-Type':'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ conjunto_id: conjuntoId }),
   });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.url) {
-    throw new Error(json.error || 'Não foi possível iniciar o pagamento desta partitura.');
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok || typeof result.url !== 'string') {
+    throw new Error(result.error || 'Não foi possível iniciar o pagamento do conjunto.');
   }
-
-  return { url: json.url };
+  return result.url;
 }

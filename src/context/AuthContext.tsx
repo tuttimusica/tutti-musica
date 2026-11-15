@@ -189,17 +189,32 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    * Log Access Events in Supabase (tabela eventos_acesso)
    */
   const registrarEventoAcesso = async (tipo: string, detalhes: any = {}) => {
+    // Access events require a real auth UUID and a role supported by the database.
+    // RLS currently permits admin writes only; do not bypass it from the browser.
     try {
-      await supabase.from('eventos_acesso').insert({
-        user_id: user?.id || 'anonimo',
-        perfil: profile?.role || 'visitante',
+      const { data: { user: authenticatedUser }, error: authError } = await supabase.auth.getUser();
+      if (authError || !authenticatedUser) return;
+
+      const currentRole = profile?.role;
+      const dbRole =
+        currentRole === 'desenvolvedor' ? 'admin' :
+        currentRole === 'professor' ? 'teacher' : 'student';
+
+      const { error: insertError } = await supabase.from('eventos_acesso').insert({
+        user_id: authenticatedUser.id,
+        perfil: dbRole,
         tipo_evento: tipo,
-        detalhes: detalhes,
+        detalhes,
         created_at: new Date().toISOString()
       });
-    } catch (e) {
-      // Non-blocking log
-      console.debug('Log access event notice:', e);
+
+      if (insertError) {
+        // The existing RLS policy may reject non-admin writes. This must be
+        // addressed with a reviewed server-side logging policy, not a service key.
+        console.debug('Access event was not stored:', insertError.code);
+      }
+    } catch (error) {
+      console.debug('Access event logging unavailable:', error);
     }
   };
 
@@ -243,21 +258,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           .select('*')
           .eq('id', authUser.id)
           .maybeSingle(),
-        cleanEmail
-          ? supabase
-              .from('solicitacoes_professores')
-              .select('id, status, instrumento, bio, created_at')
-              .or(`user_id.eq.${authUser.id},email.eq.${cleanEmail}`)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
-          : supabase
-              .from('solicitacoes_professores')
-              .select('id, status, instrumento, bio, created_at')
-              .eq('user_id', authUser.id)
-              .order('created_at', { ascending: false })
-              .limit(1)
-              .maybeSingle()
+        supabase
+          .from('solicitacoes_professores')
+          .select('id, status, instrumento, bio, created_at')
+          .eq('user_id', authUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
       ]);
 
       const usuarioData = !usuarioRes.error ? usuarioRes.data : null;
@@ -277,16 +284,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const rawDbApproval = (dbSource?.approval_status as ApprovalStatus | undefined) || undefined;
         const latestReqStatus = solicitacaoData?.status as ('pendente' | 'aprovado' | 'rejeitado' | undefined);
 
-        if (rawDbRole === 'professor' && (rawDbApproval === 'aprovado' || latestReqStatus === 'aprovado' || !rawDbApproval)) {
-          resolvedRole = 'professor';
-          resolvedApproval = 'aprovado';
-        } else if (rawDbApproval === 'pendente' || latestReqStatus === 'pendente') {
+        // A professor role alone never grants access: explicit approval is required.
+        // A pending/rejected request must not be overridden by stale role data.
+        if (rawDbApproval === 'pendente' || latestReqStatus === 'pendente') {
           // Segurança: enquanto pendente, o usuário permanece com role = 'aluno'
           resolvedRole = 'aluno';
           resolvedApproval = 'pendente';
         } else if (rawDbApproval === 'rejeitado' || latestReqStatus === 'rejeitado') {
           resolvedRole = 'aluno';
           resolvedApproval = 'rejeitado';
+        } else if (rawDbRole === 'professor' && (rawDbApproval === 'aprovado' || latestReqStatus === 'aprovado')) {
+          resolvedRole = 'professor';
+          resolvedApproval = 'aprovado';
         } else {
           resolvedRole = 'aluno';
           resolvedApproval = rawDbApproval || 'aprovado';
@@ -490,6 +499,86 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     };
   }, [user]);
 
+  // Complete teacher signup only after Supabase has established an authenticated session.
+  // This also handles email confirmation and later logins without creating duplicates.
+  useEffect(() => {
+    if (!user?.id || !user.email_confirmed_at) return;
+    if (user.user_metadata?.account_type !== 'teacher') return;
+
+    let cancelled = false;
+    const ensureTeacherRequest = async () => {
+      try {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+        const verifiedUser = authData.user;
+        if (cancelled || authError || !verifiedUser?.id || verifiedUser.id !== user.id ||
+            !verifiedUser.email || !verifiedUser.email_confirmed_at) return;
+
+        const { data: existing, error: lookupError } = await supabase
+          .from('solicitacoes_professores')
+          .select('id, status')
+          .eq('user_id', verifiedUser.id)
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (cancelled) return;
+        if (lookupError) {
+          console.warn('Não foi possível consultar a solicitação de professor:', lookupError.code);
+          return;
+        }
+        // Do not recreate requests that are pending, approved, or rejected.
+        if (existing) return;
+
+        const metadata = verifiedUser.user_metadata || {};
+        const nome = String(metadata.full_name || metadata.display_name ||
+          verifiedUser.email.split('@')[0] || 'Professor Tutti').trim();
+        const instrumento = String(metadata.instrumento || 'Não informado').trim();
+        const { error: insertError } = await supabase
+          .from('solicitacoes_professores')
+          .insert({
+            user_id: verifiedUser.id,
+            nome,
+            email: verifiedUser.email.trim().toLowerCase(),
+            instrumento,
+            bio: String(metadata.bio || '').trim() || null,
+            status: 'pendente'
+          });
+        if (insertError) {
+          // A unique constraint or concurrent request may already have created it.
+          console.warn('Solicitação de professor não registrada:', insertError.code);
+          return;
+        }
+        if (!cancelled) await loadProfile(verifiedUser);
+      } catch (error) {
+        console.warn('Não foi possível concluir a solicitação de professor:', error);
+      }
+    };
+
+    void ensureTeacherRequest();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email_confirmed_at, user?.user_metadata?.account_type]);
+
+  // After a confirmed login, request the welcome email once. The server
+  // validates the JWT and uses durable idempotency to avoid repeated sends.
+  // Signup confirmation itself remains Supabase Auth's responsibility.
+  useEffect(() => {
+    if (!user?.id || !user.email_confirmed_at) return;
+    let cancelled = false;
+    const requestWelcomeEmail = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled || !session?.access_token) return;
+        await fetch('/api/emails/welcome', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+      } catch {
+        // Welcome mail must never block the student's login.
+      }
+    };
+    void requestWelcomeEmail();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email_confirmed_at]);
+
   const loginWithGoogle = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
@@ -567,8 +656,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
 
       if (!res.error && res.data.user) {
-        // A criação em public.usuarios e public.solicitacoes_professores ocorre automaticamente
-        // via trigger on_auth_user_created no backend Supabase (mesmo com session = null).
+        // O backend cria o perfil básico em public.usuarios. A solicitação de professor
+        // exige um fluxo separado após autenticação; não presumir criação automática.
         if (res.data.session) {
           setUser(res.data.user);
           await loadProfile(res.data.user);
@@ -729,33 +818,50 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Solicitar cadastro como professor (com validação anti-duplicidade)
   const solicitarCadastroProfessor = async (nome: string, email: string, instrumento: string, bio?: string) => {
     try {
-      const cleanEmail = email.trim().toLowerCase();
-
-      // Verificar se já existe solicitação pendente
-      const { data: existing } = await supabase
-        .from('solicitacoes_professores')
-        .select('id, status')
-        .eq('email', cleanEmail)
-        .eq('status', 'pendente')
-        .maybeSingle();
-
-      if (existing) {
-        return {
-          error: new Error('Já existe uma solicitação pendente para este e-mail. Aguarde a análise do Desenvolvedor.')
-        };
+      // Supabase Auth is authoritative; React state may still be null immediately after login.
+      const { data: authData, error: authError } = await supabase.auth.getUser();
+      const currentUser = authData.user;
+      if (authError || !currentUser?.id || !currentUser.email || !currentUser.email_confirmed_at) {
+        return { error: new Error('Confirme seu e-mail e entre na sua conta antes de solicitar o cadastro como professor.') };
       }
 
-      const res = await supabase.from('solicitacoes_professores').insert({
-        user_id: user?.id || 'anonimo',
-        nome,
+      const cleanEmail = currentUser.email.trim().toLowerCase();
+      if (email.trim().toLowerCase() !== cleanEmail) {
+        return { error: new Error('A solicitação deve usar o e-mail da conta autenticada.') };
+      }
+      if (!nome.trim() || !instrumento.trim()) {
+        return { error: new Error('Informe seu nome e instrumento para solicitar o cadastro como professor.') };
+      }
+
+      // Only inspect the authenticated user's own requests; never rely on an email-only lookup.
+      const { data: existing, error: lookupError } = await supabase
+        .from('solicitacoes_professores')
+        .select('id, status')
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (lookupError) return { error: lookupError };
+      if (existing?.status === 'pendente') {
+        return { error: new Error('Já existe uma solicitação pendente. Aguarde a análise do Desenvolvedor.') };
+      }
+      if (existing?.status === 'aprovado') {
+        return { error: new Error('Sua solicitação de professor já foi aprovada.') };
+      }
+
+      const { error: insertError } = await supabase.from('solicitacoes_professores').insert({
+        user_id: currentUser.id,
+        nome: nome.trim(),
         email: cleanEmail,
-        instrumento,
-        bio,
-        status: 'pendente',
-        created_at: new Date().toISOString()
+        instrumento: instrumento.trim(),
+        bio: bio?.trim() || null,
+        status: 'pendente'
       });
-      await registrarEventoAcesso('solicitacao_professor_criada', { email: cleanEmail, instrumento });
-      return { error: res.error };
+      if (insertError) return { error: insertError };
+
+      await registrarEventoAcesso('solicitacao_professor_criada', { instrumento: instrumento.trim() });
+      return { error: null };
     } catch (error) {
       return { error };
     }
@@ -768,8 +874,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: rpcErr } = await supabase.rpc('aprovar_professor_rpc', {
-        p_solicitacao_id: solicitacaoId
+      const { data, error: rpcErr } = await supabase.rpc('tutti_decidir_solicitacao_professor', {
+        p_solicitacao_id: solicitacaoId,
+        p_aprovar: true
       });
 
       if (rpcErr) {
@@ -790,8 +897,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data, error: rpcErr } = await supabase.rpc('rejeitar_professor_rpc', {
-        p_solicitacao_id: solicitacaoId
+      const { data, error: rpcErr } = await supabase.rpc('tutti_decidir_solicitacao_professor', {
+        p_solicitacao_id: solicitacaoId,
+        p_aprovar: false
       });
 
       if (rpcErr) {
@@ -808,6 +916,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Criar marcação de aula com verificação de conflito
   const criarMarcacaoAula = async (marcacao: Omit<LessonBooking, 'id' | 'created_at'>) => {
     try {
+      // Teacher-initiated bookings must resolve a real, confirmed student and
+      // verify paid Ultra entitlement at the scheduled lesson time in the database.
+      if (profile?.role === 'professor') {
+        const { data, error } = await supabase.rpc('tutti_teacher_book_student', {
+          p_student_email: marcacao.aluno_email,
+          p_date: marcacao.data_aula,
+          p_start: marcacao.hora_inicio,
+          p_notes: marcacao.observacoes || null,
+          p_phone: marcacao.aluno_telefone || null,
+        });
+        if (error) return { error, data: null };
+        if (!data) return { error: new Error('O agendamento não foi confirmado.'), data: null };
+        return { error: null, data };
+      }
+      // Student bookings must identify both participants; the database verifies
+      // the student's own JWT and paid access before writing anything.
+      if (!user?.id || !marcacao.professor_id) {
+        return { error: new Error('Aluno ou professor não identificado.'), data: null };
+      }
       // 1. Verificar conflito de horário para o mesmo professor no mesmo dia/hora
       const { data: conflitos } = await supabase
         .from('marcacoes_aulas')
@@ -826,13 +953,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 2. Inserir marcação
       const payload = {
         ...marcacao,
+        aluno_id: user.id,
+        duracao_minutos: 60,
         status: 'agendada',
-        link_meet: marcacao.link_meet || `https://meet.google.com/tut-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`,
+        // Never fabricate Google Meet links: only a real, provisioned URL may be stored.
+        link_meet: marcacao.link_meet || null,
         created_at: new Date().toISOString()
       };
 
       const res = await supabase.from('marcacoes_aulas').insert(payload).select().single();
-      await registrarEventoAcesso('aula_marcada', { aluno: marcacao.aluno_nome, professor: marcacao.professor_nome, data: marcacao.data_aula });
+      if (!res.error) await registrarEventoAcesso('aula_marcada', { aluno: marcacao.aluno_nome, professor: marcacao.professor_nome, data: marcacao.data_aula });
       return { error: res.error, data: res.data };
     } catch (error) {
       return { error };
@@ -842,12 +972,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Cancelar marcação de aula
   const cancelarMarcacaoAula = async (marcacaoId: string) => {
     try {
-      const res = await supabase
+      if (profile?.role === 'professor') {
+        const { data, error } = await supabase.rpc('tutti_teacher_cancel_booking', { p_booking_id: marcacaoId });
+        return { error: error || (data === true ? null : new Error('Aula não encontrada ou sem permissão para cancelar.')) };
+      }
+      const { data, error } = await supabase
         .from('marcacoes_aulas')
         .update({ status: 'cancelada' })
-        .eq('id', marcacaoId);
-      await registrarEventoAcesso('aula_cancelada', { marcacaoId });
-      return { error: res.error };
+        .eq('id', marcacaoId)
+        .select('id');
+      if (!error && data?.length !== 1) {
+        return { error: new Error('Aula não encontrada ou sem permissão para cancelar.') };
+      }
+      return { error };
     } catch (error) {
       return { error };
     }

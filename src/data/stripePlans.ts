@@ -1,10 +1,10 @@
 /**
  * Tutti Escola de Música — Configuração Oficial dos Planos Stripe
  * 
- * IDs dos Produtos Stripe cadastrados na conta da Tutti:
- * - Mensal: prod_Vb7a4cZFfk1zKO (R$ 299,90/mês)
- * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90/trimestre)
- * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90/semestre)
+ * IDs de produtos existentes na conta Stripe de testes; seus preços atuais são recorrentes e NÃO devem ser usados no checkout novo:
+ * - Mensal: prod_Vb7a4cZFfk1zKO (R$ 299,90 por mês de acesso, renovação manual)
+ * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90 por 3 meses de acesso, pagamento único)
+ * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90 por 6 meses de acesso, pagamento único)
  */
 
 export interface TuttiStripePlan {
@@ -30,7 +30,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Maior Indicação',
     priceFormatted: 'R$ 299,90',
     periodLabel: '/mês',
-    billingSubtitle: 'COBRANÇA MENSAL',
+    billingSubtitle: 'PAGAMENTO ANTECIPADO • RENOVAÇÃO MANUAL, SEM COBRANÇA AUTOMÁTICA',
     amountCents: 29990,
     stripeProductId: 'prod_Vb7a4cZFfk1zKO',
     features: [
@@ -55,7 +55,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Trimestral Exclusivo',
     priceFormatted: 'R$ 799,90',
     periodLabel: '/trimestre',
-    billingSubtitle: 'COBRANÇA TRIMESTRAL • ACOMPANHAMENTO VIP COM PROFESSORES',
+    billingSubtitle: 'PAGAMENTO ÚNICO • 3 MESES DE ACESSO • SEM RENOVAÇÃO AUTOMÁTICA',
     amountCents: 79990,
     stripeProductId: 'prod_Vb7bFGhgGPvHtW',
     features: [
@@ -77,7 +77,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Semestral Exclusivo',
     priceFormatted: 'R$ 1.649,90',
     periodLabel: '/semestre',
-    billingSubtitle: 'COBRANÇA SEMESTRAL • FORMAÇÃO COMPLETA COM MAESTROS E PROFESSORES',
+    billingSubtitle: 'PAGAMENTO ÚNICO • 6 MESES DE ACESSO • SEM RENOVAÇÃO AUTOMÁTICA',
     amountCents: 164990,
     stripeProductId: 'prod_Vb7e0rGvV0Hqhf',
     features: [

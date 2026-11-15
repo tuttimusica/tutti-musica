@@ -1,0 +1,40 @@
+-- REVIEW-ONLY DRAFT. DO NOT RUN ON PRODUCTION WITHOUT BACKUP, STAGING TESTS, AND EXPLICIT APPROVAL.
+-- Issue: private.tutti_is_admin() checks authorized email, but private.is_admin()
+-- checks usuarios.role='admin'. The approval RPC updates usuarios.role and invokes
+-- private.protect_user_role(), which calls private.is_admin(). With zero admin
+-- usuarios rows, a legitimate developer cannot approve teachers.
+--
+-- Proposed change: unify private.is_admin() with the authoritative allowlist,
+-- bound to the authenticated user's UUID AND confirmed email in auth.users.
+-- No client-supplied role, user metadata, or email is trusted.
+-- Important: audit all callers of private.is_admin() before applying: this
+-- function also controls existing RLS policies in other tables.
+--
+-- STAGING ONLY:
+CREATE OR REPLACE FUNCTION private.is_admin()
+RETURNS boolean
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path TO ''
+AS $$
+  SELECT EXISTS (
+    SELECT 1
+    FROM auth.users AS au
+    JOIN public.administradores_autorizados AS aa
+      ON lower(btrim(aa.email)) = lower(btrim(au.email))
+    WHERE au.id = (SELECT auth.uid())
+      AND au.email_confirmed_at IS NOT NULL
+  );
+$$;
+
+-- Recommended hardening in the same reviewed migration:
+-- 1. Align private.tutti_is_admin() to private.is_admin() to prevent divergence.
+-- 2. Confirm private.protect_user_role() also protects approval_status, user_id.
+-- 3. Review profiles.role UPDATE RLS permissive-policy OR behavior.
+-- 4. Confirm RLS exposure of public.usuarios, notifications and events.
+-- 5. Test approval and rejection with real staging accounts, including nonadmins.
+--
+-- Rollback: restore the original private.is_admin() definition from the backup
+-- (which checks public.usuarios.role='admin'); do not use this draft as a
+-- production migration or automatically apply it via a migrations directory.

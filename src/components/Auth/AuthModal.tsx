@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
+import { SUPABASE_URL } from '../../lib/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -45,7 +46,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ isOpen, onClose }) => {
   const translateAuthError = (err: any): string => {
     const msg = err?.message || err?.error_description || String(err || '');
     if (msg.includes('redirect_uri_mismatch')) {
-      return 'Erro 400 (redirect_uri_mismatch): A URL de redirecionamento no Google Cloud Console deve ser exatamente: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback';
+      return `Erro 400 (redirect_uri_mismatch): A URL de redirecionamento no Google Cloud Console deve ser exatamente: ${SUPABASE_URL}/auth/v1/callback`;
     }
     if (msg.includes('deleted_client') || msg.includes('client was deleted')) {
       return 'O Cliente OAuth do Google configurado no Supabase foi excluído no Google Cloud. É necessário cadastrar um novo Client ID.';

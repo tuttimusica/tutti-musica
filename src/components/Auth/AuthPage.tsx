@@ -24,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
-import { supabase } from '../../lib/supabase';
+import { supabase, SUPABASE_URL } from '../../lib/supabase';
 
 export const AuthPage: React.FC = () => {
   const {
@@ -124,7 +124,7 @@ export const AuthPage: React.FC = () => {
             setErrorMsg('O provedor Google ainda não está habilitado no painel do Supabase. Utilize o login convencional.');
           } else if (combined.includes('redirect_uri_mismatch')) {
             setOauthDiagnosticInfo(
-              'A URL de redirecionamento autorizada não coincide com a cadastrada no Google Cloud Console. A URL obrigatória é: https://viwxalwpvuvgcyxsdjbi.supabase.co/auth/v1/callback'
+              `A URL de redirecionamento autorizada não coincide com a cadastrada no Google Cloud Console. A URL obrigatória é: ${SUPABASE_URL}/auth/v1/callback`
             );
             setErrorMsg('Erro de configuração de URL no Google OAuth.');
           } else if (combined.includes('expired') || combined.includes('otp_expired') || combined.includes('invalid')) {

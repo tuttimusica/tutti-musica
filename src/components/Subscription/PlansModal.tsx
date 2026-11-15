@@ -46,8 +46,8 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'pro',
     nome: 'Pro',
-    descricao: 'Pagamento único e acesso vitalício à biblioteca completa e aulas.',
-    preco: 49.9,
+    descricao: 'Pagamento único de R$ 19,90 e acesso vitalício aos recursos digitais Pro; aulas particulares exigem um plano Ultra válido.',
+    preco: 19.9,
     recorrencia: 'vitalicio',
     beneficios: [
       'Acesso completo às aulas gravadas e trilha prática',
@@ -62,7 +62,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'mensal',
     nome: 'Ultra Mensal',
-    descricao: 'Cobrança mensal com aulas individuais ao vivo e acompanhamento VIP.',
+    descricao: 'Pagamento antecipado por um mês de aulas individuais e acompanhamento VIP. Renovação opcional, sem cobrança automática.',
     preco: 299.9,
     recorrencia: 'mensal',
     beneficios: [
@@ -126,23 +126,25 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
         .from('planos')
         .select('*')
         .eq('ativo', true)
-        .order('ordem', { ascending: true });
+        .order('id', { ascending: true });
 
       if (!error && data && data.length > 0) {
         const mapped: DbPlano[] = data.map((row: any) => ({
           id: String(row.id),
           nome: row.nome,
           descricao: row.descricao || '',
-          preco: Number(row.preco || 0),
+          preco: ({ pro: 19.9, mensal: 299.9, trimestral: 799.9, semestral: 1649.9 } as Record<string, number>)[row.id] ?? Number(row.preco_centavos || 0) / 100,
           moeda: row.moeda || 'BRL',
-          recorrencia: (row.recorrencia || 'mensal').toLowerCase(),
+          recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' || row.id === 'ultra_trimestral' ? 'trimestral' : row.id === 'semestral' || row.id === 'ultra_semestral' ? 'semestral' : 'mensal'),
           beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
           stripe_product_id: row.stripe_product_id || null,
           stripe_price_id: row.stripe_price_id || null,
-          ordem: Number(row.ordem ?? 0),
+          ordem: Number(FALLBACK_PLANS.find(p => p.id === row.id)?.ordem ?? 99),
           ativo: Boolean(row.ativo),
         }));
-        setPlans(mapped);
+        // Keep unseeded plans visible; server validates all amounts independently.
+        const ids = new Set(mapped.map(p => p.id));
+        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped.filter(p => ['free', 'pro', 'mensal', 'trimestral', 'semestral'].includes(p.id))]);
       } else {
         setPlans(FALLBACK_PLANS);
       }
@@ -184,6 +186,10 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleInitiateStripeCheckout = async (planoId: string) => {
+    if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
+      showToast('Os planos pagos ainda não estão disponíveis para contratação. Explore os recursos gratuitos.');
+      return;
+    }
     if (!user) {
       showToast('Por favor, faça login ou cadastre-se na Tutti antes de contratar um plano.');
       onClose();

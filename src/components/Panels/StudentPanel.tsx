@@ -34,7 +34,10 @@ import {
   fetchPublishedPartituras,
   fetchUnlockedPartituraIds,
   resolvePartituraPdfUrl,
-  createPaidSheetCheckout
+  createPaidSheetCheckout,
+  DbConjuntoPartituras,
+  fetchPublishedConjuntos,
+  createBundleCheckout
 } from '../../services/partiturasService';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { SheetMusic } from '../../data/musicData';
@@ -60,8 +63,9 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const [searchPartituras, setSearchPartituras] = useState('');
   const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
   const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
-  const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<number>>(new Set());
-  const [openingSheetId, setOpeningSheetId] = useState<number | null>(null);
+  const [sheetBundles, setSheetBundles] = useState<DbConjuntoPartituras[]>([]);
+  const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<string>>(new Set());
+  const [openingSheetId, setOpeningSheetId] = useState<string | null>(null);
   const [activeViewer, setActiveViewer] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -74,6 +78,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       ]);
       setStudyMaterials(sheets);
       setUnlockedSheetIds(unlocked);
+      setSheetBundles(await fetchPublishedConjuntos());
     } catch (e) {
       console.debug('Erro ao carregar partituras no painel do aluno:', e);
     }
@@ -89,7 +94,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
           const { data: bookingsData } = await supabase
             .from('marcacoes_aulas')
             .select('*')
-            .or(`aluno_email.eq.${user.email},aluno_id.eq.${user.id}`)
+            .eq('aluno_id', user.id)
             .order('data_aula', { ascending: true });
 
           if (bookingsData) {
@@ -100,37 +105,20 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
         // 2. Real study materials & unlocked paid sheets
         await loadPartiturasAndAccess();
 
-        // 3. Real approved teachers
-        const { data: teachersData } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('role', 'teacher')
-          .eq('approval_status', 'aprovado');
-
-        if (teachersData && teachersData.length > 0) {
-          setTeachers(teachersData.map((t: any) => ({
-            name: t.nome || t.displayName || t.email?.split('@')[0] || 'Professor Tutti',
-            instrument: t.instrumento || t.current_instrument || 'Diversos Instrumentos',
-            bio: t.bio || 'Professor integrante do corpo docente oficial da Escola Tutti de Música.',
-            rating: '5.0',
-            avatar: t.photo_url || t.photoURL
-          })));
+        // 3. Read only curated public fields of approved teachers.
+        // Student must not query other users' private profiles or applications.
+        const { data: teachersData, error: teachersError } = await supabase.rpc('tutti_list_professores');
+        if (teachersError) {
+          console.warn('Diretório de professores indisponível:', teachersError.code);
+          setTeachers([]);
         } else {
-          const { data: solData } = await supabase
-            .from('solicitacoes_professores')
-            .select('*')
-            .eq('status', 'aprovado');
-
-          if (solData && solData.length > 0) {
-            setTeachers(solData.map((s: any) => ({
-              name: s.nome,
-              instrument: s.instrumento,
-              bio: s.bio || 'Professor credenciado pela Escola Tutti de Música.',
-              rating: '5.0'
-            })));
-          } else {
-            setTeachers([]);
-          }
+          setTeachers((teachersData || []).map((t: any) => ({
+            id: t.user_id,
+            name: t.nome_completo || 'Professor Tutti',
+            instrument: t.current_instrument || 'Diversos Instrumentos',
+            bio: t.bio || 'Professor credenciado pela Tutti.',
+            avatar: t.avatar_url || undefined
+          })));
         }
       } catch (e) {
         console.debug('Erro ao carregar dados do aluno no Supabase:', e);
@@ -156,7 +144,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   }, [user?.email, user?.id, loadPartiturasAndAccess]);
 
   const toSheetMusic = (item: DbPartitura): SheetMusic => ({
-    id: Number(item.id),
+    id: item.id,
     title: item.titulo,
     composer: item.compositor || 'Compositor Tutti',
     instrument: item.instrumento || 'Instrumento Tutti',
@@ -199,7 +187,6 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const handleBuyPaidPartitura = async (item: DbPartitura) => {
     try {
       setOpeningSheetId(item.id);
-      showToast('Iniciando pagamento seguro via Stripe...');
       const { url } = await createPaidSheetCheckout(item.id);
       window.location.href = url;
     } catch (err: any) {
@@ -685,6 +672,31 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   </div>
                 </div>
               </div>
+
+              {sheetBundles.length > 0 && (
+                <section className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-amber-300">Conjuntos de Partituras</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {sheetBundles.map(bundle => (
+                      <div key={bundle.id} className="rounded-xl bg-black/20 p-4 border border-white/10">
+                        <h4 className="font-semibold text-white">{bundle.titulo}</h4>
+                        <p className="text-xs text-slate-400 mt-1">{bundle.descricao || 'Coleção Tutti'}</p>
+                        <button type="button" className="mt-3 px-3 py-2 rounded-lg bg-amber-500 text-black text-xs font-bold"
+                          onClick={async () => {
+                            try {
+                              const url = await createBundleCheckout(bundle.id);
+                              window.location.assign(url);
+                            } catch (err: any) {
+                              showToast(err?.message || 'Pagamento indisponível.');
+                            }
+                          }}>
+                          Adquirir conjunto • R$ {bundle.preco.toFixed(2).replace('.', ',')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {(() => {
                 const term = searchPartituras.trim().toLowerCase();
