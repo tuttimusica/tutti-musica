@@ -126,23 +126,25 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
         .from('planos')
         .select('*')
         .eq('ativo', true)
-        .order('ordem', { ascending: true });
+        .order('id', { ascending: true });
 
       if (!error && data && data.length > 0) {
         const mapped: DbPlano[] = data.map((row: any) => ({
           id: String(row.id),
           nome: row.nome,
           descricao: row.descricao || '',
-          preco: Number(row.preco || 0),
+          preco: Number(row.preco_centavos || 0) / 100,
           moeda: row.moeda || 'BRL',
           recorrencia: (row.recorrencia || 'mensal').toLowerCase(),
           beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
           stripe_product_id: row.stripe_product_id || null,
           stripe_price_id: row.stripe_price_id || null,
-          ordem: Number(row.ordem ?? 0),
+          ordem: Number(FALLBACK_PLANS.find(p => p.id === row.id)?.ordem ?? 99),
           ativo: Boolean(row.ativo),
         }));
-        setPlans(mapped);
+        // Keep unseeded plans visible; server validates all amounts independently.
+        const ids = new Set(mapped.map(p => p.id));
+        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped]);
       } else {
         setPlans(FALLBACK_PLANS);
       }
