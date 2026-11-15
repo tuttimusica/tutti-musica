@@ -7,12 +7,15 @@ export default async function handler(req, res) {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method !== 'POST') { res.setHeader('Allow','POST'); return send(res,405,{error:'method_not_allowed'}); }
+  // Sheet checkout is disabled in production until the complete refund flow is validated.
+  if (process.env.TUTTI_PAYMENT_TEST_MODE !== 'true' || process.env.VERCEL_ENV === 'production')
+    return send(res,503,{error:'test_checkout_disabled'});
   const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '')?.[1];
   if (!token) return send(res,401,{error:'unauthorized'});
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const secret = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-  if (!url || !anonKey || !secret || !process.env.STRIPE_SECRET_KEY) return send(res,503,{error:'checkout_unconfigured'});
+  if (!url || !anonKey || !secret || !process.env.STRIPE_SECRET_KEY?.startsWith('sk_test_')) return send(res,503,{error:'checkout_unconfigured'});
   const id = req.body?.conjunto_id;
   if (typeof id !== 'string' || !uuidPattern.test(id)) return send(res,400,{error:'conjunto_id_invalido'});
   try {
@@ -32,7 +35,8 @@ export default async function handler(req, res) {
     if (existing?.length) return send(res,409,{error:'bundle_already_owned'});
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
     // Never accept a client-provided redirect origin.
-    const origin = process.env.TUTTI_PUBLIC_ORIGIN || 'https://tutti-musica.vercel.app';
+    const origin = process.env.TUTTI_TEST_ORIGIN;
+    if (!origin?.startsWith('https://')) return send(res,503,{error:'test_origin_unconfigured'});
     const session = await stripe.checkout.sessions.create({
       mode:'payment', customer_email:user.email,
       line_items:[{price_data:{currency:'brl',product_data:{name:bundle.titulo,description:bundle.descricao || 'Conjunto de partituras Tutti'},unit_amount:cents},quantity:1}],
