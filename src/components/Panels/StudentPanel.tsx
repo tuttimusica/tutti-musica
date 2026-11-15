@@ -34,7 +34,10 @@ import {
   fetchPublishedPartituras,
   fetchUnlockedPartituraIds,
   resolvePartituraPdfUrl,
-  createPaidSheetCheckout
+  createPaidSheetCheckout,
+  DbConjuntoPartituras,
+  fetchPublishedConjuntos,
+  createBundleCheckout
 } from '../../services/partiturasService';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { SheetMusic } from '../../data/musicData';
@@ -60,6 +63,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const [searchPartituras, setSearchPartituras] = useState('');
   const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
   const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
+  const [sheetBundles, setSheetBundles] = useState<DbConjuntoPartituras[]>([]);
   const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<string>>(new Set());
   const [openingSheetId, setOpeningSheetId] = useState<string | null>(null);
   const [activeViewer, setActiveViewer] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
@@ -74,6 +78,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       ]);
       setStudyMaterials(sheets);
       setUnlockedSheetIds(unlocked);
+      setSheetBundles(await fetchPublishedConjuntos());
     } catch (e) {
       console.debug('Erro ao carregar partituras no painel do aluno:', e);
     }
@@ -685,6 +690,31 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   </div>
                 </div>
               </div>
+
+              {sheetBundles.length > 0 && (
+                <section className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-5 space-y-3">
+                  <h3 className="text-sm font-bold text-amber-300">Conjuntos de Partituras</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    {sheetBundles.map(bundle => (
+                      <div key={bundle.id} className="rounded-xl bg-black/20 p-4 border border-white/10">
+                        <h4 className="font-semibold text-white">{bundle.titulo}</h4>
+                        <p className="text-xs text-slate-400 mt-1">{bundle.descricao || 'Coleção Tutti'}</p>
+                        <button type="button" className="mt-3 px-3 py-2 rounded-lg bg-amber-500 text-black text-xs font-bold"
+                          onClick={async () => {
+                            try {
+                              const url = await createBundleCheckout(bundle.id);
+                              window.location.assign(url);
+                            } catch (err: any) {
+                              showToast(err?.message || 'Pagamento indisponível.');
+                            }
+                          }}>
+                          Adquirir conjunto • R$ {bundle.preco.toFixed(2).replace('.', ',')}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              )}
 
               {(() => {
                 const term = searchPartituras.trim().toLowerCase();
