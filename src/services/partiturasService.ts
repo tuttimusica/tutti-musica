@@ -282,3 +282,38 @@ export async function createPaidSheetCheckout(partituraId: string): Promise<{ ur
 
   return { url: json.url };
 }
+
+export interface DbConjuntoPartituras {
+  id: string;
+  titulo: string;
+  descricao: string | null;
+  preco: number;
+  publicado: boolean;
+}
+
+export async function fetchPublishedConjuntos(): Promise<DbConjuntoPartituras[]> {
+  const { data, error } = await supabase.from('conjuntos_partituras')
+    .select('id,titulo,descricao,preco,publicado')
+    .eq('publicado', true)
+    .order('titulo', { ascending: true });
+  if (error) {
+    console.warn('Catálogo de conjuntos indisponível:', error.code);
+    return [];
+  }
+  return (data || []).map(row => ({ ...row, preco: Number(row.preco || 0) }));
+}
+
+export async function createBundleCheckout(conjuntoId: string): Promise<string> {
+  const { data: { session } } = await supabase.auth.getSession();
+  if (!session?.access_token) throw new Error('Entre na sua conta para comprar conjuntos.');
+  const res = await fetch('/api/stripe/create-sheet-checkout', {
+    method: 'POST',
+    headers: { 'Content-Type':'application/json', Authorization: `Bearer ${session.access_token}` },
+    body: JSON.stringify({ conjunto_id: conjuntoId }),
+  });
+  const result = await res.json().catch(() => ({}));
+  if (!res.ok || typeof result.url !== 'string') {
+    throw new Error(result.error || 'Não foi possível iniciar o pagamento do conjunto.');
+  }
+  return result.url;
+}
