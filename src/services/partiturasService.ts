@@ -104,7 +104,7 @@ export function normalizeDbPartitura(row: any): DbPartitura {
     storage_path: row.storage_path || null,
     is_featured: Boolean(row.is_featured),
     featured_order: Number(row.featured_order ?? 0),
-    file_size_bytes: Number(row.file_size_bytes ?? 0),
+    file_size_bytes: Number(row.tamanho_bytes ?? row.file_size_bytes ?? 0),
     categoria: row.categoria === 'paga' ? 'paga' : 'gratuita',
     preco: Number(row.preco ?? 0),
     publicado: row.publicado !== false,
@@ -114,7 +114,7 @@ export function normalizeDbPartitura(row: any): DbPartitura {
     visualizacoes: Number(row.visualizacoes ?? 0),
     downloads: Number(row.downloads ?? 0),
     created_at: row.created_at,
-    created_by: row.created_by || null,
+    created_by: row.enviado_por || row.created_by || null,
   };
 }
 
@@ -247,6 +247,20 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 
   const json = await res.json().catch(() => ({}));
   if (!res.ok) {
+    // Preview may intentionally run without a privileged Vercel service key.
+    // Supabase Storage RLS must independently authorize BOTH free and paid PDFs.
+    // Only fall back when the backend explicitly lacks configuration; never bypass
+    // a 401/403/404 result or an entitlement verification failure.
+    if (res.status === 503 && json.error === 'storage_unconfigured') {
+      if (!partitura.storage_path) throw new Error('Esta partitura ainda não possui PDF publicado.');
+      const { data: signed, error: storageError } = await supabase.storage
+        .from('tutti-partituras')
+        .createSignedUrl(partitura.storage_path, isPaid ? 120 : 300);
+      if (storageError || !signed?.signedUrl) {
+        throw new Error('Acesso ao PDF negado ou arquivo indisponível.');
+      }
+      return { url: signed.signedUrl, protected: isPaid };
+    }
     throw new Error(json.error || 'Acesso negado a esta partitura.');
   }
 
