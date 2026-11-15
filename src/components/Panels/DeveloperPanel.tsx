@@ -674,6 +674,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       showToast('Selecione um arquivo PDF no seu computador.');
       return;
     }
+    if (editingSheet && !selectedPdfFile && editingSheet.categoria !== formCategory && !editingSheet.storagePath) {
+      const message = 'Selecione um PDF para mudar a categoria: a partitura atual não possui arquivo armazenado para transferência.';
+      setSheetFormError(message);
+      showToast(message);
+      return;
+    }
     if (selectedPdfFile) {
       const isPdf =
         selectedPdfFile.type === 'application/pdf' ||
