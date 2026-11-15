@@ -46,8 +46,8 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'pro',
     nome: 'Pro',
-    descricao: 'Pagamento único e acesso vitalício à biblioteca completa e aulas.',
-    preco: 49.9,
+    descricao: 'Pagamento único de R$ 19,90 e acesso vitalício aos recursos digitais Pro; aulas particulares exigem um plano Ultra válido.',
+    preco: 19.9,
     recorrencia: 'vitalicio',
     beneficios: [
       'Acesso completo às aulas gravadas e trilha prática',
@@ -62,7 +62,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'mensal',
     nome: 'Ultra Mensal',
-    descricao: 'Cobrança mensal com aulas individuais ao vivo e acompanhamento VIP.',
+    descricao: 'Pagamento antecipado por um mês de aulas individuais e acompanhamento VIP. Renovação opcional, sem cobrança automática.',
     preco: 299.9,
     recorrencia: 'mensal',
     beneficios: [
