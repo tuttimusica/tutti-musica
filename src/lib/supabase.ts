@@ -5,7 +5,7 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 function requiredSupabaseUrl(raw: unknown): string {
   if (typeof raw !== 'string' || !raw.trim()) throw new Error('SUPABASE_URL_NOT_CONFIGURED');
   const parsed = new URL(raw.trim());
-  if (parsed.protocol !== 'https:' || !/^[a-z0-9-]+\\.supabase\\.co$/i.test(parsed.hostname) || parsed.pathname !== '/') {
+  if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.supabase.co') || parsed.hostname.split('.').length !== 3 || parsed.pathname !== '/') {
     throw new Error('SUPABASE_URL_INVALID');
   }
   return parsed.origin;
