@@ -24,6 +24,8 @@ create table if not exists tutti_private.plan_checkout_grants (
   amount_cents integer not null check (amount_cents > 0),
   granted_at timestamptz not null default now(),
   access_until timestamptz,
+  revoked_at timestamptz,
+  revocation_reason text,
   check ((plano_id = 'pro' and access_until is null) or (plano_id <> 'pro' and access_until is not null))
 );
 
@@ -75,9 +77,9 @@ begin
 
   if v_months is not null then
     select max(data_fim) into v_existing_end
-      from public.assinaturas_usuarios
+      from tutti_private.plan_checkout_grants
       where user_id = p_user_id and plano_id in ('mensal','trimestral','semestral')
-        and status = 'ativo' and data_fim > p_paid_at;
+        and revoked_at is null and access_until > p_paid_at;
     v_start := greatest(p_paid_at, coalesce(v_existing_end,p_paid_at));
     v_end := v_start + make_interval(months => v_months);
   end if;
@@ -96,8 +98,35 @@ $$;
 revoke all on function public.tutti_apply_paid_plan(text,text,uuid,text,integer,timestamptz) from public, anon, authenticated;
 grant execute on function public.tutti_apply_paid_plan(text,text,uuid,text,integer,timestamptz) to service_role;
 
+-- A payment reversal must set revoked_at before access checks can be production-safe.
+-- Only a verified Stripe reversal event, processed by service_role, may call this RPC.
+create or replace function public.tutti_revoke_paid_plan(
+  p_session_id text, p_reason text
+) returns boolean
+language plpgsql security definer set search_path = ''
+as $
+declare v_user uuid;
+begin
+  if p_session_id is null or p_session_id !~ '^cs_' or
+     p_reason not in ('refunded','disputed','chargeback') then
+    raise exception 'invalid_reversal';
+  end if;
+  update tutti_private.plan_checkout_grants
+  set revoked_at = now(), revocation_reason = p_reason
+  where stripe_session_id = p_session_id and revoked_at is null
+  returning user_id into v_user;
+  if v_user is null then return false; end if;
+  update public.assinaturas_usuarios
+  set status = 'cancelado', updated_at = now()
+  where stripe_checkout_session_id = p_session_id and status = 'ativo';
+  return true;
+end;
+$;
+revoke all on function public.tutti_revoke_paid_plan(text,text) from public, anon, authenticated;
+grant execute on function public.tutti_revoke_paid_plan(text,text) to service_role;
+
 -- A separate review is required before rollout:
 -- 1. Existing plans/RLS may rely on different columns or uniqueness constraints; legacy IDs ultra_trimestral/ultra_semestral require reconciliation.
--- 2. Implement refunds/chargebacks, and enforce access by checking unexpired grants.
+-- 2. Wire verified Stripe refunds/chargebacks to the revocation RPC; do not enable checkout until this is done. Partial refunds and disputes require explicit policy.
 -- 3. Audit existing policies on marcacoes_aulas and professor visibility.
 -- 4. Grant the service_role access to the private schema/table as needed by the function owner.
