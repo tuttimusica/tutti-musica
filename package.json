@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test:api": "node --test tests/api-security.test.mjs"
+    "test:api": "node --test tests/*.test.mjs"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
