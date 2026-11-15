@@ -7,6 +7,8 @@ import teacherRequests from '../api/admin/teacher-requests.js';
 import signedSheetUrl from '../api/partituras/signed-url.js';
 import sheetCheckout from '../api/stripe/create-sheet-checkout.js';
 import sheetsWebhook from '../api/stripe/sheets-webhook.js';
+import planCheckout from '../api/stripe/create-plan-checkout.js';
+import plansWebhook from '../api/stripe/plans-webhook.js';
 
 function invoke(handler, { method = 'GET', authorization } = {}) {
   const headers = {};
@@ -83,9 +85,28 @@ test('sheet PDF signing rejects GET', async () => {
   const result = await invoke(signedSheetUrl);
   assert.equal(result.status, 405);
 });
-test('bundle checkout requires login', async () => {
+test('bundle checkout is disabled when test-payment gate is off', async () => {
   const result = await invoke(sheetCheckout, { method: 'POST' });
-  assert.equal(result.status, 401);
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, 'test_checkout_disabled');
+});
+
+test('plan checkout is disabled when test-payment gate is off', async () => {
+  const result = await invoke(planCheckout, { method: 'POST' });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, 'test_checkout_disabled');
+});
+
+test('plans webhook is disabled when test-payment gate is off', async () => {
+  const result = await invoke(plansWebhook, { method: 'POST' });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, 'test_webhook_disabled');
+});
+
+test('sheets webhook is disabled when test-payment gate is off', async () => {
+  const result = await invoke(sheetsWebhook, { method: 'POST' });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, 'test_webhook_disabled');
 });
 test('bundle checkout rejects GET', async () => {
   const result = await invoke(sheetCheckout);
