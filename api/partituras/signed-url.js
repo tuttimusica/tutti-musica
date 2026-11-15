@@ -15,6 +15,12 @@ export default async function handler(req, res) {
     return send(res, 400, { error: 'partitura_id inválido' });
   }
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  // Security boundary: the backend must never query a different Supabase project
+  // from the frontend build. Fail closed instead of crossing production/staging.
+  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL)
+    return send(res,503,{error:'supabase_environment_mismatch'});
+
   const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
   if (!url || !anonKey || !serviceKey) return send(res, 503, { error: 'storage_unconfigured' });
