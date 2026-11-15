@@ -1421,11 +1421,15 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
     const nextFeatured = !sheet.isFeatured;
     try {
-      const { error: featuredError } = await supabase
+      const { data: updatedFeatured, error: featuredError } = await supabase
         .from('partituras')
         .update({ is_featured: nextFeatured })
-        .eq('id', sheetId);
+        .eq('id', sheetId)
+        .select('id');
       if (featuredError) throw featuredError;
+      if (!updatedFeatured || updatedFeatured.length !== 1) {
+        throw new Error('A atualização do destaque não foi confirmada pelo banco de dados.');
+      }
 
       setSheetsList(prev => prev.map(s => s.id === sheetId ? { ...s, isFeatured: nextFeatured } : s));
       showToast(nextFeatured ? `"${sheet.title}" adicionada aos destaques! ★` : `"${sheet.title}" removida dos destaques.`);
