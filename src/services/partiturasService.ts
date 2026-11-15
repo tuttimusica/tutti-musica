@@ -271,30 +271,10 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
   return { url: null, protected: isPaid };
 }
 
-export async function createPaidSheetCheckout(partituraId: string): Promise<{ url: string }> {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) {
-    throw new Error('Faça login para adquirir esta partitura.');
-  }
-
-  const res = await fetch('/api/stripe/create-sheet-checkout', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${session.access_token}`,
-    },
-    body: JSON.stringify({
-      partitura_id: partituraId,
-      return_url: window.location.origin,
-    }),
-  });
-
-  const json = await res.json().catch(() => ({}));
-  if (!res.ok || !json.url) {
-    throw new Error(json.error || 'Não foi possível iniciar o pagamento desta partitura.');
-  }
-
-  return { url: json.url };
+export async function createPaidSheetCheckout(_partituraId: string): Promise<{ url: string }> {
+  // Tutti sells paid PDFs in bundles, not individual files.
+  // Calling the bundle-only endpoint with partitura_id previously returned a 400.
+  throw new Error('Partituras pagas são adquiridas exclusivamente em conjuntos. Escolha um conjunto na biblioteca.');
 }
 
 export interface DbConjuntoPartituras {
