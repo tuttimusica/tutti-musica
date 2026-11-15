@@ -94,7 +94,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
           const { data: bookingsData } = await supabase
             .from('marcacoes_aulas')
             .select('*')
-            .or(`aluno_email.eq.${user.email},aluno_id.eq.${user.id}`)
+            .eq('aluno_id', user.id)
             .order('data_aula', { ascending: true });
 
           if (bookingsData) {
@@ -105,37 +105,20 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
         // 2. Real study materials & unlocked paid sheets
         await loadPartiturasAndAccess();
 
-        // 3. Real approved teachers
-        const { data: teachersData } = await supabase
-          .from('usuarios')
-          .select('*')
-          .eq('role', 'teacher')
-          .eq('approval_status', 'aprovado');
-
-        if (teachersData && teachersData.length > 0) {
-          setTeachers(teachersData.map((t: any) => ({
-            name: t.nome || t.displayName || t.email?.split('@')[0] || 'Professor Tutti',
-            instrument: t.instrumento || t.current_instrument || 'Diversos Instrumentos',
-            bio: t.bio || 'Professor integrante do corpo docente oficial da Escola Tutti de Música.',
-            rating: '5.0',
-            avatar: t.photo_url || t.photoURL
-          })));
+        // 3. Read only curated public fields of approved teachers.
+        // Student must not query other users' private profiles or applications.
+        const { data: teachersData, error: teachersError } = await supabase.rpc('tutti_list_professores');
+        if (teachersError) {
+          console.warn('Diretório de professores indisponível:', teachersError.code);
+          setTeachers([]);
         } else {
-          const { data: solData } = await supabase
-            .from('solicitacoes_professores')
-            .select('*')
-            .eq('status', 'aprovado');
-
-          if (solData && solData.length > 0) {
-            setTeachers(solData.map((s: any) => ({
-              name: s.nome,
-              instrument: s.instrumento,
-              bio: s.bio || 'Professor credenciado pela Escola Tutti de Música.',
-              rating: '5.0'
-            })));
-          } else {
-            setTeachers([]);
-          }
+          setTeachers((teachersData || []).map((t: any) => ({
+            id: t.user_id,
+            name: t.nome_completo || 'Professor Tutti',
+            instrument: t.current_instrument || 'Diversos Instrumentos',
+            bio: t.bio || 'Professor credenciado pela Tutti.',
+            avatar: t.avatar_url || undefined
+          })));
         }
       } catch (e) {
         console.debug('Erro ao carregar dados do aluno no Supabase:', e);
