@@ -42,15 +42,15 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     alunoTelefone: '',
     dataAula: '',
     horaInicio: '14:00',
-    duracaoMinutos: 50,
+    duracaoMinutos: 60,
     observacoes: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
   const [partituras, setPartituras] = useState<DbPartitura[]>([]);
-  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
+  const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
   const [searchPartitura, setSearchPartitura] = useState('');
-  const [openingId, setOpeningId] = useState<number | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const [viewerData, setViewerData] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
 
   const teacherDisplayName = profile?.displayName || user?.user_metadata?.full_name || 'Professor(a) Tutti';
@@ -78,7 +78,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         const { data, error } = await supabase
           .from('marcacoes_aulas')
           .select('*')
-          .or(`professor_nome.eq.${teacherDisplayName},professor_email.eq.${teacherEmail}`)
+          .eq('professor_id', user?.id || '00000000-0000-0000-0000-000000000000')
           .order('data_aula', { ascending: true });
 
         if (!error && data) {
@@ -109,7 +109,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
       const { url, protected: isProtected } = await resolvePartituraPdfUrl(item);
       setViewerData({
         sheet: {
-          id: Number(item.id),
+          id: item.id,
           title: item.titulo,
           composer: item.compositor || 'Compositor Tutti',
           instrument: item.instrumento || 'Instrumento Tutti',
@@ -238,7 +238,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         professor_email: teacherEmail,
         data_aula: formData.dataAula,
         hora_inicio: formData.horaInicio,
-        duracao_minutos: Number(formData.duracaoMinutos) || 50,
+        duracao_minutos: 60,
         status: 'agendada',
         observacoes: formData.observacoes.trim() || undefined
       });
@@ -248,31 +248,21 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         return;
       }
 
-      const newBooking: LessonBooking = res.data || {
-        id: `tb_${Date.now()}`,
-        aluno_nome: formData.alunoNome.trim(),
-        aluno_email: formData.alunoEmail.trim(),
-        aluno_telefone: formData.alunoTelefone.trim(),
-        professor_nome: teacherDisplayName,
-        professor_email: teacherEmail,
-        data_aula: formData.dataAula,
-        hora_inicio: formData.horaInicio,
-        duracao_minutos: Number(formData.duracaoMinutos) || 50,
-        status: 'agendada',
-        observacoes: formData.observacoes.trim(),
-        link_meet: 'https://meet.google.com/tut-nova-aula',
-        created_at: new Date().toISOString()
-      };
+      if (!res.data) {
+        setFormError('O banco de dados não confirmou o agendamento.');
+        return;
+      }
+      const newBooking: LessonBooking = res.data;
 
       setTeacherBookings(prev => [newBooking, ...prev]);
-      showToast(`Aula marcada com sucesso com ${formData.alunoNome}! Link do Google Meet gerado. ✓`);
+      showToast(`Aula de 60 minutos marcada com ${formData.alunoNome}. O link do Google Meet será informado quando estiver disponível.`);
       setFormData({
         alunoNome: '',
         alunoEmail: '',
         alunoTelefone: '',
         dataAula: '',
         horaInicio: '14:00',
-        duracaoMinutos: 50,
+        duracaoMinutos: 60,
         observacoes: ''
       });
       setActiveTab('aulas'); // Switch to Minhas Aulas
@@ -286,7 +276,8 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   const handleCancelBooking = async (id: string, alunoNome: string) => {
     if (!window.confirm(`Deseja cancelar a aula com ${alunoNome}?`)) return;
     try {
-      await cancelarMarcacaoAula(id);
+      const result = await cancelarMarcacaoAula(id);
+      if (result.error) throw result.error;
       setTeacherBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelada' } : b));
       showToast('Aula cancelada com sucesso.');
     } catch {
