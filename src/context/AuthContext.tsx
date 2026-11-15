@@ -557,6 +557,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => { cancelled = true; };
   }, [user?.id, user?.email_confirmed_at, user?.user_metadata?.account_type]);
 
+  // After a confirmed login, request the welcome email once. The server
+  // validates the JWT and uses durable idempotency to avoid repeated sends.
+  // Signup confirmation itself remains Supabase Auth's responsibility.
+  useEffect(() => {
+    if (!user?.id || !user.email_confirmed_at) return;
+    let cancelled = false;
+    const requestWelcomeEmail = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (cancelled || !session?.access_token) return;
+        await fetch('/api/emails/welcome', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${session.access_token}` },
+        });
+      } catch {
+        // Welcome mail must never block the student's login.
+      }
+    };
+    void requestWelcomeEmail();
+    return () => { cancelled = true; };
+  }, [user?.id, user?.email_confirmed_at]);
+
   const loginWithGoogle = async () => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
