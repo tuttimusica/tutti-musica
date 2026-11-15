@@ -24,6 +24,14 @@ export default async function handler(req, res) {
   }
 
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  // Reject backend tokens targeting another Supabase project than this frontend.
+  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL) {
+    res.statusCode = 503;
+    res.end(JSON.stringify({ error: 'supabase_environment_mismatch' }));
+    return;
+  }
+
   const publishableKey =
     process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
 
