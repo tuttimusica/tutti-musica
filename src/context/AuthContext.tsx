@@ -913,12 +913,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const payload = {
         ...marcacao,
         status: 'agendada',
-        link_meet: marcacao.link_meet || `https://meet.google.com/tut-${Math.random().toString(36).substring(2, 6)}-${Math.random().toString(36).substring(2, 5)}`,
+        // Never fabricate Google Meet links: only a real, provisioned URL may be stored.
+        link_meet: marcacao.link_meet || null,
         created_at: new Date().toISOString()
       };
 
       const res = await supabase.from('marcacoes_aulas').insert(payload).select().single();
-      await registrarEventoAcesso('aula_marcada', { aluno: marcacao.aluno_nome, professor: marcacao.professor_nome, data: marcacao.data_aula });
+      if (!res.error) await registrarEventoAcesso('aula_marcada', { aluno: marcacao.aluno_nome, professor: marcacao.professor_nome, data: marcacao.data_aula });
       return { error: res.error, data: res.data };
     } catch (error) {
       return { error };
