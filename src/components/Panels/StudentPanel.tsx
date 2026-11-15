@@ -187,7 +187,6 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const handleBuyPaidPartitura = async (item: DbPartitura) => {
     try {
       setOpeningSheetId(item.id);
-      showToast('Iniciando pagamento seguro via Stripe...');
       const { url } = await createPaidSheetCheckout(item.id);
       window.location.href = url;
     } catch (err: any) {
