@@ -9,6 +9,7 @@ import sheetCheckout from '../api/stripe/create-sheet-checkout.js';
 import sheetsWebhook from '../api/stripe/sheets-webhook.js';
 import planCheckout from '../api/stripe/create-plan-checkout.js';
 import plansWebhook from '../api/stripe/plans-webhook.js';
+import welcomeEmail from '../api/emails/welcome.js';
 
 function invoke(handler, { method = 'GET', authorization } = {}) {
   const headers = {};
@@ -115,4 +116,14 @@ test('bundle checkout rejects GET', async () => {
 test('sheet webhook rejects GET', async () => {
   const result = await invoke(sheetsWebhook);
   assert.equal(result.status, 405);
+});
+
+test('welcome emails require POST', async () => {
+  const result = await invoke(welcomeEmail);
+  assert.equal(result.status, 405);
+});
+test('welcome emails are fail-closed until verified Resend domain and config are enabled', async () => {
+  const result = await invoke(welcomeEmail, { method:'POST' });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, 'welcome_email_disabled');
 });
