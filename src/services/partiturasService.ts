@@ -161,16 +161,15 @@ export async function fetchPublishedPartituras(): Promise<DbPartitura[]> {
   const { data, error } = await supabase
     .from('partituras')
     .select('*')
-    .neq('publicado', false)
-    .order('is_featured', { ascending: false })
-    .order('featured_order', { ascending: true })
-    .order('id', { ascending: false });
+    .eq('publicado', true)
+    .order('created_at', { ascending: false });
 
   if (error) {
     const fallback = await supabase
       .from('partituras')
       .select('*')
-      .order('id', { ascending: false });
+      .eq('publicado', true)
+      .order('created_at', { ascending: false });
     if (fallback.error) throw fallback.error;
     return (fallback.data || []).filter((r: any) => r.publicado !== false).map(normalizeDbPartitura);
   }
