@@ -4,6 +4,9 @@ import health from '../api/health.js';
 import check from '../api/auth/check.js';
 import adminStatus from '../api/auth/admin-status.js';
 import teacherRequests from '../api/admin/teacher-requests.js';
+import signedSheetUrl from '../api/partituras/signed-url.js';
+import sheetCheckout from '../api/stripe/create-sheet-checkout.js';
+import sheetsWebhook from '../api/stripe/sheets-webhook.js';
 
 function invoke(handler, { method = 'GET', authorization } = {}) {
   const headers = {};
@@ -69,4 +72,26 @@ test('teacher requests reject non-GET methods', async () => {
 test('teacher requests reject malformed authorization headers', async () => {
   const result = await invoke(teacherRequests, { authorization: 'Basic test' });
   assert.equal(result.status, 401);
+});
+
+test('sheet PDF signing rejects missing or malformed UUID', async () => {
+  const missing = await invoke(signedSheetUrl, { method: 'POST' });
+  assert.equal(missing.status, 400);
+  assert.equal(missing.body.error, 'partitura_id inválido');
+});
+test('sheet PDF signing rejects GET', async () => {
+  const result = await invoke(signedSheetUrl);
+  assert.equal(result.status, 405);
+});
+test('bundle checkout requires login', async () => {
+  const result = await invoke(sheetCheckout, { method: 'POST' });
+  assert.equal(result.status, 401);
+});
+test('bundle checkout rejects GET', async () => {
+  const result = await invoke(sheetCheckout);
+  assert.equal(result.status, 405);
+});
+test('sheet webhook rejects GET', async () => {
+  const result = await invoke(sheetsWebhook);
+  assert.equal(result.status, 405);
 });
