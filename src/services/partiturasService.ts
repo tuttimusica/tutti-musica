@@ -79,12 +79,20 @@ export interface DbPartitura {
   created_by?: string | null;
 }
 
+const INSTRUMENT_LABELS: Record<string, string> = {
+  saxofone_alto: 'Saxofone Alto', saxofone_tenor: 'Saxofone Tenor',
+  saxofone_soprano: 'Saxofone Soprano', clarinete: 'Clarinete',
+  trombone: 'Trombone', trompete: 'Trompete', teclado: 'Teclado',
+  contrabaixo: 'Contrabaixo', guitarra: 'Guitarra',
+  outros: 'Outros instrumentos',
+};
+
 export function normalizeDbPartitura(row: any): DbPartitura {
   return {
     id: String(row.id),
     titulo: row.titulo,
     compositor: row.compositor || 'Compositor Tutti',
-    instrumento: row.instrumento || row.instrumento_id || 'Saxofone Alto',
+    instrumento: row.instrumento || INSTRUMENT_LABELS[row.instrumento_id] || row.instrumento_id || 'Saxofone Alto',
     tonalidade: row.tonalidade || 'C',
     tom_original: row.tom_original || row.tonalidade || 'C',
     nivel: row.nivel || row.nivel_dificuldade || 'Intermediário',
