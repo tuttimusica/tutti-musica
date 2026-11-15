@@ -14,6 +14,7 @@ as $$
     where g.user_id = p_student
       and g.plano_id in ('mensal','trimestral','semestral')
       and g.granted_at <= p_at and g.access_until > p_at
+      -- A separate refund/chargeback revocation state must be added before production.
   );
 $$;
 revoke all on function tutti_private.student_has_paid_ultra(uuid,timestamptz) from public, anon;
