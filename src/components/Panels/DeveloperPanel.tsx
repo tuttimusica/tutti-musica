@@ -1411,10 +1411,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
     const nextFeatured = !sheet.isFeatured;
     try {
-      await supabase
+      const { error: featuredError } = await supabase
         .from('partituras')
         .update({ is_featured: nextFeatured })
         .eq('id', sheetId);
+      if (featuredError) throw featuredError;
 
       setSheetsList(prev => prev.map(s => s.id === sheetId ? { ...s, isFeatured: nextFeatured } : s));
       showToast(nextFeatured ? `"${sheet.title}" adicionada aos destaques! ★` : `"${sheet.title}" removida dos destaques.`);
@@ -1423,32 +1424,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
-  // Reorder featured sheets
-  const handleMoveFeatured = async (sheetId: number, direction: 'up' | 'down') => {
-    const featured = sheetsList.filter(s => s.isFeatured);
-    const index = featured.findIndex(s => s.id === sheetId);
-    if (index < 0) return;
-    if (direction === 'up' && index === 0) return;
-    if (direction === 'down' && index === featured.length - 1) return;
-
-    const targetIndex = direction === 'up' ? index - 1 : index + 1;
-    const reordered = [...featured];
-    const temp = reordered[index];
-    reordered[index] = reordered[targetIndex];
-    reordered[targetIndex] = temp;
-
-    // Update order in state
-    setSheetsList(prev => {
-      return prev.map(item => {
-        const foundIdx = reordered.findIndex(r => r.id === item.id);
-        if (foundIdx >= 0) {
-          return { ...item, featuredOrder: foundIdx + 1 };
-        }
-        return item;
-      });
-    });
-
-    showToast('Ordem dos destaques atualizada!');
+  // Reordering requires a persisted featured_order column and an authorized backend.
+  // Never pretend a local-only reorder was saved to the shared catalog.
+  const handleMoveFeatured = async (_sheetId: number, _direction: 'up' | 'down') => {
+    showToast('Reordenação indisponível: é necessário configurar e validar a ordem dos destaques no Supabase.');
   };
 
   // Approve Teacher Request via RPC (aprovar_professor_rpc)
