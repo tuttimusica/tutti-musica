@@ -60,8 +60,8 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const [searchPartituras, setSearchPartituras] = useState('');
   const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
   const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
-  const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<number>>(new Set());
-  const [openingSheetId, setOpeningSheetId] = useState<number | null>(null);
+  const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<string>>(new Set());
+  const [openingSheetId, setOpeningSheetId] = useState<string | null>(null);
   const [activeViewer, setActiveViewer] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
@@ -156,7 +156,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   }, [user?.email, user?.id, loadPartiturasAndAccess]);
 
   const toSheetMusic = (item: DbPartitura): SheetMusic => ({
-    id: Number(item.id),
+    id: item.id,
     title: item.titulo,
     composer: item.compositor || 'Compositor Tutti',
     instrument: item.instrumento || 'Instrumento Tutti',
