@@ -1042,13 +1042,17 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       if (deleteError) throw deleteError;
       if (!deletedRows || deletedRows.length !== 1) throw new Error('Exclusão não confirmada no banco.');
 
+      let storageCleanupError = false;
       if (sheet.storagePath) {
         const bucket = SHEET_STORAGE_BUCKETS.FREE;
-        await supabase.storage.from(bucket).remove([sheet.storagePath]);
+        const { error: removalError } = await supabase.storage.from(bucket).remove([sheet.storagePath]);
+        storageCleanupError = Boolean(removalError);
       }
 
       setSheetsList(prev => prev.filter(s => s.id !== sheet.id));
-      showToast(`Partitura "${sheet.title}" excluída com sucesso.`);
+      showToast(storageCleanupError
+        ? 'Registro excluído, mas o PDF não pôde ser removido do armazenamento. Verifique o Storage.'
+        : `Partitura "${sheet.title}" excluída com sucesso.`);
     } catch {
       showToast('Erro ao excluir partitura no Supabase.');
     }
