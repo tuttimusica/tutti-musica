@@ -1471,7 +1471,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   };
 
   // Toggle or reorder featured sheets
-  const handleToggleFeatured = async (sheetId: number) => {
+  const handleToggleFeatured = async (sheetId: string | number) => {
     const sheet = sheetsList.find(s => s.id === sheetId);
     if (!sheet) return;
 
@@ -1496,7 +1496,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
   // Reordering requires a persisted featured_order column and an authorized backend.
   // Never pretend a local-only reorder was saved to the shared catalog.
-  const handleMoveFeatured = async (_sheetId: number, _direction: 'up' | 'down') => {
+  const handleMoveFeatured = async (_sheetId: string | number, _direction: 'up' | 'down') => {
     showToast('Reordenação indisponível: é necessário configurar e validar a ordem dos destaques no Supabase.');
   };
 
