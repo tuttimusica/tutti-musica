@@ -186,6 +186,10 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleInitiateStripeCheckout = async (planoId: string) => {
+    if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
+      showToast('Os planos pagos ainda não estão disponíveis para contratação. Explore os recursos gratuitos.');
+      return;
+    }
     if (!user) {
       showToast('Por favor, faça login ou cadastre-se na Tutti antes de contratar um plano.');
       onClose();
