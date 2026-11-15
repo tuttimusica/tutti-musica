@@ -184,11 +184,13 @@ export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<nu
       .from('partituras_acessos')
       .select('partitura_id')
       .eq('user_id', userId);
-    if (!error && data) {
+    if (error) {
+      console.warn('Não foi possível verificar os acessos individuais às partituras:', error.code);
+    } else if (data) {
       data.forEach((row: any) => unlocked.add(Number(row.partitura_id)));
     }
-  } catch {
-    // fallback silencioso se tabela ainda não existir
+  } catch (accessErr) {
+    console.warn('Falha inesperada ao verificar acessos individuais às partituras:', accessErr);
   }
 
   // Também libera partituras pertencentes a conjuntos adquiridos pelo aluno
