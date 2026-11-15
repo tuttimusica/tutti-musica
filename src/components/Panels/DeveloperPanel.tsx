@@ -104,6 +104,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Sheets Management State (loaded from Supabase public.partituras)
   const [sheetsList, setSheetsList] = useState<SheetMusic[]>([]);
   const [isLoadingSheets, setIsLoadingSheets] = useState(false);
+  const [bundleTitle, setBundleTitle] = useState('');
+  const [bundlePrice, setBundlePrice] = useState('');
+  const [bundleSelectedIds, setBundleSelectedIds] = useState<string[]>([]);
+  const [bundleList, setBundleList] = useState<{ id: string; titulo: string; preco: number; publicado: boolean }[]>([]);
+  const [bundleSaving, setBundleSaving] = useState(false);
 
   // Modal / Viewer State for Sheet Music
   const [viewingSheet, setViewingSheet] = useState<SheetMusic | null>(null);
@@ -1032,6 +1037,57 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== 'partituras') return;
+    let active = true;
+    supabase.from('conjuntos_partituras').select('id,titulo,preco,publicado')
+      .order('created_at', { ascending: false }).then(({ data, error }) => {
+        if (active && !error) setBundleList((data || []).map(b => ({ ...b, preco: Number(b.preco) })));
+      });
+    return () => { active = false; };
+  }, [activeTab]);
+
+  const handleCreateBundle = async () => {
+    const price = Number(bundlePrice.replace(',', '.'));
+    if (!bundleTitle.trim() || !Number.isFinite(price) || price <= 0 || bundleSelectedIds.length === 0) {
+      showToast('Informe nome, preço válido e selecione ao menos uma partitura.');
+      return;
+    }
+    setBundleSaving(true);
+    let createdId: string | null = null;
+    try {
+      const { data, error } = await supabase.from('conjuntos_partituras')
+        .insert({ titulo: bundleTitle.trim(), preco: price, publicado: false })
+        .select('id,titulo,preco,publicado').single();
+      if (error || !data) throw error || new Error('Não foi possível criar o conjunto.');
+      createdId = data.id;
+      const { error: itemsError } = await supabase.from('conjuntos_partituras_itens')
+        .insert(bundleSelectedIds.map(partitura_id => ({ conjunto_id: data.id, partitura_id })));
+      if (itemsError) throw itemsError;
+      setBundleList(prev => [{ ...data, preco: Number(data.preco) }, ...prev]);
+      setBundleTitle('');
+      setBundlePrice('');
+      setBundleSelectedIds([]);
+      showToast('Conjunto criado como rascunho. Publique após conferir os itens.');
+    } catch (err: any) {
+      if (createdId) await supabase.from('conjuntos_partituras').delete().eq('id', createdId);
+      showToast(err?.message || 'Não foi possível criar o conjunto.');
+    } finally {
+      setBundleSaving(false);
+    }
+  };
+
+  const handlePublishBundle = async (id: string, published: boolean) => {
+    const { data, error } = await supabase.from('conjuntos_partituras')
+      .update({ publicado: !published }).eq('id', id).select('id');
+    if (error || data?.length !== 1) {
+      showToast('Não foi possível atualizar a publicação do conjunto.');
+      return;
+    }
+    setBundleList(prev => prev.map(b => b.id === id ? { ...b, publicado: !published } : b));
+    showToast(!published ? 'Conjunto publicado.' : 'Conjunto ocultado.');
+  };
+
   const handleDeleteSheet = async (sheet: SheetMusic) => {
     if (!window.confirm(`Tem certeza de que deseja excluir a partitura oficial "${sheet.title}"? Esta ação removerá o arquivo da biblioteca.`)) {
       return;
@@ -1794,6 +1850,38 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                   <span>Adicionar Partitura (PDF)</span>
                 </button>
               </div>
+
+              <section className="rounded-2xl border border-amber-400/20 bg-[#0b0d14] p-5 space-y-4">
+                <h3 className="text-amber-300 font-bold text-sm">Conjuntos de partituras para venda</h3>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input value={bundleTitle} onChange={e => setBundleTitle(e.target.value)}
+                    placeholder="Nome do conjunto" className="flex-1 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
+                  <input value={bundlePrice} onChange={e => setBundlePrice(e.target.value)}
+                    placeholder="Preço R$" inputMode="decimal" className="sm:w-32 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
+                </div>
+                <p className="text-xs text-slate-400">Selecione as partituras que farão parte deste conjunto:</p>
+                <div className="max-h-40 overflow-y-auto space-y-1">
+                  {sheetsList.map(sheet => (
+                    <label key={String(sheet.id)} className="flex gap-2 items-center text-xs text-slate-200">
+                      <input type="checkbox" checked={bundleSelectedIds.includes(String(sheet.id))}
+                        onChange={e => setBundleSelectedIds(prev => e.target.checked
+                          ? [...prev, String(sheet.id)] : prev.filter(id => id !== String(sheet.id))} />
+                      {sheet.title} — {sheet.instrument}
+                    </label>
+                  ))}
+                </div>
+                <button type="button" disabled={bundleSaving} onClick={handleCreateBundle}
+                  className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg text-xs disabled:opacity-50">
+                  {bundleSaving ? 'Salvando...' : 'Criar conjunto (rascunho)'}
+                </button>
+                {bundleList.map(bundle => (
+                  <div key={bundle.id} className="flex items-center justify-between gap-2 text-xs border-t border-white/10 pt-3">
+                    <span className="text-white">{bundle.titulo} — R$ {bundle.preco.toFixed(2).replace('.', ',')}</span>
+                    <button type="button" onClick={() => handlePublishBundle(bundle.id, bundle.publicado)}
+                      className="text-amber-300 underline">{bundle.publicado ? 'Ocultar' : 'Publicar'}</button>
+                  </div>
+                ))}
+              </section>
 
               {/* Search, Category and Instrument Filter */}
               <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center gap-3">
