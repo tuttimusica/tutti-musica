@@ -894,6 +894,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Criar marcação de aula com verificação de conflito
   const criarMarcacaoAula = async (marcacao: Omit<LessonBooking, 'id' | 'created_at'>) => {
     try {
+      // Teacher-initiated bookings must resolve a real, confirmed student and
+      // verify paid Ultra entitlement at the scheduled lesson time in the database.
+      if (profile?.role === 'professor') {
+        const { data, error } = await supabase.rpc('tutti_teacher_book_student', {
+          p_student_email: marcacao.aluno_email,
+          p_date: marcacao.data_aula,
+          p_start: marcacao.hora_inicio,
+          p_notes: marcacao.observacoes || null,
+          p_phone: marcacao.aluno_telefone || null,
+        });
+        if (error) return { error, data: null };
+        if (!data) return { error: new Error('O agendamento não foi confirmado.'), data: null };
+        return { error: null, data };
+      }
+      // Student bookings must identify both participants; the database verifies
+      // the student's own JWT and paid access before writing anything.
+      if (!user?.id || !marcacao.professor_id) {
+        return { error: new Error('Aluno ou professor não identificado.'), data: null };
+      }
       // 1. Verificar conflito de horário para o mesmo professor no mesmo dia/hora
       const { data: conflitos } = await supabase
         .from('marcacoes_aulas')
@@ -912,6 +931,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // 2. Inserir marcação
       const payload = {
         ...marcacao,
+        aluno_id: user.id,
+        duracao_minutos: 60,
         status: 'agendada',
         // Never fabricate Google Meet links: only a real, provisioned URL may be stored.
         link_meet: marcacao.link_meet || null,
@@ -929,12 +950,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   // Cancelar marcação de aula
   const cancelarMarcacaoAula = async (marcacaoId: string) => {
     try {
-      const res = await supabase
+      if (profile?.role === 'professor') {
+        const { data, error } = await supabase.rpc('tutti_teacher_cancel_booking', { p_booking_id: marcacaoId });
+        return { error: error || (data === true ? null : new Error('Aula não encontrada ou sem permissão para cancelar.')) };
+      }
+      const { data, error } = await supabase
         .from('marcacoes_aulas')
         .update({ status: 'cancelada' })
-        .eq('id', marcacaoId);
-      await registrarEventoAcesso('aula_cancelada', { marcacaoId });
-      return { error: res.error };
+        .eq('id', marcacaoId)
+        .select('id');
+      if (!error && data?.length !== 1) {
+        return { error: new Error('Aula não encontrada ou sem permissão para cancelar.') };
+      }
+      return { error };
     } catch (error) {
       return { error };
     }
