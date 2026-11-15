@@ -46,46 +46,19 @@ export async function createStripeCheckoutSession(planoId: string): Promise<{ ur
     throw new Error('Você precisa estar autenticado na Tutti para assinar um plano.');
   }
 
-  const returnUrl = window.location.origin;
-
-  // 2. Tentar chamar a Supabase Edge Function oficial 'create-checkout-session'
-  try {
-    const { data, error } = await supabase.functions.invoke('create-checkout-session', {
-      body: {
-        plano_id: planoId,
-        return_url: returnUrl,
-      },
-    });
-
-    if (!error && data?.url) {
-      return { url: data.url, sessionId: data.sessionId };
-    }
-  } catch (edgeFnErr) {
-    console.warn('Tentando endpoint de checkout no servidor local...', edgeFnErr);
-  }
-
-  // 3. Fallback para endpoint local de desenvolvimento (/api/stripe/create-checkout-session)
-  const res = await fetch('/api/stripe/create-checkout-session', {
+  // One-time checkout only. Never fall back to legacy subscription Edge Functions.
+  const res = await fetch('/api/stripe/create-plan-checkout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'Authorization': `Bearer ${session.access_token}`,
+      Authorization: `Bearer ${session.access_token}`,
     },
-    body: JSON.stringify({
-      plano_id: planoId,
-      return_url: returnUrl,
-    }),
+    body: JSON.stringify({ plano_id: planoId }),
   });
-
-  const json = await res.json();
-  if (!res.ok) {
-    throw new Error(json.error || 'Não foi possível gerar a sessão de checkout segura com a Stripe.');
+  const json = await res.json().catch(() => ({}));
+  if (!res.ok || typeof json.url !== 'string' || !json.url.startsWith('https://checkout.stripe.com/')) {
+    throw new Error('Pagamento indisponível no momento. Nenhuma cobrança foi realizada.');
   }
-
-  if (!json.url) {
-    throw new Error('URL de checkout não retornada pelo servidor.');
-  }
-
   return { url: json.url, sessionId: json.sessionId };
 }
 
@@ -172,7 +145,7 @@ export async function fetchUserPaymentHistory(userId: string): Promise<PaymentHi
       .from('pagamentos')
       .select('*')
       .eq('user_id', userId)
-      .order('data_pagamento', { ascending: false });
+      .order('created_at', { ascending: false });
 
     if (error || !data) {
       return [];
@@ -180,10 +153,10 @@ export async function fetchUserPaymentHistory(userId: string): Promise<PaymentHi
 
     return data.map((item: any) => ({
       id: item.id,
-      valor: Number(item.valor),
+      valor: Number(item.valor_centavos || 0) / 100,
       moeda: item.moeda || 'BRL',
       status: item.status,
-      dataPagamento: item.data_pagamento || item.created_at,
+      dataPagamento: item.pago_em || item.created_at,
       comprovanteUrl: item.comprovante_url,
       stripeInvoiceId: item.stripe_invoice_id,
     }));
