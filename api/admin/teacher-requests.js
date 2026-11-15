@@ -17,6 +17,11 @@ export default async function handler(req, res) {
     return;
   }
 
+  if (process.env.TUTTI_PRIVILEGED_BACKEND_ENABLED !== 'true') {
+    res.statusCode=503;
+    res.end(JSON.stringify({error:'auth_service_unconfigured'}));
+    return;
+  }
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
   // Keep browser auth and server authorization on the exact same Supabase project.
