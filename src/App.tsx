@@ -1736,58 +1736,66 @@ const AgendaPage: React.FC = () => {
   const { user, profile } = useAuth();
   useSEO("Agenda de Aula", "Sua agenda própria e individual de aulas com link exclusivo do Google Meet.");
 
-  const [lessons, setLessons] = useState<StudentLesson[]>(() => {
-    try {
-      const saved = localStorage.getItem('tutti_student_lessons');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [lessons, setLessons] = useState<StudentLesson[]>([]);
+  const [loadingLessons, setLoadingLessons] = useState(true);
+  const [lessonsError, setLessonsError] = useState<string | null>(null);
 
   const studentName = profile?.displayName || user?.user_metadata?.full_name || 'Aluno(a) Tutti';
 
-  // Sincroniza marcações reais de aula do aluno a partir do Supabase
+  // A agenda exibe somente aulas ativas do aluno autenticado.
+  // Não restaurar agendamentos de cache local: cancelamentos são autoritativos no Supabase.
   useEffect(() => {
-    async function fetchBookings() {
-      if (!user?.email) return;
+    if (!user?.id) {
+      setLessons([]);
+      setLoadingLessons(false);
+      setLessonsError(null);
+      return;
+    }
+    let active = true;
+    const fetchBookings = async () => {
       try {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('marcacoes_aulas')
           .select('*')
-          .eq('aluno_email', user.email)
+          .eq('aluno_id', user.id)
+          .eq('status', 'agendada')
           .order('data_aula', { ascending: true });
-
-        if (data && data.length > 0) {
-          const mapped: StudentLesson[] = data.map((b: any) => ({
-            id: b.id,
-            studentName: b.aluno_nome,
-            instrument: b.instrumento || 'Instrumento Principal',
-            topic: b.observacoes || 'Aula Prática Individual',
-            date: b.data_aula,
-            time: b.hora_inicio,
-            googleMeetUrl: b.link_meet || 'https://meet.google.com/new',
-            instructor: b.professor_nome || 'Professor Tutti'
-          }));
-          setLessons(mapped);
-        }
-      } catch (err) {
-        console.debug('Usando cache local da agenda do aluno:', err);
+        if (error) throw error;
+        if (!active) return;
+        const mapped: StudentLesson[] = (data || []).map((b: any) => ({
+          id: b.id,
+          studentName: b.aluno_nome,
+          instrument: b.instrumento || 'Instrumento Principal',
+          topic: b.observacoes || 'Aula Prática Individual',
+          date: b.data_aula,
+          time: b.hora_inicio,
+          googleMeetUrl: b.link_meet || '',
+          instructor: b.professor_nome || 'Professor Tutti'
+        }));
+        setLessons(mapped);
+        setLessonsError(null);
+      } catch (err: any) {
+        if (active) setLessonsError('Não foi possível atualizar as aulas. Tente abrir a agenda novamente.');
+      } finally {
+        if (active) setLoadingLessons(false);
       }
-    }
-    fetchBookings();
-  }, [user?.email]);
-
-  const handleRemoveLesson = (id: string) => {
-    const updated = lessons.filter(l => l.id !== id);
-    setLessons(updated);
-    try {
-      localStorage.setItem('tutti_student_lessons', JSON.stringify(updated));
-    } catch (err) {
-      console.warn('LocalStorage error:', err);
-    }
-    showToast('Aula removida da sua visualização local.');
-  };
+    };
+    setLoadingLessons(true);
+    void fetchBookings();
+    const channel = supabase.channel(`student-schedule-${user.id}`)
+      .on('postgres_changes', {
+        event: '*', schema: 'public', table: 'marcacoes_aulas',
+        filter: `aluno_id=eq.${user.id}`
+      }, () => { void fetchBookings(); })
+      .subscribe();
+    const refreshOnFocus = () => { void fetchBookings(); };
+    window.addEventListener('focus', refreshOnFocus);
+    return () => {
+      active = false;
+      window.removeEventListener('focus', refreshOnFocus);
+      void supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
 
   return (
     <div className="animate-in fade-in duration-500 space-y-8 max-w-5xl mx-auto">
@@ -1805,7 +1813,11 @@ const AgendaPage: React.FC = () => {
       </div>
 
       {/* Main Student Lessons Section */}
-      {lessons.length === 0 ? (
+      {loadingLessons ? (
+        <p className="text-sm text-cyan-200 text-center py-8">Carregando sua agenda...</p>
+      ) : lessonsError ? (
+        <p role="alert" className="text-sm text-rose-300 text-center py-8">{lessonsError}</p>
+      ) : lessons.length === 0 ? (
         /* Empty State: Requested Message (Item 21) */
         <div className="bg-[#131722] p-10 sm:p-14 rounded-3xl border border-white/10 shadow-2xl text-center space-y-5 animate-in fade-in">
           <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto text-4xl shadow-inner border border-cyan-500/20">
@@ -1865,13 +1877,7 @@ const AgendaPage: React.FC = () => {
                     </p>
                   </div>
 
-                  <button
-                    onClick={() => handleRemoveLesson(lesson.id)}
-                    className="p-1.5 rounded-xl bg-white/5 hover:bg-rose-500/20 text-slate-400 hover:text-rose-400 transition-colors"
-                    title="Excluir aula da agenda"
-                  >
-                    <X size={16} />
-                  </button>
+
                 </div>
 
                 <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 space-y-2 text-xs text-slate-300">
@@ -1885,20 +1891,20 @@ const AgendaPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Video size={15} className="text-rose-400" />
-                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl}</strong></span>
+                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl || "Aguardando link do professor"}</strong></span>
                   </div>
                 </div>
 
-                <a
-                  href={lesson.googleMeetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95"
-                >
-                  <Video size={16} />
-                  <span>Entrar na Aula pelo Google Meet</span>
-                  <ExternalLink size={13} />
-                </a>
+                {/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(lesson.googleMeetUrl) ? (
+                  <a href={lesson.googleMeetUrl} target="_blank" rel="noopener noreferrer"
+                    className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2">
+                    <Video size={16} /> Entrar na Aula pelo Google Meet <ExternalLink size={13} />
+                  </a>
+                ) : (
+                  <div className="w-full py-3 rounded-2xl text-center text-xs text-amber-200 bg-white/5 border border-amber-500/20">
+                    O professor ainda não disponibilizou o link da aula.
+                  </div>
+                )}
               </div>
             ))}
           </div>
