@@ -473,6 +473,9 @@ const HomePage: React.FC = () => {
             <h1 className="text-5xl sm:text-6xl md:text-7xl font-syne font-black tracking-tight leading-tight text-white">
               Tutti
             </h1>
+            <p className="mt-3 text-lg sm:text-xl font-syne font-bold tracking-wide text-amber-300">
+              Cada som faz parte
+            </p>
           </div>
 
           {/* BOTÃO EM BAIXO DO TUTTI: Troca de cor da tela (Preto ⇄ Branco) */}
