@@ -1737,6 +1737,16 @@ const AgendaPage: React.FC = () => {
   useSEO("Agenda de Aula", "Sua agenda própria e individual de aulas com link exclusivo do Google Meet.");
 
   const [lessons, setLessons] = useState<StudentLesson[]>([]);
+  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setScheduleNow(Date.now()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+  // A past lesson disappears automatically after 60 minutes, regardless of whether
+  // the user leaves this tab open. Supabase retains its history.
+  const upcomingLessons = lessons.filter(l =>
+    Date.parse(`${l.date}T${l.time}-03:00`) + 60 * 60 * 1000 > scheduleNow
+  );
   const [loadingLessons, setLoadingLessons] = useState(true);
   const [lessonsError, setLessonsError] = useState<string | null>(null);
 
@@ -1759,6 +1769,7 @@ const AgendaPage: React.FC = () => {
           .select('*')
           .eq('aluno_id', user.id)
           .eq('status', 'agendada')
+          .gte('data_aula', new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()))
           .order('data_aula', { ascending: true });
         if (error) throw error;
         if (!active) return;
@@ -1817,7 +1828,7 @@ const AgendaPage: React.FC = () => {
         <p className="text-sm text-cyan-200 text-center py-8">Carregando sua agenda...</p>
       ) : lessonsError ? (
         <p role="alert" className="text-sm text-rose-300 text-center py-8">{lessonsError}</p>
-      ) : lessons.length === 0 ? (
+      ) : upcomingLessons.length === 0 ? (
         /* Empty State: Requested Message (Item 21) */
         <div className="bg-[#131722] p-10 sm:p-14 rounded-3xl border border-white/10 shadow-2xl text-center space-y-5 animate-in fade-in">
           <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto text-4xl shadow-inner border border-cyan-500/20">
@@ -1847,7 +1858,7 @@ const AgendaPage: React.FC = () => {
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Suas Aulas Agendadas ({lessons.length})
+              Suas Aulas Agendadas ({upcomingLessons.length})
             </span>
             <button
               onClick={openPlansModal}
@@ -1859,7 +1870,7 @@ const AgendaPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {lessons.map((lesson) => (
+            {upcomingLessons.map((lesson) => (
               <div
                 key={lesson.id}
                 className="bg-[#131722] border border-cyan-500/30 rounded-3xl p-6 shadow-xl space-y-5 hover:border-cyan-400/60 transition-all"
