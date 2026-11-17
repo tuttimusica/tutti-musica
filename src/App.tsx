@@ -1766,7 +1766,7 @@ const AgendaPage: React.FC = () => {
             topic: b.observacoes || 'Aula Prática Individual',
             date: b.data_aula,
             time: b.hora_inicio,
-            googleMeetUrl: b.link_meet || 'https://meet.google.com/new',
+            googleMeetUrl: b.link_meet || '',
             instructor: b.professor_nome || 'Professor Tutti'
           }));
           setLessons(mapped);
@@ -1885,20 +1885,20 @@ const AgendaPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Video size={15} className="text-rose-400" />
-                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl}</strong></span>
+                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl || "Aguardando link do professor"}</strong></span>
                   </div>
                 </div>
 
-                <a
-                  href={lesson.googleMeetUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95"
-                >
-                  <Video size={16} />
-                  <span>Entrar na Aula pelo Google Meet</span>
-                  <ExternalLink size={13} />
-                </a>
+                {/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(lesson.googleMeetUrl) ? (
+                  <a href={lesson.googleMeetUrl} target="_blank" rel="noopener noreferrer"
+                    className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2">
+                    <Video size={16} /> Entrar na Aula pelo Google Meet <ExternalLink size={13} />
+                  </a>
+                ) : (
+                  <div className="w-full py-3 rounded-2xl text-center text-xs text-amber-200 bg-white/5 border border-amber-500/20">
+                    O professor ainda não disponibilizou o link da aula.
+                  </div>
+                )
               </div>
             ))}
           </div>

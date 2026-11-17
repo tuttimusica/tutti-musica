@@ -47,6 +47,8 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const [meetDrafts, setMeetDrafts] = useState<Record<string,string>>({});
+  const [savingMeetId,setSavingMeetId] = useState<string|null>(null);
   const [partituras, setPartituras] = useState<DbPartitura[]>([]);
   const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
   const [searchPartitura, setSearchPartitura] = useState('');
@@ -271,6 +273,26 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  const handleSaveMeetLink = async (booking: LessonBooking) => {
+    const link = (meetDrafts[booking.id] ?? booking.link_meet ?? '').trim();
+    if (!/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(link)) {
+      showToast('Informe um link válido do Google Meet.');
+      return;
+    }
+    setSavingMeetId(booking.id);
+    try {
+      const { data, error } = await supabase.rpc('tutti_teacher_set_meet_link', {
+        p_booking_id: booking.id, p_meet_url: link
+      });
+      if (error) throw error;
+      if (!data?.id) throw new Error('O link não foi confirmado pelo banco.');
+      setTeacherBookings(prev => prev.map(b => b.id === booking.id ? {...b, link_meet: data.link_meet} : b));
+      showToast('Link salvo. O aluno poderá entrar pela Agenda de Aula.');
+    } catch (err: any) {
+      showToast(err?.message || 'Não foi possível salvar o link.');
+    } finally { setSavingMeetId(null); }
   };
 
   const handleCancelBooking = async (id: string, alunoNome: string) => {
@@ -512,6 +534,28 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                         </div>
                       </div>
 
+                      {booking.status === 'agendada' && (
+                        <div className="rounded-xl border border-indigo-500/20 p-3 space-y-2">
+                          <p className="text-xs font-bold text-indigo-200">Google Meet — link desta aula</p>
+                          <a href="https://meet.google.com/new" target="_blank" rel="noopener noreferrer"
+                             className="inline-flex items-center gap-2 text-xs text-cyan-300 underline">
+                            <Video size={13}/> Abrir Google Meet para criar e copiar o link
+                          </a>
+                          <div className="flex flex-col sm:flex-row gap-2">
+                            <input type="url" aria-label="Link do Google Meet desta aula"
+                              placeholder="https://meet.google.com/abc-defg-hij"
+                              value={meetDrafts[booking.id] ?? booking.link_meet ?? ''}
+                              onChange={e => setMeetDrafts(prev => ({...prev, [booking.id]: e.target.value}))}
+                              className="flex-1 min-w-0 rounded-lg bg-[#131722] border border-white/20 px-3 py-2 text-white text-xs"/>
+                            <button type="button" disabled={savingMeetId === booking.id}
+                              onClick={() => handleSaveMeetLink(booking)}
+                              className="rounded-lg bg-emerald-500 px-4 py-2 font-bold text-xs text-black disabled:opacity-50">
+                              {savingMeetId === booking.id ? 'Salvando...' : 'Salvar link para o aluno'}
+                            </button>
+                          </div>
+                          <p className="text-xs text-slate-400">O link será associado somente a esta aula e ficará visível na agenda do aluno.</p>
+                        </div>
+                      )}
                       {booking.observacoes && (
                         <p className="text-[11px] text-slate-400 italic bg-[#131722] p-2.5 rounded-xl border border-white/5">
                           "Plano da aula: {booking.observacoes}"
@@ -562,6 +606,10 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                 </div>
               )}
 
+              <div className="rounded-xl p-3 border border-indigo-500/20 text-xs text-slate-300">
+                Depois de salvar a aula, abra <strong>Minhas Aulas</strong> para cadastrar o link da reunião.
+                <a href="https://meet.google.com/new" target="_blank" rel="noopener noreferrer" className="ml-2 text-cyan-300 underline">Abrir Google Meet</a>
+              </div>
               <form onSubmit={handleScheduleSubmit} className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-4 text-xs">
                 {/* 1. Nome do Aluno */}
                 <div>
@@ -645,9 +693,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                       onChange={e => setFormData({ ...formData, duracaoMinutos: Number(e.target.value) })}
                       className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-3 outline-none focus:border-emerald-400 text-xs"
                     >
-                      <option value={30}>30 minutos</option>
-                      <option value={50}>50 minutos (Padrão)</option>
-                      <option value={80}>80 minutos (Intensivo)</option>
+                      <option value={60}>60 minutos (Padrão)</option>
                     </select>
                   </div>
                 </div>
