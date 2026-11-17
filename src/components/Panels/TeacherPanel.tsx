@@ -33,6 +33,17 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
 
   // Bookings state for this teacher (loaded strictly from Supabase, NO fake mocks)
   const [teacherBookings, setTeacherBookings] = useState<LessonBooking[]>([]);
+  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
+  useEffect(() => {
+    const interval = window.setInterval(() => setScheduleNow(Date.now()), 30000);
+    return () => window.clearInterval(interval);
+  }, []);
+  // Hide finished/canceled lessons from both the schedule and student roster.
+  // Data remains in Supabase for audit/history, never deleted by UI.
+  const upcomingTeacherBookings = teacherBookings.filter(b =>
+    b.status === 'agendada' &&
+    Date.parse(`${b.data_aula}T${b.hora_inicio}-03:00`) + 60 * 60 * 1000 > scheduleNow
+  );
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
 
   // Form State for Scheduling a Class
@@ -81,6 +92,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
           .from('marcacoes_aulas')
           .select('*')
           .eq('professor_id', user?.id || '00000000-0000-0000-0000-000000000000')
+          .eq('status', 'agendada')
           .order('data_aula', { ascending: true });
 
         if (!error && data) {
@@ -96,12 +108,15 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     loadTeacherData();
 
     const ch = supabase
-      .channel('teacher-partituras-live')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => loadSheets())
+      .channel('teacher-schedule-and-sheets')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => { void loadSheets(); })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'marcacoes_aulas', filter: `professor_id=eq.${user?.id}` }, () => { void loadTeacherData(); })
       .subscribe();
-
+    const refreshOnFocus = () => { void loadTeacherData(); };
+    window.addEventListener('focus',refreshOnFocus);
     return () => {
-      supabase.removeChannel(ch);
+      window.removeEventListener('focus',refreshOnFocus);
+      void supabase.removeChannel(ch);
     };
   }, [teacherDisplayName, teacherEmail, loadSheets]);
 
@@ -258,6 +273,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
 
       setTeacherBookings(prev => [newBooking, ...prev]);
       showToast(`Aula de 60 minutos marcada com ${formData.alunoNome}. O link do Google Meet será informado quando estiver disponível.`);
+      void notifyStudentByEmail(newBooking.id,'scheduled');
       setFormData({
         alunoNome: '',
         alunoEmail: '',
@@ -272,6 +288,22 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
       setFormError(err?.message || 'Erro ao agendar aula.');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const notifyStudentByEmail = async (id: string, event: 'scheduled' | 'canceled' | 'meet_ready') => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) return;
+      const response = await fetch('/api/lessons/notify', {
+        method: 'POST',
+        headers: {'Content-Type':'application/json',Authorization:`Bearer ${token}`},
+        body:JSON.stringify({bookingId:id,event})
+      });
+      if (!response.ok) console.warn('Tutti: e-mail de aula pendente',response.status);
+    } catch (err) {
+      console.warn('Tutti: e-mail de aula indisponível',err);
     }
   };
 
@@ -290,6 +322,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
       if (!data?.id) throw new Error('O link não foi confirmado pelo banco.');
       setTeacherBookings(prev => prev.map(b => b.id === booking.id ? {...b, link_meet: data.link_meet} : b));
       showToast('Link salvo. O aluno poderá entrar pela Agenda de Aula.');
+      void notifyStudentByEmail(booking.id,'meet_ready');
     } catch (err: any) {
       showToast(err?.message || 'Não foi possível salvar o link.');
     } finally { setSavingMeetId(null); }
@@ -302,6 +335,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
       if (result.error) throw result.error;
       setTeacherBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelada' } : b));
       showToast('Aula cancelada com sucesso.');
+      void notifyStudentByEmail(id,'canceled');
     } catch {
       showToast('Erro ao cancelar aula.');
     }
@@ -316,8 +350,8 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
           nome: b.aluno_nome,
           email: b.aluno_email,
           tel: b.aluno_telefone || 'Não informado',
-          aulasCount: teacherBookings.filter(x => x.aluno_email === b.aluno_email).length,
-          proximaAula: teacherBookings.find(x => x.aluno_email === b.aluno_email && x.status === 'agendada')
+          aulasCount: upcomingTeacherBookings.filter(x => x.aluno_email === b.aluno_email).length,
+          proximaAula: upcomingTeacherBookings.find(x => x.aluno_email === b.aluno_email && x.status === 'agendada')
         }])
     ).values()
   );
@@ -371,7 +405,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
           {/* ITEM 16: REMOVIDA A ABA "MARCAÇÕES" (FOCADA EM MINHAS AULAS) */}
           {[
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-            { id: 'aulas', label: 'Minhas Aulas', icon: BookOpen, badge: teacherBookings.filter(b => b.status === 'agendada').length },
+            { id: 'aulas', label: 'Minhas Aulas', icon: BookOpen, badge: upcomingTeacherBookings.filter(b => b.status === 'agendada').length },
             { id: 'agenda', label: 'Agenda de Aulas (Marcar)', icon: Calendar },
             { id: 'alunos', label: 'Meus Alunos', icon: Users, badge: uniqueLinkedStudents.length },
             { id: 'partituras', label: 'Acervo de Partituras', icon: FileText, badge: partituras.length },
@@ -420,7 +454,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                 <div className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-1">
                   <div className="text-[11px] font-bold text-slate-400 uppercase">Aulas Agendadas</div>
                   <div className="text-3xl font-syne font-black text-emerald-400">
-                    {teacherBookings.filter(b => b.status === 'agendada').length}
+                    {upcomingTeacherBookings.filter(b => b.status === 'agendada').length}
                   </div>
                   <div className="text-[10px] text-slate-400">Próximos compromissos ao vivo</div>
                 </div>
@@ -480,9 +514,9 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                 </button>
               </div>
 
-              {teacherBookings.length > 0 ? (
+              {upcomingTeacherBookings.length > 0 ? (
                 <div className="space-y-3">
-                  {teacherBookings.map(booking => (
+                  {upcomingTeacherBookings.map(booking => (
                     <div
                       key={booking.id}
                       className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-3 hover:border-emerald-500/30 transition-colors shadow-md"
