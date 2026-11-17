@@ -9,7 +9,7 @@ const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, char => ({
 export default async function handler(req,res) {
   res.setHeader('Cache-Control','no-store');
   if(req.method !== 'POST') { res.setHeader('Allow','POST');return send(res,405,{error:'method_not_allowed'}); }
-  const token=/^Bearer\\s+(.+)$/i.exec(req.headers.authorization || '')?.[1];
+  const token=/^Bearer\s+(.+)$/i.exec(req.headers.authorization || '')?.[1];
   if(!token) return send(res,401,{error:'unauthorized'});
   const {bookingId,event} = req.body || {};
   if(typeof bookingId !== 'string' || !/^[0-9a-f-]{36}$/i.test(bookingId) ||
