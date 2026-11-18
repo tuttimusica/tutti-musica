@@ -144,6 +144,10 @@ export default async function handler(req,res) {
     try {
       const session=await findReversedSession(stripe,event);
       if(!session) return send(res,200,{received:true,ignored:true});
+      // Recurring refunds must never be acknowledged as a successful legacy
+      // one-time revocation: force a retry and explicit reconciliation instead.
+      if(session.mode==='subscription')
+        return send(res,503,{error:'recurring_refund_requires_reconciliation'});
       const {error}=await admin.rpc('tutti_revoke_paid_plan',{
         p_session_id:session.id,p_reason:event.type
       });
