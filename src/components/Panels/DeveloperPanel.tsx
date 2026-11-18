@@ -1877,36 +1877,18 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </button>
               </div>
 
-              <section className="rounded-2xl border border-amber-400/20 bg-[#0b0d14] p-5 space-y-4">
-                <h3 className="text-amber-300 font-bold text-sm">Conjuntos de partituras para venda</h3>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input value={bundleTitle} onChange={e => setBundleTitle(e.target.value)}
-                    placeholder="Nome do conjunto" className="flex-1 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
-                  <input value={bundlePrice} onChange={e => setBundlePrice(e.target.value)}
-                    placeholder="Preço R$" inputMode="decimal" className="sm:w-32 bg-[#131722] text-white rounded-lg p-2 text-xs border border-white/10" />
-                </div>
-                <p className="text-xs text-slate-400">Selecione as partituras que farão parte deste conjunto:</p>
-                <div className="max-h-40 overflow-y-auto space-y-1">
-                  {sheetsList.map(sheet => (
-                    <label key={String(sheet.id)} className="flex gap-2 items-center text-xs text-slate-200">
-                      <input type="checkbox" checked={bundleSelectedIds.includes(String(sheet.id))}
-                        onChange={e => setBundleSelectedIds(prev => e.target.checked
-                          ? [...prev, String(sheet.id)] : prev.filter(id => id !== String(sheet.id)))} />
-                      {sheet.title} — {sheet.instrument}
-                    </label>
-                  ))}
-                </div>
-                <button type="button" disabled={bundleSaving} onClick={handleCreateBundle}
-                  className="px-4 py-2 bg-amber-500 text-black font-bold rounded-lg text-xs disabled:opacity-50">
-                  {bundleSaving ? 'Salvando...' : 'Criar conjunto (rascunho)'}
-                </button>
-                {bundleList.map(bundle => (
-                  <div key={bundle.id} className="flex items-center justify-between gap-2 text-xs border-t border-white/10 pt-3">
-                    <span className="text-white">{bundle.titulo} — R$ {bundle.preco.toFixed(2).replace('.', ',')}</span>
-                    <button type="button" onClick={() => handlePublishBundle(bundle.id, bundle.publicado)}
-                      className="text-amber-300 underline">{bundle.publicado ? 'Ocultar' : 'Publicar'}</button>
-                  </div>
-                ))}
+              <section className="rounded-2xl border border-emerald-400/20 bg-[#0b0d14] p-5 space-y-2">
+                <h3 className="text-emerald-300 font-bold text-sm">Biblioteca automática do Tutti Pro Vitalício</h3>
+                <p className="text-xs text-slate-300">
+                  Ao adicionar um PDF e selecionar <strong>Exclusiva (Tutti Pro)</strong>, o arquivo
+                  fica armazenado no Supabase Storage privado. Quando for publicado,
+                  será disponibilizado automaticamente a todos os alunos com Pro Vitalício ativo.
+                  Não é necessário criar conjuntos nem vincular cada PDF a cada aluno.
+                </p>
+                <p className="text-xs text-slate-400">
+                  Partituras marcadas como gratuitas também entram automaticamente no catálogo,
+                  com acesso livre. Os arquivos e registros antigos são preservados.
+                </p>
               </section>
 
               {/* Search, Category and Instrument Filter */}
@@ -3176,13 +3158,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     onChange={e => setFormCategory(e.target.value as 'gratuita' | 'paga')}
                     className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
                   >
-                    <option value="gratuita">Partitura Gratuita (Bucket Público)</option>
-                    <option value="paga">Partitura Paga (Bucket Privado Protegido)</option>
+                    <option value="gratuita">Gratuita — acesso livre</option>
+                    <option value="paga">Exclusiva — biblioteca Tutti Pro</option>
                   </select>
                   <p className="text-[11px] mt-1.5 font-medium text-slate-400">
                     {formCategory === 'paga'
-                      ? 'Armazenada no bucket privado protegido. A comercialização será feita em conjuntos de partituras.'
-                      : 'Armazenada no bucket público com acesso livre para leitura e download na plataforma.'}
+                      ? 'PDF protegido no Storage privado. Ao publicar, é liberado automaticamente a todo aluno com Tutti Pro Vitalício ativo, inclusive para compras anteriores.'
+                      : 'PDF no Storage privado com política de acesso público à categoria gratuita; liberado automaticamente para todos.'}
                   </p>
                 </div>
 
