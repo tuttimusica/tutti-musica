@@ -20,6 +20,8 @@ export default async function handler(req,res){
    return send(res,503,{error:'stripe_not_configured'});
  const url=process.env.VITE_SUPABASE_URL;
  const anon=process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+ const fulfillmentKey=process.env.TUTTI_PRO_SUPABASE_SERVICE_ROLE_KEY;
+ if(!fulfillmentKey)return send(res,503,{error:'pro_fulfillment_not_configured'});
  const origin=prod?LIVE_ORIGIN:process.env.TUTTI_TEST_ORIGIN;
  try{
    if(!url||new URL(url).hostname!==(prod?PROD_HOST:new URL(url).hostname)||
@@ -33,6 +35,13 @@ export default async function handler(req,res){
    const {data:{user},error}=await auth.auth.getUser(token);
    if(error||!user?.id||!user.email||!user.email_confirmed_at)
      return send(res,401,{error:'unauthorized'});
+   // Before allowing a charge, validate that the webhook has a privileged
+   // credential for the SAME Supabase project and can identify this user.
+   // This is not authorization from client metadata; it is a backend readiness gate.
+   const admin=createClient(url,fulfillmentKey,{auth:{persistSession:false,autoRefreshToken:false}});
+   const {data:ownedUser,error:adminError}=await admin.auth.admin.getUserById(user.id);
+   if(adminError||ownedUser?.user?.id!==user.id)
+     return send(res,503,{error:'pro_fulfillment_project_unavailable'});
    const {data:plan,error:planError}=await auth.from('planos')
      .select('id,ativo,periodo,recorrencia,preco_centavos,stripe_test_price_id,stripe_price_id')
      .eq('id','pro').maybeSingle();
