@@ -1,91 +1,100 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
-import { isPaidCheckout } from './plan-policy.js';
 
-export const config = { api: { bodyParser: false } };
-const send = (res,status,body) => { res.statusCode=status; res.end(JSON.stringify(body)); };
-const uuidPattern=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i;
-async function rawBody(req) { const parts=[]; for await (const c of req) parts.push(Buffer.isBuffer(c)?c:Buffer.from(c)); return Buffer.concat(parts); }
-
-async function paymentReversed(stripe, session) {
-  if (!session.payment_intent) return true;
-  const payment=await stripe.paymentIntents.retrieve(session.payment_intent, {expand:['latest_charge']});
-  const charge=payment.latest_charge;
-  if (typeof charge === 'object' && charge && (charge.refunded || charge.disputed || charge.amount_refunded > 0)) return true;
-  return payment.status !== 'succeeded';
+export const config={api:{bodyParser:false}};
+const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
+const PROD_HOST='viwxalwpvuvgcyxsdjbi.supabase.co';
+const uuid=/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+async function rawBody(req){
+ const chunks=[];
+ for await(const piece of req)chunks.push(Buffer.isBuffer(piece)?piece:Buffer.from(piece));
+ return Buffer.concat(chunks);
 }
+const isPro=(s)=>s?.mode==='payment'&&s?.metadata?.tipo==='tutti_plano'&&
+ s?.metadata?.plano_id==='pro'&&uuid.test(s.metadata?.user_id||'')&&
+ s.client_reference_id===s.metadata.user_id;
 
-async function findReversedSession(stripe,event) {
-  const object=event.data.object;
-  let paymentIntent=null;
-  if(event.type==='charge.refunded') paymentIntent=object.payment_intent;
-  if(event.type==='charge.dispute.created') paymentIntent=object.payment_intent;
-  if(!paymentIntent || typeof paymentIntent!=='string') return null;
-  const matches=await stripe.checkout.sessions.list({payment_intent:paymentIntent,limit:5});
-  return matches.data.find(s=>s.metadata?.tipo==='tutti_plano') || null;
-}
-
-export default async function handler(req,res) {
-  res.setHeader('Cache-Control','no-store');
-  res.setHeader('Content-Type','application/json; charset=utf-8');
-  if(req.method!=='POST') { res.setHeader('Allow','POST'); return send(res,405,{error:'method_not_allowed'}); }
-  if(process.env.TUTTI_PAYMENT_TEST_MODE!=='true'||process.env.VERCEL_ENV==='production')
-    return send(res,503,{error:'test_webhook_disabled'});
-  const key=process.env.STRIPE_SECRET_KEY;
-  const secret=process.env.STRIPE_PLANS_WEBHOOK_SECRET;
-  const url=process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
-
-  // Security boundary: the backend must never query a different Supabase project
-  // from the frontend build. Fail closed instead of crossing production/staging.
-  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL)
-    return send(res,503,{error:'supabase_environment_mismatch'});
-
-  const serviceKey=process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-  if(!key?.startsWith('sk_test_')||!secret||!url||!serviceKey) return send(res,503,{error:'test_webhook_unconfigured'});
-  const signature=req.headers['stripe-signature'];
-  if(typeof signature!=='string') return send(res,400,{error:'invalid_signature'});
-  const stripe=new Stripe(key);
-  let event;
-  try { event=stripe.webhooks.constructEvent(await rawBody(req),signature,secret); }
-  catch { return send(res,400,{error:'invalid_signature'}); }
-
-  const admin=createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
-  if(event.type==='charge.refunded'||event.type==='charge.dispute.created') {
-    try {
-      const session=await findReversedSession(stripe,event);
-      if(!session) return send(res,200,{received:true,ignored:true});
-      const {error}=await admin.rpc('tutti_revoke_paid_plan',{
-        p_session_id:session.id,p_reason:event.type
-      });
-      if(error) throw error;
-      return send(res,200,{received:true,revocation_processed:true});
-    } catch {
-      return send(res,503,{error:'revocation_unavailable'});
-    }
-  }
-
-  if(event.type!=='checkout.session.completed' && event.type!=='checkout.session.async_payment_succeeded')
-    return send(res,200,{received:true,ignored:true});
-  const incoming=event.data.object;
-  if(incoming.metadata?.tipo!=='tutti_plano') return send(res,200,{received:true,ignored:true});
-  const userId=incoming.metadata?.user_id;
-  const planId=incoming.metadata?.plano_id;
-  if(!uuidPattern.test(userId||'')) return send(res,400,{error:'invalid_user'});
-  try {
-    const session=await stripe.checkout.sessions.retrieve(incoming.id);
-    if(session.livemode || !isPaidCheckout(session,userId,planId))
-      return send(res,200,{received:true,not_granted:true});
-    // A reversal may race with the original checkout event. Never regrant it.
-    if(await paymentReversed(stripe,session))
-      return send(res,200,{received:true,reversed:true});
-    const paidAt=new Date(event.created*1000).toISOString();
-    const {data,error}=await admin.rpc('tutti_apply_paid_plan',{
-      p_session_id:session.id,p_event_id:event.id,p_user_id:userId,
-      p_plan_id:planId,p_amount_cents:session.amount_total,p_paid_at:paidAt
-    });
-    if(error) throw error;
-    return send(res,200,{received:true,granted:data===true});
-  } catch {
-    return send(res,503,{error:'grant_unavailable'});
-  }
+export default async function handler(req,res){
+ if(req.method!=='POST'){res.setHeader('Allow','POST');return send(res,405,{error:'method_not_allowed'});}
+ const prod=process.env.VERCEL_ENV==='production';
+ const enabled=prod?process.env.TUTTI_PRO_LIVE_CHECKOUT_ENABLED==='true':
+   process.env.TUTTI_PAYMENT_TEST_MODE==='true';
+ if(!enabled)return send(res,503,{error:'pro_webhook_not_enabled'});
+ const key=prod?process.env.TUTTI_STRIPE_LIVE_SECRET_KEY:process.env.STRIPE_SECRET_KEY;
+ const secret=prod?process.env.TUTTI_STRIPE_LIVE_WEBHOOK_SECRET:process.env.STRIPE_PLANS_WEBHOOK_SECRET;
+ const url=process.env.VITE_SUPABASE_URL;
+ const service=process.env.TUTTI_PRO_SUPABASE_SERVICE_ROLE_KEY;
+ if(!key?.startsWith(prod?'sk_live_':'sk_test_')||!secret?.startsWith('whsec_')||
+   !service||!url)return send(res,503,{error:'pro_webhook_unconfigured'});
+ try{
+   if(prod&&new URL(url).hostname!==PROD_HOST)
+     return send(res,503,{error:'supabase_project_mismatch'});
+ }catch{return send(res,503,{error:'supabase_project_mismatch'});}
+ const stripe=new Stripe(key);
+ const signature=req.headers['stripe-signature'];
+ if(typeof signature!=='string')return send(res,400,{error:'invalid_signature'});
+ let event;
+ try{event=stripe.webhooks.constructEvent(await rawBody(req),signature,secret);}
+ catch{return send(res,400,{error:'invalid_signature'});}
+ if(event.livemode!==prod)return send(res,400,{error:'stripe_environment_mismatch'});
+ const admin=createClient(url,service,{auth:{persistSession:false,autoRefreshToken:false}});
+ try{
+   if(event.type==='checkout.session.completed'||
+      event.type==='checkout.session.async_payment_succeeded'){
+     const incoming=event.data.object;
+     if(!isPro(incoming))return send(res,200,{received:true,ignored:true});
+     const s=await stripe.checkout.sessions.retrieve(incoming.id);
+     if(!isPro(s)||s.livemode!==prod||
+        s.payment_status!=='paid'||s.currency!=='brl'||s.amount_total!==1990)
+       return send(res,200,{received:true,not_granted:true});
+     // Price, product and quantity must match the catalog; session metadata
+     // alone is not proof of which product was actually purchased.
+     const {data:plan,error:planError}=await admin.from('planos')
+       .select('stripe_test_price_id,stripe_price_id,ativo,preco_centavos,periodo,recorrencia')
+       .eq('id','pro').maybeSingle();
+     if(planError||!plan?.ativo||plan.preco_centavos!==1990||
+        plan.periodo!=='vitalicio'||plan.recorrencia!=='unico')
+       return send(res,503,{error:'plan_not_ready'});
+     const expectedPrice=prod?plan.stripe_price_id:plan.stripe_test_price_id;
+     const lines=await stripe.checkout.sessions.listLineItems(s.id,{limit:3});
+     if(!expectedPrice||lines.data.length!==1||lines.has_more||
+        lines.data[0]?.price?.id!==expectedPrice||lines.data[0]?.quantity!==1)
+       return send(res,503,{error:'line_item_mismatch'});
+     if(!s.payment_intent)return send(res,503,{error:'payment_intent_missing'});
+     const payment=await stripe.paymentIntents.retrieve(s.payment_intent,{expand:['latest_charge']});
+     const charge=payment.latest_charge;
+     if(payment.status!=='succeeded'||(
+       typeof charge==='object'&&charge&&
+       (charge.refunded||charge.disputed||charge.amount_refunded>0)))
+       return send(res,200,{received:true,reversed_or_unpaid:true});
+     // A wrong-project service key will fail here: never use browser metadata as a grant.
+     const id=s.metadata.user_id;
+     const {data:identity,error:identityError}=await admin.auth.admin.getUserById(id);
+     if(identityError||identity?.user?.id!==id)
+       return send(res,503,{error:'supabase_auth_project_unavailable'});
+     const {data,error}=await admin.rpc('tutti_apply_pro_purchase',{
+       p_session_id:s.id,p_event_id:event.id,p_user_id:id,p_price_id:expectedPrice,
+       p_amount_cents:1990,p_paid_at:new Date(event.created*1000).toISOString(),
+       p_livemode:prod
+     });
+     if(error)return send(res,503,{error:'pro_grant_unavailable'});
+     return send(res,200,{received:true,granted:data===true});
+   }
+   if(event.type==='charge.refunded'||event.type==='charge.dispute.created'){
+     const obj=event.data.object;
+     if(event.type==='charge.refunded'&&!obj.refunded)
+       return send(res,200,{received:true,partial_refund_ignored:true});
+     const pi=typeof obj.payment_intent==='string'?obj.payment_intent:obj.payment_intent?.id;
+     if(!pi)return send(res,200,{received:true,ignored:true});
+     const matches=await stripe.checkout.sessions.list({payment_intent:pi,limit:10});
+     const pro=matches.data.find(x=>isPro(x)&&x.livemode===prod);
+     if(!pro)return send(res,200,{received:true,ignored:true});
+     const {error}=await admin.rpc('tutti_reverse_pro_purchase',{
+       p_session_id:pro.id,p_event_id:event.id,p_reason:event.type
+     });
+     if(error)return send(res,503,{error:'pro_refund_unavailable'});
+     return send(res,200,{received:true,revocation_processed:true});
+   }
+   return send(res,200,{received:true,ignored:true});
+ }catch{return send(res,503,{error:'pro_webhook_processing_unavailable'});}
 }
