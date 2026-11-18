@@ -151,33 +151,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
 
     try {
-      const { data: sub, error } = await supabase
+      const { data: subscriptions, error } = await supabase
         .from('assinaturas_usuarios')
-        .select('plano_id, status, data_fim')
+        .select('plano_id, status, data_inicio, data_fim')
         .eq('user_id', authUser.id)
         .eq('status', 'ativo')
         .order('created_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
+        .limit(50);
 
-      if (!error && sub) {
-        const isNotExpired = !sub.data_fim || new Date(sub.data_fim) >= new Date();
-        if (isNotExpired) {
-          const pId = sub.plano_id?.toLowerCase();
-          if (pId === 'ultra' || pId === 'mensal' || pId === 'trimestral' || pId === 'semestral') {
-            setBackendPlan('ultra');
-          } else if (pId === 'pro') {
-            setBackendPlan('pro');
-          } else {
-            setBackendPlan('free');
-          }
-          setHasActiveSubscription(true);
-          return;
-        }
-      }
-
-      setBackendPlan('free');
-      setHasActiveSubscription(false);
+      if (error) throw error;
+      const now = Date.now();
+      const valid = (subscriptions || []).filter(s =>
+        new Date(s.data_inicio).getTime() <= now &&
+        (!s.data_fim || new Date(s.data_fim).getTime() > now)
+      );
+      // Lifetime Pro is never lost because an Ultra subscription expired.
+      const hasUltra = valid.some(s =>
+        ['ultra','mensal','trimestral','semestral'].includes(s.plano_id)
+      );
+      const hasPro = valid.some(s => s.plano_id === 'pro');
+      setBackendPlan(hasUltra ? 'ultra' : hasPro ? 'pro' : 'free');
+      setHasActiveSubscription(hasUltra || hasPro);
     } catch (e) {
       console.warn('Subscription sync notice:', e);
       setBackendPlan('free');

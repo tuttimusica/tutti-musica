@@ -107,18 +107,24 @@ export async function createStripeCustomerPortal(): Promise<{ url: string }> {
  */
 export async function fetchUserActiveSubscription(userId: string): Promise<UserSubscriptionDetails | null> {
   try {
-    const { data, error } = await supabase
+    const { data: rows, error } = await supabase
       .from('assinaturas_usuarios')
       .select('*, planos(*)')
       .eq('user_id', userId)
+      .eq('status','ativo')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(50);
 
-    if (error || !data) {
-      return null;
-    }
-
+    if (error || !rows?.length) return null;
+    const now = Date.now();
+    const eligible = rows.filter((s: any) =>
+      new Date(s.data_inicio).getTime() <= now &&
+      (!s.data_fim || new Date(s.data_fim).getTime() > now)
+    );
+    const data = eligible.find((s: any) =>
+      ['mensal','trimestral','semestral'].includes(s.plano_id)) ||
+      eligible.find((s: any) => s.plano_id === 'pro');
+    if (!data) return null;
     const plano = data.planos || {};
     return {
       id: data.id,
