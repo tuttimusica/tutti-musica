@@ -50,6 +50,90 @@ export default async function handler(req,res) {
   catch { return send(res,400,{error:'invalid_signature'}); }
 
   const admin=createClient(url,serviceKey,{auth:{persistSession:false,autoRefreshToken:false}});
+
+  // Recurring Ultra billing: only a signed Stripe event can provision access.
+  // The invoice must be paid in full at the exact catalog amount. Replays are
+  // suppressed by the service-role RPC transaction (unique event + invoice).
+  const recurringTypes=new Set([
+    'checkout.session.completed','invoice.paid','invoice.payment_failed',
+    'customer.subscription.updated','customer.subscription.deleted',
+    'charge.refunded','charge.dispute.created'
+  ]);
+  if(recurringTypes.has(event.type)){
+    try {
+      let subId=null,checkoutId=null,invoiceObj=null;
+      const obj=event.data.object;
+      if(event.type==='checkout.session.completed' && obj.mode==='subscription'){
+        subId=typeof obj.subscription==='string'?obj.subscription:obj.subscription?.id;
+        checkoutId=obj.id;
+      }else if(event.type.startsWith('customer.subscription.')){
+        subId=obj.id;
+      }else if(event.type.startsWith('invoice.')){
+        subId=typeof obj.subscription==='string'?obj.subscription:
+          obj.parent?.subscription_details?.subscription || null;
+        invoiceObj=obj;
+      }else if(event.type==='charge.refunded'||event.type==='charge.dispute.created'){
+        const pi=obj.payment_intent;
+        if(typeof pi==='string'){
+          const invoices=await stripe.invoices.list({payment_intent:pi,limit:3});
+          invoiceObj=invoices.data?.[0]||null;
+          subId=invoiceObj?.parent?.subscription_details?.subscription||
+            invoiceObj?.subscription||null;
+        }
+      }
+      if(subId){
+        const sub=await stripe.subscriptions.retrieve(subId,{expand:['latest_invoice']});
+        if(sub.livemode)return send(res,200,{received:true,ignored:'livemode_mismatch'});
+        const m=sub.metadata||{};
+        if(m.tipo!=='tutti_plano'||!uuidPattern.test(m.user_id||'')||
+           !['mensal','trimestral','semestral'].includes(m.plano_id))
+          return send(res,200,{received:true,ignored:true});
+        const items=sub.items?.data||[];
+        if(items.length!==1||!items[0].price?.id)
+          return send(res,503,{error:'subscription_items_invalid'});
+        const price=items[0].price;
+        const start=items[0].current_period_start||sub.current_period_start;
+        const end=items[0].current_period_end||sub.current_period_end;
+        if(!start||!end||!sub.customer)
+          return send(res,503,{error:'subscription_period_invalid'});
+        const latest=typeof sub.latest_invoice==='object'?sub.latest_invoice:null;
+        const paid=invoiceObj?.status==='paid'?invoiceObj:
+          latest?.status==='paid'?latest:null;
+        let state='pendente';
+        if(event.type==='customer.subscription.deleted'||sub.status==='canceled')
+          state='cancelado';
+        else if(event.type==='invoice.payment_failed'||
+                event.type==='charge.refunded'||event.type==='charge.dispute.created')
+          state='inadimplente';
+        else if(sub.status==='active'&&paid?.status==='paid')
+          state='ativo';
+        else if(sub.status==='past_due'||sub.status==='unpaid')
+          state='inadimplente';
+        let invoiceId=state==='ativo'?paid?.id:null;
+        let amount=state==='ativo'?paid?.amount_paid:null;
+        // No free trials or promotional zero-value invoice grant until a
+        // distinct entitlement policy is implemented and tested.
+        if(state==='ativo'&&(typeof amount!=='number'||amount<=0))
+          return send(res,503,{error:'paid_invoice_required'});
+        const {error:syncErr}=await admin.rpc('tutti_record_stripe_subscription',{
+          p_event_id:event.id,
+          p_subscription_id:sub.id,p_user_id:m.user_id,p_plan_id:m.plano_id,
+          p_stripe_price_id:price.id,
+          p_customer_id:typeof sub.customer==='string'?sub.customer:sub.customer.id,
+          p_checkout_session_id:checkoutId,
+          p_status:state,
+          p_period_start:new Date(start*1000).toISOString(),
+          p_period_end:new Date(end*1000).toISOString(),
+          p_invoice_id:invoiceId,p_invoice_amount_cents:amount,p_livemode:false
+        });
+        if(syncErr)throw syncErr;
+        return send(res,200,{received:true,subscription_synced:true});
+      }
+    }catch{
+      return send(res,503,{error:'subscription_sync_unavailable'});
+    }
+  }
+
   if(event.type==='charge.refunded'||event.type==='charge.dispute.created') {
     try {
       const session=await findReversedSession(stripe,event);
