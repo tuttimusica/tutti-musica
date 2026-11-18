@@ -85,12 +85,13 @@ export async function createStripeCustomerPortal(): Promise<{ url: string }> {
   }
 
   // 2. Fallback para endpoint local do servidor
-  const res = await fetch('/api/stripe/create-portal-session', {
+  const res = await fetch('/api/stripe/create-plan-checkout', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${session.access_token}`,
     },
+    body: JSON.stringify({action:'portal'}),
   });
 
   const json = await res.json();

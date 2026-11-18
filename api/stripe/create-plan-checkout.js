@@ -14,9 +14,10 @@ export default async function handler(req,res){
    return send(res,503,{error:'payment_not_enabled'});
  const token=/^Bearer\s+(.+)$/i.exec(req.headers.authorization||'')?.[1];
  if(!token)return send(res,401,{error:'unauthorized'});
+ const portalRequested=req.body?.action==='portal';
  const planId=req.body?.plano_id;
- if(!Object.hasOwn(MODES,planId))return send(res,400,{error:'invalid_plan'});
- const policy=getPlan(planId);
+ if(!portalRequested&&!Object.hasOwn(MODES,planId))return send(res,400,{error:'invalid_plan'});
+ const policy=portalRequested?null:getPlan(planId);
  const url=process.env.VITE_SUPABASE_URL;
  const anon=process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
  const secret=process.env.STRIPE_SECRET_KEY;
@@ -29,6 +30,27 @@ export default async function handler(req,res){
    const {data:{user},error}=await auth.auth.getUser(token);
    if(error||!user?.id||!user.email||!user.email_confirmed_at)
      return send(res,401,{error:'unauthorized'});
+   if(portalRequested){
+     const {data:subscriptions,error:lookupError}=await auth.from('assinaturas_usuarios')
+       .select('stripe_customer_id,stripe_subscription_id')
+       .eq('user_id',user.id).not('stripe_subscription_id','is',null)
+       .order('created_at',{ascending:false}).limit(5);
+     if(lookupError)return send(res,503,{error:'subscription_lookup_failed'});
+     const existing=(subscriptions||[]).find(s=>s.stripe_customer_id?.startsWith('cus_'));
+     if(!existing)return send(res,404,{error:'no_subscription_customer'});
+     const stripe=new Stripe(secret);
+     const customer=await stripe.customers.retrieve(existing.stripe_customer_id);
+     if(!customer||customer.deleted||customer.livemode)
+       return send(res,403,{error:'customer_not_valid_for_test'});
+     const session=await stripe.billingPortal.sessions.create({
+       customer:customer.id,
+       return_url:origin+'/?billing=return',
+       configuration:'bpc_1UdAue1lh39aZRou8iGNLWCb'
+     });
+     if(!session.url?.startsWith('https://billing.stripe.com/'))
+       return send(res,503,{error:'portal_unavailable'});
+     return send(res,200,{url:session.url});
+   }
    // Never accept a price, currency, amount, recurrence or product ID from the browser.
    const {data:row,error:planError}=await auth.from('planos')
      .select('id,ativo,periodo,recorrencia,preco_centavos,stripe_test_price_id')
