@@ -317,20 +317,7 @@ export async function fetchPublishedConjuntos(): Promise<DbConjuntoPartituras[]>
   return (data || []).map(row => ({ ...row, preco: Number(row.preco || 0) }));
 }
 
-export async function createBundleCheckout(conjuntoId: string): Promise<string> {
-  if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
-    throw new Error('A compra de conjuntos de partituras estará disponível em breve.');
-  }
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) throw new Error('Entre na sua conta para comprar conjuntos.');
-  const res = await fetch('/api/stripe/create-sheet-checkout', {
-    method: 'POST',
-    headers: { 'Content-Type':'application/json', Authorization: `Bearer ${session.access_token}` },
-    body: JSON.stringify({ conjunto_id: conjuntoId }),
-  });
-  const result = await res.json().catch(() => ({}));
-  if (!res.ok || typeof result.url !== 'string') {
-    throw new Error(result.error || 'Não foi possível iniciar o pagamento do conjunto.');
-  }
-  return result.url;
+export async function createBundleCheckout(_conjuntoId: string): Promise<string> {
+  throw new Error('A biblioteca exclusiva agora faz parte do Tutti Pro Vitalício. Não vendemos PDFs em checkout separado.');
+
 }

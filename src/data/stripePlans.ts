@@ -1,10 +1,10 @@
 /**
- * Tutti Escola de Música — Configuração Oficial dos Planos Stripe
+ * Tutti Escola de Música — Catálogo visual dos planos Ultra por contrato
  * 
- * IDs de produtos existentes na conta Stripe de testes; os três preços Ultra abaixo são recorrentes e devem ser usados apenas com checkout de assinatura em ambiente de teste:
+ * Referências históricas de produtos Stripe. Nenhum Ultra tem checkout online ativo; todos são contratados por WhatsApp:
  * - Mensal: prod_Vb7a4cZFfk1zKO (R$ 299,90 a cada mês)
- * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90 a cada 3 meses)
- * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90 a cada 6 meses)
+ * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90 contrato trimestral por WhatsApp)
+ * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90 contrato semestral por WhatsApp)
  */
 
 export interface TuttiStripePlan {
@@ -30,7 +30,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Maior Indicação',
     priceFormatted: 'R$ 299,90',
     periodLabel: '/mês',
-    billingSubtitle: 'PAGAMENTO ANTECIPADO • RENOVAÇÃO AUTOMÁTICA TODO MÊS',
+    billingSubtitle: 'CONTRATO INDIVIDUAL POR WHATSAPP • CICLO MENSAL',
     amountCents: 29990,
     stripeProductId: 'prod_Vb7a4cZFfk1zKO',
     features: [
@@ -55,7 +55,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Trimestral Exclusivo',
     priceFormatted: 'R$ 799,90',
     periodLabel: '/trimestre',
-    billingSubtitle: 'ASSINATURA RECORRENTE • COBRANÇA A CADA 3 MESES',
+    billingSubtitle: 'CONTRATO INDIVIDUAL POR WHATSAPP • CICLO TRIMESTRAL',
     amountCents: 79990,
     stripeProductId: 'prod_Vb7bFGhgGPvHtW',
     features: [
@@ -77,7 +77,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Semestral Exclusivo',
     priceFormatted: 'R$ 1.649,90',
     periodLabel: '/semestre',
-    billingSubtitle: 'ASSINATURA RECORRENTE • COBRANÇA A CADA 6 MESES',
+    billingSubtitle: 'CONTRATO INDIVIDUAL POR WHATSAPP • CICLO SEMESTRAL',
     amountCents: 164990,
     stripeProductId: 'prod_Vb7e0rGvV0Hqhf',
     features: [
