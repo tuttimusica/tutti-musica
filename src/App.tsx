@@ -1244,6 +1244,12 @@ const PartiturasPage: React.FC = () => {
     };
   }, [loadSheets]);
 
+  useEffect(() => {
+    const refresh=()=>{void loadSheets();};
+    window.addEventListener('focus',refresh);
+    return ()=>window.removeEventListener('focus',refresh);
+  },[loadSheets]);
+
   const filteredSheets = useMemo(() => {
     return dbSheets.filter(item => {
       const term = searchTerm.toLowerCase();
@@ -2813,12 +2819,23 @@ const PerfilPage: React.FC = () => {
 };
 
 const SubscriptionSync: React.FC<{ setUserPlan: (p: 'free' | 'pro' | 'ultra') => void }> = ({ setUserPlan }) => {
-  const { backendPlan } = useAuth();
+  const { backendPlan, refreshSubscription } = useAuth();
   useEffect(() => {
-    if (backendPlan) {
-      setUserPlan(backendPlan);
-    }
+    setUserPlan(backendPlan || 'free');
   }, [backendPlan, setUserPlan]);
+  useEffect(() => {
+    const update=()=>{void refreshSubscription().catch(()=>undefined);};
+    window.addEventListener('focus',update);
+    // After Checkout redirect, Stripe's verified webhook may arrive slightly later.
+    // Re-read the server-side entitlement; never trust ?checkout=success itself.
+    const params=new URLSearchParams(window.location.search);
+    const delays=params.get('checkout')==='success'?[1500,5000,12000]:[];
+    const timers=delays.map(ms=>window.setTimeout(update,ms));
+    return ()=>{
+      window.removeEventListener('focus',update);
+      timers.forEach(id=>window.clearTimeout(id));
+    };
+  }, [refreshSubscription]);
   return null;
 };
 
