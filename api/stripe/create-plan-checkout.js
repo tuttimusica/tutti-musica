@@ -14,6 +14,7 @@ export default async function handler(req, res) {
   const token = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '')?.[1];
   if (!token) return send(res,401,{error:'unauthorized'});
   const planId = req.body?.plano_id;
+  if (planId !== 'pro') return send(res,403,{error:'ultra_contract_only'});
   let plan;
   try { plan = getPlan(planId); } catch { return send(res,400,{error:'invalid_plan'}); }
   const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;

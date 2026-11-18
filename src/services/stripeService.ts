@@ -49,7 +49,8 @@ export async function createStripeCheckoutSession(planoId: string): Promise<{ ur
     throw new Error('Você precisa estar autenticado na Tutti para assinar um plano.');
   }
 
-  // Pro is a one-time lifetime purchase; Ultra plans use recurring subscription Checkout.
+  // Only Pro Vitalício is sold online; Ultra contracts are handled through WhatsApp.
+  if (planoId !== 'pro') throw new Error('Planos Ultra são contratados diretamente pelo WhatsApp da Tutti.');
   const res = await fetch('/api/stripe/create-plan-checkout', {
     method: 'POST',
     headers: {

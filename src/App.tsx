@@ -43,7 +43,6 @@ import {
   fetchPublishedPartituras,
   fetchUnlockedPartituraIds,
   resolvePartituraPdfUrl,
-  createPaidSheetCheckout,
 } from './services/partiturasService';
 import { RouterContext, RouterContextType, useAppRouter } from './context/RouterContext';
 export { useAppRouter, RouterContext };
@@ -52,7 +51,7 @@ export type { RouterContextType };
 function mapDbPartituraToSheetMusic(item: DbPartitura): SheetMusic {
   const isPaid = item.categoria === 'paga';
   return {
-    id: Number(item.id),
+    id: Number.parseInt(item.id.replace(/-/g,'').slice(0,12),16),
     title: item.titulo,
     composer: item.compositor || 'Compositor Tutti',
     instrument: item.instrumento || 'Saxofone Alto',
@@ -390,8 +389,8 @@ const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
   const [featuredDbSheets, setFeaturedDbSheets] = useState<DbPartitura[]>([]);
   const [totalPublishedSheets, setTotalPublishedSheets] = useState<number>(0);
-  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
-  const [openingId, setOpeningId] = useState<number | null>(null);
+  const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   useSEO("Início", "Aprenda Saxofone, Teclado, Violão, Canto, Bateria e Violino com o Maestro Lucas.");
 
@@ -425,24 +424,17 @@ const HomePage: React.FC = () => {
 
   const handleOpenHomeSheet = async (item: DbPartitura) => {
     const isPaid = item.categoria === 'paga';
-    const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+    const hasPrivilege = profile?.role === 'desenvolvedor';
     const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
 
     if (!isUnlocked) {
       if (!user) {
-        showToast('Faça login para adquirir esta partitura paga.');
+        showToast('Entre para conhecer o Tutti Pro Vitalício e liberar toda a biblioteca exclusiva.');
         navigate('/auth');
         return;
       }
-      setOpeningId(item.id);
-      try {
-        const { url } = await createPaidSheetCheckout(item.id);
-        window.location.href = url;
-      } catch (err: any) {
-        showToast(err?.message || 'Não foi possível iniciar o pagamento.');
-      } finally {
-        setOpeningId(null);
-      }
+      showToast('As partituras exclusivas fazem parte do Tutti Pro Vitalício: R$ 19,90, pagamento único.');
+      openPlansModal();
       return;
     }
 
@@ -687,7 +679,7 @@ const HomePage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {featuredDbSheets.map((item) => {
               const isPaid = item.categoria === 'paga';
-              const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+              const hasPrivilege = profile?.role === 'desenvolvedor';
               const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
               return (
                 <div
@@ -714,8 +706,8 @@ const HomePage: React.FC = () => {
                             ? isUnlocked
                               ? 'Paga • Liberada'
                               : Number(item.preco || 0) > 0
-                                ? `Paga • R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
-                                : 'Exclusiva • Paga'
+                                ? 'Incluída no Tutti Pro'
+                                : 'Incluída no Tutti Pro'
                             : 'Gratuita'}
                         </span>
                       </div>
@@ -1188,15 +1180,15 @@ const AulasPage: React.FC = () => {
 
 // 3. PARTITURAS PAGE (Gratuitas vs Pagas vs Destaques - Sem dados mockados)
 const PartiturasPage: React.FC = () => {
-  const { openSheetViewer, navigate, showToast } = useAppRouter();
+  const { openSheetViewer, navigate, showToast, openPlansModal } = useAppRouter();
   const { user, profile } = useAuth();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedInstrument, setSelectedInstrument] = useState('Todos');
   const [filterLevel, setFilterLevel] = useState('Todos');
   const [dbSheets, setDbSheets] = useState<DbPartitura[]>([]);
-  const [unlockedIds, setUnlockedIds] = useState<Set<number>>(new Set());
+  const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [busySheetId, setBusySheetId] = useState<number | null>(null);
+  const [busySheetId, setBusySheetId] = useState<string | null>(null);
 
   useSEO(
     "Biblioteca de Partituras Tutti",
@@ -1296,33 +1288,20 @@ const PartiturasPage: React.FC = () => {
     }
   };
 
-  const handleBuyPaidSheet = async (item: DbPartitura) => {
-    if (Number(item.preco || 0) <= 0) {
-      showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
-      return;
-    }
+  const handleBuyPaidSheet = (_item: DbPartitura) => {
     if (!user) {
-      showToast('Faça login para adquirir esta partitura paga.');
+      showToast('Faça login para adquirir o Tutti Pro Vitalício e acessar a biblioteca exclusiva.');
       navigate('/auth');
       return;
     }
-    setBusySheetId(item.id);
-    try {
-      const { url } = await createPaidSheetCheckout(item.id);
-      window.location.href = url;
-    } catch (err: any) {
-      showToast(err?.message || 'Erro ao iniciar checkout da partitura.');
-    } finally {
-      setBusySheetId(null);
-    }
+    showToast('Todas as partituras exclusivas estão incluídas no Tutti Pro Vitalício — R$ 19,90, pagamento único.');
+    openPlansModal();
   };
 
   const renderSheetCard = (item: DbPartitura) => {
     const isPaid = item.categoria === 'paga';
-    const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor';
+    const hasPrivilege = profile?.role === 'desenvolvedor';
     const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
-    const hasIndividualPrice = Number(item.preco || 0) > 0;
-    const priceLabel = `R$ ${Number(item.preco || 0).toFixed(2).replace('.', ',')}`;
 
     return (
       <div
@@ -1351,8 +1330,8 @@ const PartiturasPage: React.FC = () => {
                 {isPaid ? (isUnlocked ? <Unlock size={10} /> : <Lock size={10} />) : <Unlock size={10} />}
                 {isPaid
                   ? isUnlocked
-                    ? hasIndividualPrice ? `Liberada • ${priceLabel}` : 'Exclusiva • Liberada'
-                    : hasIndividualPrice ? `Paga • ${priceLabel}` : 'Exclusiva • Paga'
+                    ? 'Pro • Liberada'
+                    : 'Exclusiva • Tutti Pro'
                   : 'Gratuita'}
               </span>
             </div>
@@ -1413,7 +1392,7 @@ const PartiturasPage: React.FC = () => {
                 ) : (
                   <Lock size={12} />
                 )}
-                <span>{hasIndividualPrice ? `Adquirir (${priceLabel})` : 'Em Conjunto'}</span>
+                <span>Desbloquear com Pro</span>
               </button>
             )}
           </div>
@@ -1431,7 +1410,7 @@ const PartiturasPage: React.FC = () => {
           Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Partituras Tutti</span>
         </h1>
         <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Partituras organizadas entre catálogo gratuito e edições exclusivas pagas, com leitor protegido e sincronização em tempo real.
+          Partituras gratuitas para todos e exclusivas para membros Tutti Pro Vitalício. Novos PDFs entram automaticamente na biblioteca.
         </p>
       </div>
 
@@ -1541,7 +1520,7 @@ const PartiturasPage: React.FC = () => {
             <div className="flex items-center justify-between border-b border-white/10 pb-3">
               <div className="flex items-center gap-2">
                 <Lock size={18} className="text-amber-400" />
-                <h2 className="text-2xl font-syne font-black text-white">Partituras Pagas & Edições Exclusivas</h2>
+                <h2 className="text-2xl font-syne font-black text-white">Biblioteca Exclusiva Tutti Pro</h2>
               </div>
               <span className="text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
                 {paidSheets.length} edição(ões)

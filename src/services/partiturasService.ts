@@ -220,6 +220,28 @@ export async function fetchUnlockedPartituraIds(userId?: string): Promise<Set<st
     // fallback silencioso caso conjuntos ainda não existam na instância
   }
 
+  // A Pro purchase unlocks ALL current and future paid PDFs dynamically.
+  // Server-side Storage RLS remains authoritative for actual download.
+  try {
+    const {data:memberships,error:membershipsError}=await supabase
+      .from('assinaturas_usuarios')
+      .select('plano_id,status,data_inicio,data_fim')
+      .eq('user_id',userId).eq('status','ativo');
+    const now=Date.now();
+    const eligible=!membershipsError && memberships?.some((m:any)=>
+      ['pro','mensal','trimestral','semestral'].includes(m.plano_id) &&
+      new Date(m.data_inicio).getTime()<=now &&
+      (!m.data_fim || new Date(m.data_fim).getTime()>now)
+    );
+    if(eligible){
+      const {data:library,error:libraryError}=await supabase.from('partituras')
+        .select('id').eq('categoria','paga').eq('publicado',true);
+      if(!libraryError)(library||[]).forEach((p:any)=>unlocked.add(String(p.id)));
+    }
+  }catch(error){
+    console.warn('Não foi possível atualizar o indicador da biblioteca Pro',error);
+  }
+
   return unlocked;
 }
 
@@ -272,9 +294,7 @@ export async function resolvePartituraPdfUrl(partitura: DbPartitura): Promise<{
 }
 
 export async function createPaidSheetCheckout(_partituraId: string): Promise<{ url: string }> {
-  // Tutti sells paid PDFs in bundles, not individual files.
-  // Calling the bundle-only endpoint with partitura_id previously returned a 400.
-  throw new Error('Partituras pagas são adquiridas exclusivamente em conjuntos. Escolha um conjunto na biblioteca.');
+  throw new Error('Partituras exclusivas estão incluídas no Tutti Pro Vitalício. Adquira o plano na área de planos.');
 }
 
 export interface DbConjuntoPartituras {
