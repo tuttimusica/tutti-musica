@@ -45,11 +45,13 @@ const FALLBACK_PLANS: DbPlano[] = [
   },
   {
     id: 'pro',
-    nome: 'Pro',
-    descricao: 'Pagamento único de R$ 19,90 e acesso vitalício aos recursos digitais Pro; aulas particulares exigem um plano Ultra válido.',
+    nome: 'Tutti Pro Vitalício',
+    descricao: 'Pagamento único de R$ 19,90: acesso vitalício a todas as partituras exclusivas atuais e futuras. Aulas particulares exigem contrato Ultra.',
     preco: 19.9,
     recorrencia: 'vitalicio',
     beneficios: [
+      'Toda a biblioteca de partituras exclusivas, inclusive novos PDFs adicionados futuramente',
+      'Acesso às partituras gratuitas sem restrição',
       'Acesso completo às aulas gravadas e trilha prática',
       'Acordes e digitações avançadas',
       'Metrônomo / afinador profissional',
@@ -62,7 +64,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'mensal',
     nome: 'Ultra Mensal',
-    descricao: 'Assinatura com cobrança automática mensal; aulas individuais e acompanhamento VIP conforme condições contratadas.',
+    descricao: 'Aulas particulares mediante atendimento pelo WhatsApp e contrato individual com a Tutti. Sem checkout Stripe.',
     preco: 299.9,
     recorrencia: 'mensal',
     beneficios: [
@@ -78,7 +80,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'trimestral',
     nome: 'Tutti Ultra Trimestral',
-    descricao: 'Plano trimestral exclusivo com mentoria VIP e professores reais.',
+    descricao: 'Contratação trimestral individual por WhatsApp, com contrato e condições acordadas com a Tutti.',
     preco: 799.9,
     recorrencia: 'trimestral',
     beneficios: [
@@ -95,7 +97,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'semestral',
     nome: 'Tutti Ultra Semestral',
-    descricao: 'Formação completa semestral com professores e acompanhamento VIP.',
+    descricao: 'Contratação semestral individual por WhatsApp, com contrato e condições acordadas com a Tutti.',
     preco: 1649.9,
     recorrencia: 'semestral',
     beneficios: [
@@ -186,8 +188,12 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
   };
 
   const handleInitiateStripeCheckout = async (planoId: string) => {
+    if (planoId !== 'pro') {
+      showToast('Os planos Ultra são contratados diretamente com a Tutti pelo WhatsApp.');
+      return;
+    }
     if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
-      showToast('Os planos pagos ainda não estão disponíveis para contratação. Explore os recursos gratuitos.');
+      showToast('O checkout do Tutti Pro Vitalício está em preparação. A compra segura será liberada após a validação da Stripe.');
       return;
     }
     if (!user) {
@@ -349,14 +355,10 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
                       <div className="flex items-baseline gap-1 mt-3">
                         <span className="text-3xl sm:text-4xl font-syne font-black text-white">
-                          {formatBRL(plano.preco)}
+                          {isUltra ? 'Sob consulta' : formatBRL(plano.preco)}
                         </span>
                         <span className="text-xs font-semibold text-slate-400">
-                          {isFree
-                            ? ''
-                            : plano.recorrencia === 'vitalicio' || plano.recorrencia === 'unico'
-                            ? 'único'
-                            : `/${plano.recorrencia}`}
+                          {isFree ? '' : isPro ? 'pagamento único' : 'contrato individual'}
                         </span>
                       </div>
 
@@ -386,16 +388,23 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                       >
                         {isCurrent ? 'Plano Atual (Começar Agora)' : 'Começar Agora'}
                       </button>
+                    ) : isUltra ? (
+                      <a
+                        href={buildTuttiWhatsAppUrl(`Olá! Gostaria de contratar o ${plano.nome} da Tutti Escola de Música. Quero conversar sobre as aulas e formalizar meu contrato individual.`)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black"
+                      >
+                        <MessageCircle size={16} />
+                        <span>Conversar no WhatsApp e contratar</span>
+                        <ArrowRight size={14} />
+                      </a>
                     ) : (
                       <button
                         type="button"
-                        disabled={!!loadingCheckoutPlan}
+                        disabled={!!loadingCheckoutPlan || isCurrent}
                         onClick={() => handleInitiateStripeCheckout(plano.id)}
-                        className={`w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 ${
-                          isUltra
-                            ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black'
-                            : 'bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white'
-                        }`}
+                        className="w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white"
                       >
                         {loadingCheckoutPlan === plano.id ? (
                           <>
@@ -404,8 +413,8 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                           </>
                         ) : (
                           <>
-                            {isPro ? <Zap size={15} /> : <CreditCard size={15} />}
-                            <span>{isCurrent ? `Seu Plano Atual (${plano.nome})` : `Assinar ${plano.nome} (${formatBRL(plano.preco)})`}</span>
+                            <Zap size={15} />
+                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : 'Adquirir Pro Vitalício — R$ 19,90'}</span>
                             <ArrowRight size={14} />
                           </>
                         )}
@@ -413,7 +422,9 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                     )}
 
                     <div className="flex flex-wrap items-center justify-between text-[11px] px-1 gap-2">
-                      {plano.stripe_product_id ? (
+                      {isUltra ? (
+                        <span className="text-emerald-300 text-[10px] font-medium">Atendimento e contrato diretamente com a Tutti</span>
+                      ) : plano.stripe_product_id ? (
                         <span className="font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
                           <ShieldCheck size={12} /> {plano.stripe_product_id}
                         </span>
@@ -447,7 +458,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
           <div className="flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-400">
             <div className="flex items-center gap-2">
               <ShieldCheck size={16} className="text-emerald-400" />
-              <span>Cancelamento fácil a qualquer momento • Pagamento criptografado e seguro com Stripe</span>
+              <span>Pro Vitalício: pagamento único via Stripe • Ultra: contrato individual via WhatsApp</span>
             </div>
             <div>Planos gerenciados em tempo real pelo painel da Tutti</div>
           </div>
