@@ -74,9 +74,15 @@ export default async function handler(req,res) {
         invoiceObj=obj;
       }else if(event.type==='charge.refunded'||event.type==='charge.dispute.created'){
         const pi=obj.payment_intent;
-        if(typeof pi==='string'){
-          const invoices=await stripe.invoices.list({payment_intent:pi,limit:3});
-          invoiceObj=invoices.data?.[0]||null;
+        let invoiceId=typeof obj.invoice==='string'?obj.invoice:obj.invoice?.id;
+        if(!invoiceId&&typeof pi==='string'){
+          const payment=await stripe.paymentIntents.retrieve(pi,{expand:['latest_charge']});
+          const charge=payment.latest_charge;
+          invoiceId=typeof charge==='object'&&charge?
+            (typeof charge.invoice==='string'?charge.invoice:charge.invoice?.id):null;
+        }
+        if(invoiceId){
+          invoiceObj=await stripe.invoices.retrieve(invoiceId);
           subId=invoiceObj?.parent?.subscription_details?.subscription||
             invoiceObj?.subscription||null;
         }
