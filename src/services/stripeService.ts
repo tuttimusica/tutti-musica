@@ -49,7 +49,7 @@ export async function createStripeCheckoutSession(planoId: string): Promise<{ ur
     throw new Error('Você precisa estar autenticado na Tutti para assinar um plano.');
   }
 
-  // One-time checkout only. Never fall back to legacy subscription Edge Functions.
+  // Pro is a one-time lifetime purchase; Ultra plans use recurring subscription Checkout.
   const res = await fetch('/api/stripe/create-plan-checkout', {
     method: 'POST',
     headers: {

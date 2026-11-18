@@ -1,10 +1,10 @@
 /**
  * Tutti Escola de Música — Configuração Oficial dos Planos Stripe
  * 
- * IDs de produtos existentes na conta Stripe de testes; seus preços atuais são recorrentes e NÃO devem ser usados no checkout novo:
- * - Mensal: prod_Vb7a4cZFfk1zKO (R$ 299,90 por mês de acesso, renovação manual)
- * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90 por 3 meses de acesso, pagamento único)
- * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90 por 6 meses de acesso, pagamento único)
+ * IDs de produtos existentes na conta Stripe de testes; os três preços Ultra abaixo são recorrentes e devem ser usados apenas com checkout de assinatura em ambiente de teste:
+ * - Mensal: prod_Vb7a4cZFfk1zKO (R$ 299,90 a cada mês)
+ * - Ultra trimestral: prod_Vb7bFGhgGPvHtW (R$ 799,90 a cada 3 meses)
+ * - Ultra semestral: prod_Vb7e0rGvV0Hqhf (R$ 1.649,90 a cada 6 meses)
  */
 
 export interface TuttiStripePlan {
@@ -30,7 +30,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Maior Indicação',
     priceFormatted: 'R$ 299,90',
     periodLabel: '/mês',
-    billingSubtitle: 'PAGAMENTO ANTECIPADO • RENOVAÇÃO MANUAL, SEM COBRANÇA AUTOMÁTICA',
+    billingSubtitle: 'PAGAMENTO ANTECIPADO • RENOVAÇÃO AUTOMÁTICA TODO MÊS',
     amountCents: 29990,
     stripeProductId: 'prod_Vb7a4cZFfk1zKO',
     features: [
@@ -55,7 +55,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Trimestral Exclusivo',
     priceFormatted: 'R$ 799,90',
     periodLabel: '/trimestre',
-    billingSubtitle: 'PAGAMENTO ÚNICO • 3 MESES DE ACESSO • SEM RENOVAÇÃO AUTOMÁTICA',
+    billingSubtitle: 'ASSINATURA RECORRENTE • COBRANÇA A CADA 3 MESES',
     amountCents: 79990,
     stripeProductId: 'prod_Vb7bFGhgGPvHtW',
     features: [
@@ -77,7 +77,7 @@ export const TUTTI_STRIPE_PLANS: Record<'monthly' | 'trimestral' | 'semestral', 
     badge: 'Plano Semestral Exclusivo',
     priceFormatted: 'R$ 1.649,90',
     periodLabel: '/semestre',
-    billingSubtitle: 'PAGAMENTO ÚNICO • 6 MESES DE ACESSO • SEM RENOVAÇÃO AUTOMÁTICA',
+    billingSubtitle: 'ASSINATURA RECORRENTE • COBRANÇA A CADA 6 MESES',
     amountCents: 164990,
     stripeProductId: 'prod_Vb7e0rGvV0Hqhf',
     features: [

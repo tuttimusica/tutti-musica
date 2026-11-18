@@ -62,7 +62,7 @@ const FALLBACK_PLANS: DbPlano[] = [
   {
     id: 'mensal',
     nome: 'Ultra Mensal',
-    descricao: 'Pagamento antecipado por um mês de aulas individuais e acompanhamento VIP. Renovação opcional, sem cobrança automática.',
+    descricao: 'Assinatura com cobrança automática mensal; aulas individuais e acompanhamento VIP conforme condições contratadas.',
     preco: 299.9,
     recorrencia: 'mensal',
     beneficios: [
