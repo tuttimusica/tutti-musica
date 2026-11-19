@@ -56,6 +56,15 @@ export default async function handler(req,res){
    if(accessError)return send(res,503,{error:'entitlement_lookup_failed'});
    if(existing?.length)return send(res,409,{error:'pro_already_owned'});
    const stripe=new Stripe(key);
+   // Prevent accidentally using a credential from the restricted/test Stripe account.
+   if(prod){
+     const expectedAccount=process.env.TUTTI_STRIPE_LIVE_ACCOUNT_ID;
+     if(expectedAccount!=='acct_1UZuju0U9nB6Q0cf')
+       return send(res,503,{error:'stripe_live_account_not_configured'});
+     const owner=await stripe.accounts.retrieve();
+     if(owner.id!==expectedAccount)
+       return send(res,503,{error:'stripe_live_account_mismatch'});
+   }
    const price=await stripe.prices.retrieve(priceId);
    if(!price.active||price.livemode!==prod||price.currency!=='brl'||
       price.unit_amount!==1990||price.recurring||
