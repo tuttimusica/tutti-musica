@@ -69,7 +69,23 @@ export default async function handler(req, res) {
           allowed = (bundles.data || []).length > 0;
         }
       }
-      if (!allowed) return send(res, 403, { error: 'partitura_nao_adquirida' });
+      if (!allowed) {
+        // One-time Pro unlocks the entire current and future published paid
+        // library. Validate this on the server as well as in Storage RLS.
+        const { data: entitlements, error: entitlementError } = await admin
+          .from('assinaturas_usuarios')
+          .select('plano_id,status,data_inicio,data_fim')
+          .eq('user_id', user.id).eq('status', 'ativo').limit(100);
+        if (entitlementError) return send(res,503,{error:'entitlements_unavailable'});
+        const now=Date.now();
+        allowed=(entitlements||[]).some(row => {
+          if (!['pro','mensal','trimestral','semestral'].includes(row.plano_id)) return false;
+          const start=new Date(row.data_inicio||'').getTime();
+          const end=row.data_fim?new Date(row.data_fim).getTime():Infinity;
+          return Number.isFinite(start)&&start<=now&&end>now;
+        });
+      }
+      if (!allowed) return send(res, 403, { error: 'pro_required' });
     }
     if (!sheet.storage_path || sheet.storage_bucket !== 'tutti-partituras') {
       return send(res, 503, { error: 'pdf_storage_not_configured' });
