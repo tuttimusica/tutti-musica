@@ -107,26 +107,42 @@ export async function createStripeCustomerPortal(): Promise<{ url: string }> {
  */
 export async function fetchUserActiveSubscription(userId: string): Promise<UserSubscriptionDetails | null> {
   try {
-    const { data, error } = await supabase
+    const { data: subscriptions, error } = await supabase
       .from('assinaturas_usuarios')
       .select('*, planos(*)')
       .eq('user_id', userId)
+      .eq('status', 'ativo')
       .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+      .limit(100);
 
-    if (error || !data) {
-      return null;
-    }
+    if (error || !subscriptions?.length) return null;
 
+    const now = Date.now();
+    const eligible = subscriptions.filter((entry: any) => {
+      const start = new Date(entry.data_inicio || '').getTime();
+      const end = entry.data_fim ? new Date(entry.data_fim).getTime() : Infinity;
+      return Number.isFinite(start) && start <= now && end > now;
+    });
+    // Preserve Pro Vitalício when an unrelated Ultra contract expires.
+    const data = eligible.find((entry: any) =>
+      ['mensal', 'trimestral', 'semestral'].includes(entry.plano_id)) ||
+      eligible.find((entry: any) => entry.plano_id === 'pro');
+
+    if (!data) return null;
     const plano = data.planos || {};
+    const cents = typeof plano.preco_centavos === 'number' ? plano.preco_centavos : 0;
     return {
       id: data.id,
       userId: data.user_id,
       planoId: data.plano_id,
-      planoNome: plano.nome || (data.plano_id === 'mensal' ? 'Tutti Ultra Mensal' : data.plano_id === 'trimestral' ? 'Tutti Ultra Trimestral' : data.plano_id === 'semestral' ? 'Tutti Ultra Semestral' : data.plano_id === 'pro' ? 'Tutti Pro Vitalício' : 'Grátis'),
-      preco: Number(data.valor_pago || plano.preco || 0),
-      periodicidade: plano.recorrencia || 'mensal',
+      planoNome: plano.nome || (
+        data.plano_id === 'mensal' ? 'Tutti Ultra Mensal' :
+        data.plano_id === 'trimestral' ? 'Tutti Ultra Trimestral' :
+        data.plano_id === 'semestral' ? 'Tutti Ultra Semestral' :
+        data.plano_id === 'pro' ? 'Tutti Pro Vitalício' : 'Grátis'
+      ),
+      preco: cents / 100,
+      periodicidade: plano.recorrencia || (data.plano_id === 'pro' ? 'unico' : 'contrato_manual'),
       status: data.status,
       dataInicio: data.data_inicio,
       dataFim: data.data_fim,
