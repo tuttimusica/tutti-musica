@@ -55,6 +55,12 @@ export default async function handler(req,res){
      .eq('status','ativo').limit(1);
    if(accessError)return send(res,503,{error:'entitlement_lookup_failed'});
    if(existing?.length)return send(res,409,{error:'pro_already_owned'});
+   // Never offer a paid lifetime catalog while it has no published exclusive PDFs.
+   const {count:exclusiveCount,error:libraryError}=await auth.from('partituras')
+     .select('id',{head:true,count:'exact'})
+     .eq('categoria','paga').eq('publicado',true);
+   if(libraryError||!exclusiveCount)
+     return send(res,503,{error:'pro_library_not_ready'});
    const stripe=new Stripe(key);
    // Prevent accidentally using a credential from the restricted/test Stripe account.
    if(prod){
@@ -64,6 +70,10 @@ export default async function handler(req,res){
      const owner=await stripe.accounts.retrieve();
      if(owner.id!==expectedAccount)
        return send(res,503,{error:'stripe_live_account_mismatch'});
+     // Stripe can suspend charges during regulatory/KYC review.
+     // Fail closed rather than redirecting customers to a charge they cannot complete.
+     if(owner.charges_enabled!==true)
+       return send(res,503,{error:'stripe_account_not_approved'});
    }
    const price=await stripe.prices.retrieve(priceId);
    if(!price.active||price.livemode!==prod||price.currency!=='brl'||
