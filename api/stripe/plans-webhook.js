@@ -37,6 +37,20 @@ export default async function handler(req,res){
  try{event=stripe.webhooks.constructEvent(await rawBody(req),signature,secret);}
  catch{return send(res,400,{error:'invalid_signature'});}
  if(event.livemode!==prod)return send(res,400,{error:'stripe_environment_mismatch'});
+ // The webhook must use credentials belonging to Tutti Musica's actual
+ // receiving account, not the older restricted Stripe sandbox account.
+ if(prod){
+   const expectedAccount=process.env.TUTTI_STRIPE_LIVE_ACCOUNT_ID;
+   if(expectedAccount!=='acct_1UZuju0U9nB6Q0cf')
+     return send(res,503,{error:'stripe_live_account_not_configured'});
+   try {
+     const owner=await stripe.accounts.retrieve();
+     if(owner.id!==expectedAccount)
+       return send(res,503,{error:'stripe_live_account_mismatch'});
+   } catch {
+     return send(res,503,{error:'stripe_live_account_unavailable'});
+   }
+ }
  const admin=createClient(url,service,{auth:{persistSession:false,autoRefreshToken:false}});
  try{
    if(event.type==='checkout.session.completed'||
