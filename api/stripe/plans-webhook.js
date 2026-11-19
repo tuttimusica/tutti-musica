@@ -24,7 +24,7 @@ export default async function handler(req,res){
  const secret=prod?process.env.TUTTI_STRIPE_LIVE_WEBHOOK_SECRET:process.env.STRIPE_PLANS_WEBHOOK_SECRET;
  const url=process.env.VITE_SUPABASE_URL;
  const service=process.env.TUTTI_PRO_SUPABASE_SERVICE_ROLE_KEY;
- if(!key?.startsWith(prod?'sk_live_':'sk_test_')||!secret?.startsWith('whsec_')||
+ if(!(typeof key === 'string' && (prod ? /^(?:sk|rk)_live_[A-Za-z0-9]+$/.test(key) : /^(?:sk|rk)_test_[A-Za-z0-9]+$/.test(key)))||!secret?.startsWith('whsec_')||
    !service||!url)return send(res,503,{error:'pro_webhook_unconfigured'});
  try{
    if(prod&&new URL(url).hostname!==PROD_HOST)

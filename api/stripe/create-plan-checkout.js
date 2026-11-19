@@ -16,7 +16,7 @@ export default async function handler(req,res){
  const key=prod ? process.env.TUTTI_STRIPE_LIVE_SECRET_KEY : process.env.STRIPE_SECRET_KEY;
  const webhookSecret=prod ? process.env.TUTTI_STRIPE_LIVE_WEBHOOK_SECRET
    : process.env.STRIPE_PLANS_WEBHOOK_SECRET;
- if(!key?.startsWith(prod?'sk_live_':'sk_test_')||!webhookSecret?.startsWith('whsec_'))
+ if(!(typeof key === 'string' && (prod ? /^(?:sk|rk)_live_[A-Za-z0-9]+$/.test(key) : /^(?:sk|rk)_test_[A-Za-z0-9]+$/.test(key)))||!webhookSecret?.startsWith('whsec_'))
    return send(res,503,{error:'stripe_not_configured'});
  const url=process.env.VITE_SUPABASE_URL;
  const anon=process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
