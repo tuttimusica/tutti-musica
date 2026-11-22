@@ -1,98 +1,80 @@
 import { createClient } from '@supabase/supabase-js';
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-const send = (res, status, body) => { res.statusCode = status; res.end(JSON.stringify(body)); };
+const PROD_HOST = 'viwxalwpvuvgcyxsdjbi.supabase.co';
+const send = (res, status, data) => {
+  res.statusCode = status;
+  res.end(JSON.stringify(data));
+};
 
+// Generate signed PDFs as the *requesting user*, not as service_role.
+// Supabase Storage RLS is the authoritative entitlement check.
 export default async function handler(req, res) {
-  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Cache-Control', 'private, no-store');
+  res.setHeader('Vary', 'Authorization');
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
     return send(res, 405, { error: 'method_not_allowed' });
   }
+
   const id = req.body?.partitura_id;
   if (typeof id !== 'string' || !uuidPattern.test(id)) {
-    return send(res, 400, { error: 'partitura_id inválido' });
+    return send(res, 400, { error: 'partitura_id_invalido' });
   }
-  // Until the server key is verified for this exact Supabase project,
-  // direct Storage RLS is authoritative; never use a key from another project.
-  if (process.env.TUTTI_PRIVILEGED_BACKEND_ENABLED !== 'true')
-    return send(res,503,{error:'storage_unconfigured'});
-  const url = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-  // Security boundary: the backend must never query a different Supabase project
-  // from the frontend build. Fail closed instead of crossing production/staging.
-  if (!url || !process.env.VITE_SUPABASE_URL || url !== process.env.VITE_SUPABASE_URL)
-    return send(res,503,{error:'supabase_environment_mismatch'});
+  // The frontend and backend must use the same Supabase project.
+  // Avoid legacy SUPABASE_URL and service keys that belong to other projects.
+  const url = process.env.VITE_SUPABASE_URL;
+  const publicKey = process.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+  if (!url || !publicKey) return send(res, 503, { error: 'storage_unconfigured' });
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:' || !parsed.hostname.endsWith('.supabase.co') ||
+        (process.env.VERCEL_ENV === 'production' && parsed.hostname !== PROD_HOST)) {
+      return send(res, 503, { error: 'supabase_project_mismatch' });
+    }
+  } catch {
+    return send(res, 503, { error: 'supabase_project_mismatch' });
+  }
 
-  const anonKey = process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
-  if (!url || !anonKey || !serviceKey) return send(res, 503, { error: 'storage_unconfigured' });
+  const authorization = req.headers.authorization || '';
+  const token = /^Bearer\s+(.+)$/i.exec(authorization)?.[1];
+  const supabase = createClient(url, publicKey, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    ...(token ? { global: { headers: { Authorization: `Bearer ${token}` } } } : {}),
+  });
 
   try {
-    const admin = createClient(url, serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
-    const { data: sheet, error: sheetError } = await admin.from('partituras')
-      .select('id,publicado,categoria,storage_bucket,storage_path').eq('id', id).maybeSingle();
-    if (sheetError) return send(res, 503, { error: 'sheet_lookup_failed' });
-    if (!sheet) return send(res, 404, { error: 'partitura_not_found' });
-
-    const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization || '');
     let user = null;
-    if (bearer) {
-      const auth = createClient(url, anonKey, { auth: { persistSession: false, autoRefreshToken: false } });
-      const result = await auth.auth.getUser(bearer[1]);
-      if (!result.error) user = result.data?.user || null;
+    if (token) {
+      const result = await supabase.auth.getUser(token);
+      if (result.error || !result.data?.user) return send(res, 401, { error: 'unauthorized' });
+      user = result.data.user;
     }
-    let isAdmin = false;
-    if (user?.email && user.email_confirmed_at) {
-      const { data, error } = await admin.from('administradores_autorizados').select('email');
-      if (error) return send(res, 503, { error: 'authorization_unavailable' });
-      isAdmin = (data || []).some(row => String(row.email).trim().toLowerCase() === user.email.trim().toLowerCase());
-    }
-    if (!sheet.publicado && !isAdmin) return send(res, 403, { error: 'partitura_nao_publicada' });
 
-    const paid = sheet.categoria === 'paga';
-    if (paid && !isAdmin) {
-      if (!user) return send(res, 401, { error: 'login_required' });
-      const direct = await admin.from('partituras_acessos').select('partitura_id')
-        .eq('user_id', user.id).eq('partitura_id', id).limit(1);
-      if (direct.error) return send(res, 503, { error: 'entitlements_unavailable' });
-      let allowed = (direct.data || []).length > 0;
-      if (!allowed) {
-        const items = await admin.from('conjuntos_partituras_itens').select('conjunto_id').eq('partitura_id', id);
-        if (items.error) return send(res, 503, { error: 'bundle_access_unavailable' });
-        const ids = (items.data || []).map(row => row.conjunto_id);
-        if (ids.length) {
-          const bundles = await admin.from('conjuntos_acessos').select('conjunto_id')
-            .eq('user_id', user.id).in('conjunto_id', ids).limit(1);
-          if (bundles.error) return send(res, 503, { error: 'bundle_access_unavailable' });
-          allowed = (bundles.data || []).length > 0;
-        }
-      }
-      if (!allowed) {
-        // One-time Pro unlocks the entire current and future published paid
-        // library. Validate this on the server as well as in Storage RLS.
-        const { data: entitlements, error: entitlementError } = await admin
-          .from('assinaturas_usuarios')
-          .select('plano_id,status,data_inicio,data_fim')
-          .eq('user_id', user.id).eq('status', 'ativo').limit(100);
-        if (entitlementError) return send(res,503,{error:'entitlements_unavailable'});
-        const now=Date.now();
-        allowed=(entitlements||[]).some(row => {
-          if (!['pro','mensal','trimestral','semestral'].includes(row.plano_id)) return false;
-          const start=new Date(row.data_inicio||'').getTime();
-          const end=row.data_fim?new Date(row.data_fim).getTime():Infinity;
-          return Number.isFinite(start)&&start<=now&&end>now;
-        });
-      }
-      if (!allowed) return send(res, 403, { error: 'pro_required' });
-    }
-    if (!sheet.storage_path || sheet.storage_bucket !== 'tutti-partituras') {
+    // Catalog rows are readable under the user's own RLS policies.
+    const { data: sheet, error: lookupError } = await supabase.from('partituras')
+      .select('id,publicado,categoria,storage_bucket,storage_path')
+      .eq('id', id).maybeSingle();
+    if (lookupError) return send(res, 503, { error: 'sheet_lookup_failed' });
+    if (!sheet) return send(res, 404, { error: 'partitura_not_found' });
+    if (!sheet.publicado) return send(res, 403, { error: 'partitura_nao_publicada' });
+    if (sheet.storage_bucket !== 'tutti-partituras' || !sheet.storage_path) {
       return send(res, 503, { error: 'pdf_storage_not_configured' });
     }
-    const signed = await admin.storage.from('tutti-partituras').createSignedUrl(sheet.storage_path, paid ? 120 : 300);
-    if (signed.error || !signed.data?.signedUrl) return send(res, 503, { error: 'pdf_unavailable' });
-    return send(res, 200, { url: signed.data.signedUrl, protected: paid, expiresIn: paid ? 120 : 300 });
+
+    const paid = sheet.categoria === 'paga';
+    if (paid && !user) return send(res, 401, { error: 'login_required' });
+    const lifetime = paid ? 120 : 300;
+    const { data, error } = await supabase.storage.from('tutti-partituras')
+      .createSignedUrl(sheet.storage_path, lifetime);
+
+    // Do not use a privileged key as fallback: no RLS permission means no PDF.
+    if (error || !data?.signedUrl) {
+      return send(res, paid ? 403 : 503, { error: paid ? 'pro_required' : 'pdf_unavailable' });
+    }
+    return send(res, 200, { url: data.signedUrl, protected: paid, expiresIn: lifetime });
   } catch {
     return send(res, 503, { error: 'pdf_unavailable' });
   }
