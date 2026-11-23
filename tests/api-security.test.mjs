@@ -88,10 +88,10 @@ test('sheet PDF signing rejects GET', async () => {
   const result = await invoke(signedSheetUrl);
   assert.equal(result.status, 405);
 });
-test('bundle checkout is disabled when test-payment gate is off', async () => {
+test('individual PDF checkout is permanently closed', async () => {
   const result = await invoke(sheetCheckout, { method: 'POST' });
-  assert.equal(result.status, 503);
-  assert.equal(result.body.error, 'test_checkout_disabled');
+  assert.equal(result.status, 410);
+  assert.equal(result.body.error, 'individual_pdf_sales_closed');
 });
 
 test('plan checkout is disabled when test-payment gate is off', async () => {
@@ -111,9 +111,9 @@ test('sheets webhook is disabled when test-payment gate is off', async () => {
   assert.equal(result.status, 503);
   assert.equal(result.body.error, 'test_webhook_disabled');
 });
-test('bundle checkout rejects GET', async () => {
+test('legacy individual PDF checkout rejects GET with closed product', async () => {
   const result = await invoke(sheetCheckout);
-  assert.equal(result.status, 405);
+  assert.equal(result.status, 410);
 });
 test('sheet webhook rejects GET', async () => {
   const result = await invoke(sheetsWebhook);
