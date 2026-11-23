@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ensureProWebhookReadPermissions } from '../api/stripe/pro-readiness.js';
+import { ensureProWebhookReadPermissions } from '../lib/stripe/pro-readiness.js';
 
 function client(rejectAt) {
   const calls = [];

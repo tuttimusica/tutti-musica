@@ -1,6 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
-import { ensureProWebhookReadPermissions } from './pro-readiness.js';
+import { ensureProWebhookReadPermissions } from '../../lib/stripe/pro-readiness.js';
 
 const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
 const LIVE_ORIGIN='https://tutti-musica.vercel.app';
