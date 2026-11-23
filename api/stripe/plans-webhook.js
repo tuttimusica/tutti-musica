@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { resolveReversalPaymentIntent } from '../../lib/stripe/dispute-payment.js';
 
 export const config={api:{bodyParser:false}};
 const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
@@ -98,7 +99,7 @@ export default async function handler(req,res){
      const obj=event.data.object;
      if(event.type==='charge.refunded'&&!obj.refunded)
        return send(res,200,{received:true,partial_refund_ignored:true});
-     const pi=typeof obj.payment_intent==='string'?obj.payment_intent:obj.payment_intent?.id;
+     const pi=await resolveReversalPaymentIntent(stripe,event.type,obj);
      if(!pi)return send(res,200,{received:true,ignored:true});
      const matches=await stripe.checkout.sessions.list({payment_intent:pi,limit:10});
      const pro=matches.data.find(x=>isPro(x)&&x.livemode===prod);
