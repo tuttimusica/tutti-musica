@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import handler from '../api/stripe/create-plan-checkout.js';
+import { parseAdminBearerToken } from '../lib/stripe/admin-readiness.js';
 
 function invoke(method='GET',headers={}) {
   const req={method,headers,query:{readiness:'1'}};
@@ -29,4 +30,15 @@ test('commerce readiness rejects POST without a valid Pro request',async()=>{
 test('commerce readiness rejects malformed bearer',async()=>{
   const response=await invoke('GET',{authorization:'Basic fake'});
   assert.equal(response.status,401);
+});
+
+test('valid Bearer header is parsed for server-side authentication', () => {
+  assert.equal(parseAdminBearerToken('Bearer valid.token-value'),'valid.token-value');
+  assert.equal(parseAdminBearerToken('bearer valid.token-value'),'valid.token-value');
+  assert.equal(parseAdminBearerToken('  Bearer valid.token-value  '),'valid.token-value');
+});
+test('invalid or missing token cannot bypass authentication', () => {
+  for(const header of [null,undefined,'','Basic abc','Bearer','Bearer ','Bearer one two',{}]) {
+    assert.equal(parseAdminBearerToken(header),null);
+  }
 });
