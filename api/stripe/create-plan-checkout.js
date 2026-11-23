@@ -1,5 +1,6 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
+import { ensureProWebhookReadPermissions } from './pro-readiness.js';
 
 const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
 const LIVE_ORIGIN='https://tutti-musica.vercel.app';
@@ -80,6 +81,10 @@ export default async function handler(req,res){
       price.unit_amount!==1990||price.recurring||
       (!prod&&price.product!==TEST_PRODUCT))
      return send(res,503,{error:'stripe_pro_price_mismatch'});
+   // Confirm the restricted key can also read payments and charges in the
+   // production webhook. Failure here must happen before charging a customer.
+   try { await ensureProWebhookReadPermissions(stripe); }
+   catch { return send(res,503,{error:'stripe_fulfillment_permissions_unavailable'}); }
    const checkout=await stripe.checkout.sessions.create({
      mode:'payment',
      customer_email:user.email,

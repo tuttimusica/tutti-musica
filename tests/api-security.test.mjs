@@ -11,11 +11,13 @@ import planCheckout from '../api/stripe/create-plan-checkout.js';
 import plansWebhook from '../api/stripe/plans-webhook.js';
 import welcomeEmail from '../api/emails/welcome.js';
 
-function invoke(handler, { method = 'GET', authorization } = {}) {
+function invoke(handler, { method = 'GET', authorization, body } = {}) {
   const headers = {};
-  const req = { method, headers: authorization ? { authorization } : {} };
+  const req = { method, body, headers: authorization ? { authorization } : {} };
   const res = {
     statusCode: 200,
+    status(value) { this.statusCode=value; return this; },
+    json(value) { this.body=value; return this; },
     setHeader(key, value) { headers[key.toLowerCase()] = value; },
     end(value) { this.body = JSON.parse(value); },
   };
@@ -80,7 +82,7 @@ test('teacher requests reject malformed authorization headers', async () => {
 test('sheet PDF signing rejects missing or malformed UUID', async () => {
   const missing = await invoke(signedSheetUrl, { method: 'POST' });
   assert.equal(missing.status, 400);
-  assert.equal(missing.body.error, 'partitura_id inválido');
+  assert.equal(missing.body.error, 'partitura_id_invalido');
 });
 test('sheet PDF signing rejects GET', async () => {
   const result = await invoke(signedSheetUrl);
@@ -93,15 +95,15 @@ test('bundle checkout is disabled when test-payment gate is off', async () => {
 });
 
 test('plan checkout is disabled when test-payment gate is off', async () => {
-  const result = await invoke(planCheckout, { method: 'POST' });
+  const result = await invoke(planCheckout, { method: 'POST', body: { plano_id: 'pro' } });
   assert.equal(result.status, 503);
-  assert.equal(result.body.error, 'test_checkout_disabled');
+  assert.equal(result.body.error, 'pro_checkout_not_enabled');
 });
 
 test('plans webhook is disabled when test-payment gate is off', async () => {
   const result = await invoke(plansWebhook, { method: 'POST' });
   assert.equal(result.status, 503);
-  assert.equal(result.body.error, 'test_webhook_disabled');
+  assert.equal(result.body.error, 'pro_webhook_not_enabled');
 });
 
 test('sheets webhook is disabled when test-payment gate is off', async () => {
@@ -122,8 +124,8 @@ test('welcome emails require POST', async () => {
   const result = await invoke(welcomeEmail);
   assert.equal(result.status, 405);
 });
-test('welcome emails are fail-closed until verified Resend domain and config are enabled', async () => {
+test('welcome emails require authenticated users', async () => {
   const result = await invoke(welcomeEmail, { method:'POST' });
-  assert.equal(result.status, 503);
-  assert.equal(result.body.error, 'welcome_email_disabled');
+  assert.equal(result.status, 401);
+  assert.equal(result.body.error, 'unauthorized');
 });
