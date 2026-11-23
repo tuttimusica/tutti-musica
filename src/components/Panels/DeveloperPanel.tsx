@@ -83,6 +83,28 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<DevTab>('dashboard');
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking');
+  const [commerceCheck, setCommerceCheck] = useState<any>(null);
+  const [checkingCommerce, setCheckingCommerce] = useState(false);
+  const checkCommerceReadiness = async () => {
+    setCheckingCommerce(true);
+    setCommerceCheck(null);
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if(error || !session?.access_token) throw Error('Entre novamente como administrador para verificar.');
+      const response=await fetch('/api/stripe/create-plan-checkout?readiness=1',{
+        headers:{Authorization:`Bearer ${session.access_token}`},
+        cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok) throw Error(payload.error || 'Diagnóstico indisponível.');
+      setCommerceCheck(payload);
+    } catch(error:any) {
+      setCommerceCheck({error:error?.message||'Diagnóstico indisponível.'});
+    } finally {
+      setCheckingCommerce(false);
+    }
+  };
+
   useEffect(() => {
     let active = true;
     testSupabaseConnection()
@@ -1725,6 +1747,43 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </h2>
                 <p className="text-xs text-slate-400">Resumo em tempo real sincronizado com a base PostgreSQL / Supabase.</p>
               </div>
+
+              {/* Admin-only financial preflight; never creates or activates a charge. */}
+              <section className="rounded-2xl border border-amber-500/30 bg-[#0b0d14] p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-amber-300 text-sm">Pré-verificação comercial — Tutti Pro</h3>
+                    <p className="text-xs text-slate-400">Consulta segura da Stripe, Supabase e travas de cobrança. Não realiza pagamentos.</p>
+                  </div>
+                  <button type="button" disabled={checkingCommerce} onClick={checkCommerceReadiness}
+                    className="rounded-xl bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
+                    {checkingCommerce?'Verificando...':'Verificar cobranças'}
+                  </button>
+                </div>
+                {commerceCheck?.error && <p role="alert" className="text-xs text-rose-300">Verificação indisponível: {commerceCheck.error}</p>}
+                {commerceCheck?.checks && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-white">
+                      {commerceCheck.preflightPass?'Pré-requisitos técnicos verificados':'Existem requisitos técnicos pendentes'}
+                      {' — '} vendas públicas: não autorizadas sem teste completo
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {Object.entries(commerceCheck.checks as Record<string,boolean>).map(([key,value])=>(
+                        <div key={key} className="flex items-center gap-2">
+                          <span className={value?'text-emerald-400':'text-amber-300'}>{value?'✓':'Pendente'}</span>
+                          <span className="text-slate-300">{({
+                            frontendEnabled:'Botão público de pagamento',serverEnabled:'Checkout do servidor',
+                            stripeAccount:'Conta Stripe apta',stripePrice:'Preço de R$ 19,90',
+                            stripeRequiredReads:'Permissões de leitura Stripe',webhookSecretConfigured:'Assinatura do webhook configurada',
+                            catalog:'PDFs exclusivos disponíveis',fulfillmentProject:'Supabase de entrega validado'
+                          } as Record<string,string>)[key] || key}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[11px] text-slate-400">A aprovação definitiva exige pagamento controlado, webhook confirmado e download autorizado.</p>
+                  </div>
+                )}
+              </section>
 
               {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

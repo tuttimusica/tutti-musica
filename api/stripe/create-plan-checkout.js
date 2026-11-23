@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { ensureProWebhookReadPermissions } from '../../lib/stripe/pro-readiness.js';
+import { handleAdminCommerceReadiness } from '../../lib/stripe/admin-readiness.js';
 
 const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
 const LIVE_ORIGIN='https://tutti-musica.vercel.app';
@@ -8,6 +9,7 @@ const PROD_HOST='viwxalwpvuvgcyxsdjbi.supabase.co';
 const TEST_PRODUCT='prod_VdjsXzU2lrVLYk';
 
 export default async function handler(req,res){
+ if(req.method==='GET' && req.query?.readiness==='1') return handleAdminCommerceReadiness(req,res);
  if(req.method!=='POST'){res.setHeader('Allow','POST');return send(res,405,{error:'method_not_allowed'});}
  if(req.body?.plano_id!=='pro')return send(res,403,{error:'only_pro_lifetime_online'});
  const prod=process.env.VERCEL_ENV==='production';
