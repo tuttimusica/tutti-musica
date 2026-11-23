@@ -21,10 +21,10 @@ test('commerce readiness requires authenticated administrator',async()=>{
   assert.equal(response.body.error,'unauthorized');
   assert.equal(response.headers['cache-control'],'private, no-store');
 });
-test('commerce readiness rejects POST without processing payments',async()=>{
+test('commerce readiness rejects POST without a valid Pro request',async()=>{
   const response=await invoke('POST');
-  assert.equal(response.status,405);
-  assert.equal(response.headers.allow,'GET');
+  assert.equal(response.status,403);
+  assert.equal(response.body.error,'only_pro_lifetime_online');
 });
 test('commerce readiness rejects malformed bearer',async()=>{
   const response=await invoke('GET',{authorization:'Basic fake'});
