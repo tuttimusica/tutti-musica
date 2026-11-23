@@ -389,6 +389,7 @@ const HomePage: React.FC = () => {
   const { user, profile } = useAuth();
   const [featuredDbSheets, setFeaturedDbSheets] = useState<DbPartitura[]>([]);
   const [totalPublishedSheets, setTotalPublishedSheets] = useState<number>(0);
+  const [totalFreeSheets, setTotalFreeSheets] = useState<number>(0);
   const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
   const [openingId, setOpeningId] = useState<string | null>(null);
 
@@ -401,6 +402,7 @@ const HomePage: React.FC = () => {
         fetchUnlockedPartituraIds(user?.id),
       ]);
       setTotalPublishedSheets(all.length);
+      setTotalFreeSheets(all.filter(sheet => sheet.categoria === 'gratuita').length);
       setUnlockedIds(unlocked);
       const featuredOnly = all.filter(s => s.is_featured);
       setFeaturedDbSheets((featuredOnly.length > 0 ? featuredOnly : all).slice(0, 6));
@@ -524,16 +526,16 @@ const HomePage: React.FC = () => {
           {/* Highlights metrics */}
           <div className="pt-4 flex flex-wrap justify-center lg:justify-start gap-8 border-t border-white/10">
             <div>
-              <div className="text-2xl font-syne font-black text-white">+15.000</div>
-              <div className="text-xs text-slate-400 font-medium">Alunos ativos no Brasil</div>
+              <div className="text-2xl font-syne font-black text-white">{totalPublishedSheets}</div>
+              <div className="text-xs text-slate-400 font-medium">Partituras no catálogo</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-cyan-400">100%</div>
-              <div className="text-xs text-slate-400 font-medium">Didática prática e interativa</div>
+              <div className="text-2xl font-syne font-black text-cyan-400">Online</div>
+              <div className="text-xs text-slate-400 font-medium">Aulas e estúdio virtual</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-emerald-400">4.9 / 5.0</div>
-              <div className="text-xs text-slate-400 font-medium">Avaliação da comunidade</div>
+              <div className="text-2xl font-syne font-black text-emerald-400">{totalFreeSheets}</div>
+              <div className="text-xs text-slate-400 font-medium">Partituras gratuitas</div>
             </div>
           </div>
         </div>
