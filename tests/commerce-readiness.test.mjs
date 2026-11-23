@@ -1,9 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import handler from '../api/admin/commerce-readiness.js';
+import handler from '../api/stripe/create-plan-checkout.js';
 
 function invoke(method='GET',headers={}) {
-  const req={method,headers};
+  const req={method,headers,query:{readiness:'1'}};
   const headersSent={};
   const res={
     statusCode:200,
