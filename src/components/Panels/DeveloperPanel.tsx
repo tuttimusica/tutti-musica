@@ -1780,6 +1780,31 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                         </div>
                       ))}
                     </div>
+                    {commerceCheck.stripeIssues && Object.keys(commerceCheck.stripeIssues).length > 0 && (
+                      <div className="rounded-lg border border-amber-500/20 p-3 space-y-1">
+                        <p className="text-xs font-semibold text-amber-300">Diagnóstico Stripe (sem credenciais)</p>
+                        {Object.entries(commerceCheck.stripeIssues as Record<string,string>).map(([key,reason])=>(
+                          <p key={key} className="text-xs text-slate-300">
+                            {({
+                              configuration:'Configuração',stripeAccount:'Conta Stripe',stripePrice:'Preço Stripe',
+                              checkoutSessions:'Sessões de checkout',paymentIntents:'Intenções de pagamento',
+                              charges:'Cobranças'
+                            } as Record<string,string>)[key] || key}
+                            {': '}{({
+                              permissao_negada:'Permissão insuficiente na chave Stripe',
+                              credencial_invalida:'Credencial Stripe não autenticou',
+                              recurso_nao_encontrado:'Recurso não encontrado',
+                              falha_de_consulta:'Consulta Stripe indisponível',
+                              conta_incorreta_ou_bloqueada:'Conta incorreta ou cobranças suspensas',
+                              preco_incorreto_ou_inativo:'Preço não corresponde ao Pro Vitalício',
+                              credencial_ausente_ou_formato_invalido:'Chave ausente ou formato inválido',
+                              plano_invalido:'Preço do plano não está configurado corretamente',
+                              diagnostico_indisponivel:'Diagnóstico indisponível'
+                            } as Record<string,string>)[reason] || 'Falha na verificação'}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                     <p className="text-[11px] text-slate-400">A aprovação definitiva exige pagamento controlado, webhook confirmado e download autorizado.</p>
                   </div>
                 )}
