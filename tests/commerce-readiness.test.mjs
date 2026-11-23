@@ -7,6 +7,8 @@ function invoke(method='GET',headers={}) {
   const headersSent={};
   const res={
     statusCode:200,
+    status(value){this.statusCode=value;return this;},
+    json(value){this.body=value;},
     setHeader(key,value){headersSent[key.toLowerCase()]=value;},
     end(value){this.body=JSON.parse(value);}
   };
