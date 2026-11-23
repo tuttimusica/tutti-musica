@@ -91,7 +91,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     try {
       const { data: { session }, error } = await supabase.auth.getSession();
       if(error || !session?.access_token) throw Error('Entre novamente como administrador para verificar.');
-      const response=await fetch('/api/admin/commerce-readiness',{
+      const response=await fetch('/api/stripe/create-plan-checkout?readiness=1',{
         headers:{Authorization:`Bearer ${session.access_token}`},
         cache:'no-store'
       });
