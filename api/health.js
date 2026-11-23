@@ -8,7 +8,23 @@ async function verifyServerStripeCredentials() {
   const priceId='price_1UdKia0U9nB6Q0cfUj7V4993';
   const accountId='acct_1UZuju0U9nB6Q0cf';
   if(typeof key!=='string'||! /^(?:sk|rk)_live_[A-Za-z0-9]+$/.test(key)) {
-    console.info('TUTTI_PRO_SERVER_PREFLIGHT',JSON.stringify({configured:false,valid:false,category:'key_format_invalid'}));
+    const provided=typeof key==='string';
+    const value=provided?key:'';
+    const trimmed=value.trim();
+    console.info('TUTTI_PRO_SERVER_PREFLIGHT',JSON.stringify({
+      configured:false,valid:false,category:'key_format_invalid',
+      diagnostics:{
+        present:provided,nonEmpty:trimmed.length>0,
+        liveSecretPrefix:value.startsWith('sk_live_'),
+        liveRestrictedPrefix:value.startsWith('rk_live_'),
+        testKeyPrefix:/^(?:sk|rk)_test_/.test(value),
+        publishableKeyPrefix:value.startsWith('pk_'),
+        whitespaceOnlyDifference:trimmed!==value,
+        validAfterTrim:/^(?:sk|rk)_live_[A-Za-z0-9]+$/.test(trimmed),
+        hasNewline:value.includes('\\n')||value.includes('\\r'),
+        sizeClass:value.length===0?'empty':value.length<20?'short':value.length<60?'medium':'long'
+      }
+    }));
     return;
   }
   try {
