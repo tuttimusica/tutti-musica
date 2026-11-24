@@ -85,6 +85,29 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking');
   const [commerceCheck, setCommerceCheck] = useState<any>(null);
   const [checkingCommerce, setCheckingCommerce] = useState(false);
+  const [startingPilotCheckout, setStartingPilotCheckout] = useState(false);
+  const startPilotCheckout = async () => {
+    if (!window.confirm('Teste com pagamento REAL de R$ 19,90. O valor será cobrado somente se você concluir o pagamento na Stripe. Deseja abrir o checkout?')) return;
+    setStartingPilotCheckout(true);
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session?.access_token) throw new Error('Faça login novamente antes de iniciar o teste.');
+      const response=await fetch('/api/stripe/create-plan-checkout',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({plano_id:'pro'}),
+        cache:'no-store',
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok || typeof data.url!=='string' || !data.url.startsWith('https://checkout.stripe.com/'))
+        throw new Error('Não foi possível iniciar a compra controlada. Nenhum pagamento foi realizado.');
+      window.location.assign(data.url);
+    }catch(error:any) {
+      showToast(error?.message || 'Falha ao abrir teste controlado.');
+      setStartingPilotCheckout(false);
+    }
+  };
+
   const checkCommerceReadiness = async () => {
     setCheckingCommerce(true);
     setCommerceCheck(null);
@@ -1772,7 +1795,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                         <div key={key} className="flex items-center gap-2">
                           <span className={value?'text-emerald-400':'text-amber-300'}>{value?'✓':'Pendente'}</span>
                           <span className="text-slate-300">{({
-                            frontendEnabled:'Botão público de pagamento',serverEnabled:'Checkout do servidor',
+                            frontendEnabled:'Botão público de pagamento',serverEnabled:'Checkout público do servidor',pilotEnabled:'Piloto restrito no servidor',
                             stripeAccount:'Conta Stripe apta',stripePrice:'Preço de R$ 19,90',
                             stripeRequiredReads:'Permissões de leitura Stripe',webhookSecretConfigured:'Assinatura do webhook configurada',
                             catalog:'PDFs exclusivos disponíveis',fulfillmentProject:'Supabase de entrega validado'
@@ -1803,6 +1826,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                             } as Record<string,string>)[reason] || 'Falha na verificação'}
                           </p>
                         ))}
+                      </div>
+                    )}
+                    {commerceCheck?.checks?.pilotEnabled === true && commerceCheck.preflightPass === true && (
+                      <div className="rounded-lg border border-amber-500/30 p-3 space-y-2">
+                        <p className="text-xs font-semibold text-amber-200">Teste controlado — compra real de R$ 19,90</p>
+                        <p className="text-xs text-slate-300">Exclusivo ao administrador autenticado. Não abre o checkout ao público. Você só será cobrado se concluir o pagamento no site seguro da Stripe.</p>
+                        <button type="button" disabled={startingPilotCheckout} onClick={startPilotCheckout}
+                          className="rounded-xl border border-amber-400 bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
+                          {startingPilotCheckout?'Abrindo checkout...':'Abrir compra controlada (R$ 19,90)'}
+                        </button>
                       </div>
                     )}
                     <p className="text-[11px] text-slate-400">A aprovação definitiva exige pagamento controlado, webhook confirmado e download autorizado.</p>
