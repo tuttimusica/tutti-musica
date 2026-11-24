@@ -446,7 +446,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const { data: plData, error: plErr } = await supabase
           .from('planos')
           .select('*')
-          .order('ordem', { ascending: true });
+          .order('id', { ascending: true });
 
         if (!plErr && plData) {
           setPlansList(
@@ -454,13 +454,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
               id: row.id,
               nome: row.nome,
               descricao: row.descricao || '',
-              preco: Number(row.preco ?? 0),
+              preco: Number(row.preco_centavos ?? 0) / 100,
               moeda: row.moeda || 'BRL',
-              recorrencia: row.recorrencia || 'mensal',
+              recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' ? 'trimestral' : row.id === 'semestral' ? 'semestral' : row.recorrencia === 'contrato_manual' ? 'mensal' : row.recorrencia || 'mensal'),
               beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
               stripe_product_id: row.stripe_product_id || null,
               stripe_price_id: row.stripe_price_id || null,
-              ordem: Number(row.ordem ?? 0),
+              ordem: ['pro','mensal','trimestral','semestral'].indexOf(row.id) >= 0 ? ['pro','mensal','trimestral','semestral'].indexOf(row.id) : 99,
               ativo: row.ativo !== false,
             }))
           );
