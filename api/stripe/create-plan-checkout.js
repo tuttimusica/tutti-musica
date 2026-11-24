@@ -13,8 +13,9 @@ export default async function handler(req,res){
  if(req.method!=='POST'){res.setHeader('Allow','POST');return send(res,405,{error:'method_not_allowed'});}
  if(req.body?.plano_id!=='pro')return send(res,403,{error:'only_pro_lifetime_online'});
  const prod=process.env.VERCEL_ENV==='production';
- const enabled=prod ? process.env.TUTTI_PRO_LIVE_CHECKOUT_ENABLED==='true'
-   : process.env.TUTTI_PAYMENT_TEST_MODE==='true';
+ const liveEnabled=prod&&process.env.TUTTI_PRO_LIVE_CHECKOUT_ENABLED==='true';
+ const pilotEnabled=prod&&process.env.TUTTI_PRO_PILOT_CHECKOUT_ENABLED==='true';
+ const enabled=prod ? (liveEnabled || pilotEnabled) : process.env.TUTTI_PAYMENT_TEST_MODE==='true';
  if(!enabled)return send(res,503,{error:'pro_checkout_not_enabled'});
  const key=prod ? process.env.TUTTI_STRIPE_LIVE_SECRET_KEY : process.env.STRIPE_SECRET_KEY;
  const webhookSecret=prod ? process.env.TUTTI_STRIPE_LIVE_WEBHOOK_SECRET
@@ -42,6 +43,17 @@ export default async function handler(req,res){
    // credential for the SAME Supabase project and can identify this user.
    // This is not authorization from client metadata; it is a backend readiness gate.
    const admin=createClient(url,fulfillmentKey,{auth:{persistSession:false,autoRefreshToken:false}});
+   // While the public checkout is closed, only an email-confirmed developer
+   // in the server-owned administrator allowlist may start a real pilot checkout.
+   if(prod&&!liveEnabled) {
+     const {data:authorized,error:pilotError}=await admin
+       .from('administradores_autorizados').select('email').limit(1000);
+     const normalized=user.email.trim().toLowerCase();
+     if(pilotError||!(authorized||[]).some(a=>typeof a.email==='string'&&
+        a.email.trim().toLowerCase()===normalized))
+       return send(res,403,{error:'pilot_not_authorized'});
+   }
+
    const {data:ownedUser,error:adminError}=await admin.auth.admin.getUserById(user.id);
    if(adminError||ownedUser?.user?.id!==user.id)
      return send(res,503,{error:'pro_fulfillment_project_unavailable'});
