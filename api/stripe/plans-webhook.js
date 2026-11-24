@@ -18,7 +18,9 @@ const isPro=(s)=>s?.mode==='payment'&&s?.metadata?.tipo==='tutti_plano'&&
 export default async function handler(req,res){
  if(req.method!=='POST'){res.setHeader('Allow','POST');return send(res,405,{error:'method_not_allowed'});}
  const prod=process.env.VERCEL_ENV==='production';
- const enabled=prod?process.env.TUTTI_PRO_LIVE_CHECKOUT_ENABLED==='true':
+ // Pilot events must be processed even though the public checkout remains closed.
+ const enabled=prod?(process.env.TUTTI_PRO_LIVE_CHECKOUT_ENABLED==='true'||
+   process.env.TUTTI_PRO_PILOT_CHECKOUT_ENABLED==='true'):
    process.env.TUTTI_PAYMENT_TEST_MODE==='true';
  if(!enabled)return send(res,503,{error:'pro_webhook_not_enabled'});
  const key=prod?process.env.TUTTI_STRIPE_LIVE_SECRET_KEY:process.env.STRIPE_SECRET_KEY;
