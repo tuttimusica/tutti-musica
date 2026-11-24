@@ -2,6 +2,7 @@ import { createClient } from '@supabase/supabase-js';
 import Stripe from 'stripe';
 import { ensureProWebhookReadPermissions } from '../../lib/stripe/pro-readiness.js';
 import { handleAdminCommerceReadiness } from '../../lib/stripe/admin-readiness.js';
+import { isAuthorizedProPilot } from '../../lib/stripe/pilot-access.js';
 
 const send=(res,status,data)=>{res.setHeader('Cache-Control','no-store');res.status(status).json(data);};
 const LIVE_ORIGIN='https://tutti-musica.vercel.app';
@@ -48,9 +49,7 @@ export default async function handler(req,res){
    if(prod&&!liveEnabled) {
      const {data:authorized,error:pilotError}=await admin
        .from('administradores_autorizados').select('email').limit(1000);
-     const normalized=user.email.trim().toLowerCase();
-     if(pilotError||!(authorized||[]).some(a=>typeof a.email==='string'&&
-        a.email.trim().toLowerCase()===normalized))
+     if(pilotError||!isAuthorizedProPilot(user.email,authorized))
        return send(res,403,{error:'pilot_not_authorized'});
    }
 
