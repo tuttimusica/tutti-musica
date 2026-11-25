@@ -9,11 +9,11 @@ import {
 } from 'lucide-react';
 import { useAuth, TeacherRequest, LessonBooking } from '../../context/AuthContext';
 import { useAppRouter } from '../../context/RouterContext';
-import { supabase, SUPABASE_PROJECT_ID, testSupabaseConnection } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase';
 import { SheetMusic } from '../../data/musicData';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
-import { DbPlano } from '../Subscription/PlansModal';
+import { DbPlano, fetchAllPlans, formatBrlFromCents, sortPlans } from '../../services/plansService';
 import {
   resolvePartituraPdfUrl,
   DbCompositor,
@@ -25,6 +25,8 @@ import {
   getMusicalStyleOptions,
   SHEET_STORAGE_BUCKETS,
   normalizeDbPartitura,
+  resolveInstrumentId,
+  PARTITURAS_SELECT_COLUMNS,
 } from '../../services/partiturasService';
 
 export interface StoreDbProduct {
@@ -82,65 +84,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const { user, profile, logout, aprovarProfessor, rejeitarProfessor } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<DevTab>('dashboard');
-  const [databaseStatus, setDatabaseStatus] = useState<'checking' | 'connected' | 'unavailable'>('checking');
-  const [commerceCheck, setCommerceCheck] = useState<any>(null);
-  const [checkingCommerce, setCheckingCommerce] = useState(false);
-  const [startingPilotCheckout, setStartingPilotCheckout] = useState(false);
-  const startPilotCheckout = async () => {
-    if (!window.confirm('Teste com pagamento REAL de R$ 19,90. O valor será cobrado somente se você concluir o pagamento na Stripe. Deseja abrir o checkout?')) return;
-    setStartingPilotCheckout(true);
-    try {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if (error || !session?.access_token) throw new Error('Faça login novamente antes de iniciar o teste.');
-      const response=await fetch('/api/stripe/create-plan-checkout',{
-        method:'POST',
-        headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},
-        body:JSON.stringify({plano_id:'pro'}),
-        cache:'no-store',
-      });
-      const data=await response.json().catch(()=>({}));
-      if(!response.ok || typeof data.url!=='string' || !data.url.startsWith('https://checkout.stripe.com/'))
-        throw new Error('Não foi possível iniciar a compra controlada. Nenhum pagamento foi realizado.');
-      window.location.assign(data.url);
-    }catch(error:any) {
-      showToast(error?.message || 'Falha ao abrir teste controlado.');
-      setStartingPilotCheckout(false);
-    }
-  };
-
-  const checkCommerceReadiness = async () => {
-    setCheckingCommerce(true);
-    setCommerceCheck(null);
-    try {
-      const { data: { session }, error } = await supabase.auth.getSession();
-      if(error || !session?.access_token) throw Error('Entre novamente como administrador para verificar.');
-      const response=await fetch('/api/stripe/create-plan-checkout?readiness=1',{
-        headers:{Authorization:`Bearer ${session.access_token}`},
-        cache:'no-store'
-      });
-      const payload=await response.json().catch(()=>({}));
-      if(!response.ok) throw Error(payload.error || 'Diagnóstico indisponível.');
-      setCommerceCheck(payload);
-    } catch(error:any) {
-      setCommerceCheck({error:error?.message||'Diagnóstico indisponível.'});
-    } finally {
-      setCheckingCommerce(false);
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    testSupabaseConnection()
-      .then(result => { if (active) setDatabaseStatus(result.ok ? 'connected' : 'unavailable'); })
-      .catch(() => { if (active) setDatabaseStatus('unavailable'); });
-    return () => { active = false; };
-  }, []);
-
 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
   const [isLoadingRequests, setIsLoadingRequests] = useState(true);
-  const [requestsLoadError, setRequestsLoadError] = useState<string | null>(null);
   const [processingRequestId, setProcessingRequestId] = useState<string | null>(null);
 
   // Real Registered Teachers (loaded from Supabase public.usuarios / profiles)
@@ -158,11 +105,6 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   // Sheets Management State (loaded from Supabase public.partituras)
   const [sheetsList, setSheetsList] = useState<SheetMusic[]>([]);
   const [isLoadingSheets, setIsLoadingSheets] = useState(false);
-  const [bundleTitle, setBundleTitle] = useState('');
-  const [bundlePrice, setBundlePrice] = useState('');
-  const [bundleSelectedIds, setBundleSelectedIds] = useState<string[]>([]);
-  const [bundleList, setBundleList] = useState<{ id: string; titulo: string; preco: number; publicado: boolean }[]>([]);
-  const [bundleSaving, setBundleSaving] = useState(false);
 
   // Modal / Viewer State for Sheet Music
   const [viewingSheet, setViewingSheet] = useState<SheetMusic | null>(null);
@@ -234,11 +176,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const [planNome, setPlanNome] = useState('');
   const [planDescricao, setPlanDescricao] = useState('');
   const [planPreco, setPlanPreco] = useState('0');
-  const [planRecorrencia, setPlanRecorrencia] = useState<'mensal' | 'trimestral' | 'semestral' | 'vitalicio' | 'unico'>('mensal');
+  const [planPeriodo, setPlanPeriodo] = useState('');
+  const [planRecorrencia, setPlanRecorrencia] = useState<'unico' | 'contrato_manual' | 'mensal' | 'trimestral' | 'semestral' | 'vitalicio'>('contrato_manual');
   const [planBeneficiosText, setPlanBeneficiosText] = useState('');
-  const [planStripeProductId, setPlanStripeProductId] = useState('');
   const [planStripePriceId, setPlanStripePriceId] = useState('');
-  const [planOrdem, setPlanOrdem] = useState('1');
+  const [planStripeTestPriceId, setPlanStripeTestPriceId] = useState('');
   const [planAtivo, setPlanAtivo] = useState(true);
   const [isSavingPlan, setIsSavingPlan] = useState(false);
 
@@ -266,57 +208,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const storeImageInputRef = useRef<HTMLInputElement>(null);
 
   const loadTeacherManagementData = useCallback(async () => {
-    // 1. Solicitações: only the authenticated administrator may request this list.
-    // The backend checks Supabase Auth and the administrator allowlist before reading.
+    // 1. Solicitações de Professores
     try {
       setIsLoadingRequests(true);
-      setRequestsLoadError(null);
-      const { data: { session }, error: sessionError } = await supabase.auth.getSession();
-      if (sessionError || !session?.access_token) {
-        setRequests([]);
-        setRequestsLoadError('Sessão expirada ou indisponível. Entre novamente como desenvolvedor e tente atualizar.');
-        console.warn('Sessão administrativa indisponível para carregar solicitações.');
-      } else {
-        const response = await fetch('/api/admin/teacher-requests', {
-          method: 'GET',
-          headers: { Authorization: `Bearer ${session.access_token}` },
-          cache: 'no-store'
-        });
-        if (!response.ok) {
-          if (response.status === 503) {
-            // Preview intentionally lacks a Vercel service-role key. Fall back
-            // ONLY to Supabase's server-enforced developer RLS (never anon data).
-            const { data: requestsFromDb, error: dbError } = await supabase
-              .from('solicitacoes_professores')
-              .select('id,user_id,nome,email,instrumento,bio,status,created_at,decided_at,decided_by')
-              .order('created_at', { ascending: false })
-              .limit(100);
-            if (dbError) {
-              setRequests([]);
-              setRequestsLoadError('Não foi possível acessar as solicitações com as permissões atuais.');
-            } else {
-              setRequests((requestsFromDb || []) as TeacherRequest[]);
-              setRequestsLoadError(null);
-            }
-          } else {
-            setRequests([]);
-            setRequestsLoadError(response.status === 401 ? 'Sua sessão não foi reconhecida. Entre novamente.' : response.status === 403 ? 'Acesso negado pelo servidor. Verifique a autorização administrativa no Supabase.' : 'Não foi possível consultar as solicitações (HTTP ' + response.status + '). Tente atualizar.');
-            console.warn('Falha ao consultar solicitações de professores:', response.status);
-          }
-        } else {
-          const payload = await response.json();
-          if (!Array.isArray(payload.requests)) {
-            setRequests([]);
-            setRequestsLoadError('O servidor retornou dados inesperados. Tente atualizar.');
-          } else {
-            setRequests(payload.requests as TeacherRequest[]);
-          }
-        }
+      const { data: solData, error: solErr } = await supabase
+        .from('solicitacoes_professores')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (!solErr) {
+        setRequests((solData as TeacherRequest[]) || []);
       }
     } catch (err) {
-      setRequests([]);
-      setRequestsLoadError('Falha de conexão ao carregar solicitações. Verifique a rede e tente atualizar.');
-      console.warn('Não foi possível carregar solicitações de professores:', err);
+      console.warn('Supabase solicitacoes load note:', err);
     } finally {
       setIsLoadingRequests(false);
     }
@@ -396,7 +300,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         setIsLoadingSheets(true);
         const { data: pData, error: pErr } = await supabase
           .from('partituras')
-          .select('*')
+          .select(PARTITURAS_SELECT_COLUMNS)
           .order('created_at', { ascending: false });
 
         if (!pErr && pData) {
@@ -406,7 +310,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
               id: p.id,
               title: p.titulo,
               composer: p.compositor || 'Compositor Tutti',
-              instrument: p.instrumento || 'Saxofone Alto',
+              instrument: p.instrumento || 'Saxofone alto',
               tonality: p.tonalidade || 'G',
               originalKey: p.tom_original || p.tonalidade || 'G',
               family: 'Madeiras',
@@ -443,28 +347,8 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       // 6. Planos Reais do Banco de Dados (public.planos)
       try {
         setIsLoadingPlans(true);
-        const { data: plData, error: plErr } = await supabase
-          .from('planos')
-          .select('*')
-          .order('id', { ascending: true });
-
-        if (!plErr && plData) {
-          setPlansList(
-            plData.map((row: any) => ({
-              id: row.id,
-              nome: row.nome,
-              descricao: row.descricao || '',
-              preco: Number(row.preco_centavos ?? 0) / 100,
-              moeda: row.moeda || 'BRL',
-              recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' ? 'trimestral' : row.id === 'semestral' ? 'semestral' : row.recorrencia === 'contrato_manual' ? 'mensal' : row.recorrencia || 'mensal'),
-              beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
-              stripe_product_id: row.stripe_product_id || null,
-              stripe_price_id: row.stripe_price_id || null,
-              ordem: ['pro','mensal','trimestral','semestral'].indexOf(row.id) >= 0 ? ['pro','mensal','trimestral','semestral'].indexOf(row.id) : 99,
-              ativo: row.ativo !== false,
-            }))
-          );
-        }
+        const allPlans = await fetchAllPlans();
+        setPlansList(allPlans);
       } catch (err) {
         console.warn('Supabase planos sync note:', err);
       } finally {
@@ -686,18 +570,18 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     targetBucket: string,
     storagePath: string,
     file: File
-  ) => {
-    const attemptUpload = async () =>
-      supabase.storage.from(targetBucket).upload(storagePath, file, {
+  ): Promise<{ bucketUsed: string; data: { path: string } }> => {
+    const attemptUpload = async (bucket: string) =>
+      supabase.storage.from(bucket).upload(storagePath, file, {
         cacheControl: '3600',
         upsert: false,
         contentType: 'application/pdf',
       });
 
-    let { data, error } = await attemptUpload();
+    let bucketUsed = targetBucket;
+    let { data, error } = await attemptUpload(bucketUsed);
 
     if (error && /bucket not found/i.test(error.message || '')) {
-      // Tenta provisionar automaticamente via backend autenticado caso SUPABASE_SERVICE_ROLE_KEY esteja configurada
       try {
         const { data: { session } } = await supabase.auth.getSession();
         if (session?.access_token) {
@@ -710,30 +594,38 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           });
           const checkJson = await checkRes.json().catch(() => ({}));
           if (checkRes.ok && checkJson?.configured) {
-            const retry = await attemptUpload();
+            const retry = await attemptUpload(bucketUsed);
             data = retry.data;
             error = retry.error;
           }
         }
       } catch {
-        // segue para tratamento explícito de erro abaixo
+        // segue para fallback de bucket
       }
+    }
+
+    // Fallback definitivo para o bucket unificado existente 'tutti-partituras'
+    if (error && /bucket not found/i.test(error.message || '') && bucketUsed !== SHEET_STORAGE_BUCKETS.TUTTI_DEFAULT) {
+      bucketUsed = SHEET_STORAGE_BUCKETS.TUTTI_DEFAULT;
+      const retryTutti = await attemptUpload(bucketUsed);
+      data = retryTutti.data;
+      error = retryTutti.error;
     }
 
     if (error || !data) {
       const rawMsg = error?.message || '';
       if (/bucket not found/i.test(rawMsg)) {
         throw new Error(
-          `Bucket "${targetBucket}" não encontrado no Supabase Storage. Acesse Configurações -> Baixar Script .SQL Master e execute-o no SQL Editor do Supabase para criar os buckets "partituras" e "partituras-pagas".`
+          `Bucket "${bucketUsed}" não encontrado no Supabase Storage. Verifique os buckets "tutti-partituras", "partituras" e "partituras-pagas".`
         );
       }
-      throw new Error(rawMsg || `Falha ao enviar o PDF para o bucket "${targetBucket}".`);
+      throw new Error(rawMsg || `Falha ao enviar o PDF para o bucket "${bucketUsed}".`);
     }
 
-    return data;
+    return { bucketUsed, data };
   };
 
-  // Handle Sheet Music Upload and Creation (Free -> public bucket, Paid -> private bucket, with orphan rollback)
+  // Handle Sheet Music Upload and Creation (exact 21-column live schema of public.partituras)
   const handleSaveSheet = async (e: React.FormEvent) => {
     e.preventDefault();
     if (isUploading) return;
@@ -748,12 +640,6 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     if (!selectedPdfFile && !editingSheet) {
       setSheetFormError('Selecione um arquivo PDF no seu computador.');
       showToast('Selecione um arquivo PDF no seu computador.');
-      return;
-    }
-    if (editingSheet && !selectedPdfFile && editingSheet.categoria !== formCategory && !editingSheet.storagePath) {
-      const message = 'Selecione um PDF para mudar a categoria: a partitura atual não possui arquivo armazenado para transferência.';
-      setSheetFormError(message);
-      showToast(message);
       return;
     }
     if (selectedPdfFile) {
@@ -773,17 +659,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       formCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
     const previousCategory: 'gratuita' | 'paga' =
       editingSheet?.categoria === 'paga' ? 'paga' : 'gratuita';
-    const previousBucket =
-      previousCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
     const previousStoragePath = editingSheet?.storagePath || '';
 
     let newlyUploadedObject: { bucket: string; path: string } | null = null;
     let shouldDeletePreviousObject = false;
+    let usedBucket: string = targetBucket;
 
     try {
       const composerDisplay = normalizeComposerDisplay(formComposer) || 'Compositor Tutti';
+      const instrumentoId = resolveInstrumentId(formInstrument);
 
-      // Garante persistência e deduplicação do compositor informado em public.compositores
       if (formComposer.trim()) {
         try {
           const savedComp = await ensureCompositorInDb(composerDisplay, user?.id);
@@ -796,7 +681,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
             });
           }
         } catch {
-          // Não bloqueia se tabela compositores ainda estiver pendente de migração SQL
+          // não bloqueia caso tabela compositores não esteja acessível
         }
       }
 
@@ -808,42 +693,44 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const safeName = selectedPdfFile.name.replace(/[^a-zA-Z0-9._-]/g, '_');
         storagePath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${safeName}`;
 
-        await uploadPdfWithBucketVerification(targetBucket, storagePath, selectedPdfFile);
-        newlyUploadedObject = { bucket: targetBucket, path: storagePath };
+        const uploaded = await uploadPdfWithBucketVerification(targetBucket, storagePath, selectedPdfFile);
+        usedBucket = uploaded.bucketUsed;
+        newlyUploadedObject = { bucket: usedBucket, path: storagePath };
         if (previousStoragePath && previousStoragePath !== storagePath) {
           shouldDeletePreviousObject = true;
         }
 
-        if (formCategory === 'gratuita') {
-          finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
+        if (formCategory === 'gratuita' && usedBucket === SHEET_STORAGE_BUCKETS.FREE) {
+          const { data: pubData } = supabase.storage
+            .from(usedBucket)
+            .getPublicUrl(storagePath);
+          finalPdfUrl = pubData.publicUrl;
         } else {
           finalPdfUrl = '';
         }
       } else if (editingSheet && previousStoragePath && previousCategory !== formCategory) {
-        // Mudou categoria (gratuita <-> paga) sem trocar o PDF: move objeto para o bucket correto
-        setUploadProgress(40);
-        const { data: downloadedBlob, error: dlErr } = await supabase.storage
-          .from(previousBucket)
-          .download(previousStoragePath);
-
-        if (dlErr || !downloadedBlob) {
-          throw new Error('Não foi possível mover o PDF para a nova categoria. A categoria anterior foi preservada.');
+        const candidateDownloadBuckets = [
+          previousCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE,
+          SHEET_STORAGE_BUCKETS.TUTTI_DEFAULT,
+        ];
+        let downloadedBlob: Blob | null = null;
+        for (const cand of candidateDownloadBuckets) {
+          const { data: b, error: dlErr } = await supabase.storage.from(cand).download(previousStoragePath);
+          if (!dlErr && b) {
+            downloadedBlob = b;
+            break;
+          }
         }
 
-        {
+        if (downloadedBlob) {
           const baseFile = previousStoragePath.split('/').pop() || `partitura_${editingSheet.id}.pdf`;
           const movedPath = `${formCategory === 'paga' ? 'pagas' : 'gratuitas'}/${Date.now()}_${baseFile}`;
           const movedFile = new File([downloadedBlob], baseFile, { type: 'application/pdf' });
-          await uploadPdfWithBucketVerification(targetBucket, movedPath, movedFile);
-          newlyUploadedObject = { bucket: targetBucket, path: movedPath };
+          const uploaded = await uploadPdfWithBucketVerification(targetBucket, movedPath, movedFile);
+          usedBucket = uploaded.bucketUsed;
+          newlyUploadedObject = { bucket: usedBucket, path: movedPath };
           storagePath = movedPath;
           shouldDeletePreviousObject = true;
-
-          if (formCategory === 'gratuita') {
-            finalPdfUrl = ''; // Bucket privado: URL temporária somente via API autorizada.
-          } else {
-            finalPdfUrl = '';
-          }
         }
       }
 
@@ -855,32 +742,40 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         const updatePayload: Record<string, any> = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
+          instrumento_id: instrumentoId,
           estilo_musical: formGenre,
           nivel_dificuldade: formLevel,
           tonalidade: formTonality,
+          tom_original: formTonality,
           descricao: formDescription.trim(),
           categoria: formCategory,
           preco: preservedPrice,
           publicado: formPublished,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? (editingSheet.featuredOrder || 1) : 0,
-          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
-          storage_path: storagePath,
+          storage_path: storagePath || null,
+          ...(selectedPdfFile
+            ? {
+                storage_bucket: usedBucket,
+                mime_type: 'application/pdf',
+                tamanho_bytes: selectedPdfFile.size,
+              }
+            : {}),
           updated_at: new Date().toISOString(),
         };
 
-        const { data: updatedRows, error: upErr } = await supabase
+        const { error: upErr } = await supabase
           .from('partituras')
           .update(updatePayload)
-          .eq('id', editingSheet.id)
-          .select('id');
+          .eq('id', editingSheet.id);
 
         if (upErr) throw upErr;
-        if (!updatedRows || updatedRows.length !== 1) throw new Error('Nenhum registro atualizado no banco.');
 
         if (shouldDeletePreviousObject && previousStoragePath) {
-          await supabase.storage.from(previousBucket).remove([previousStoragePath]).catch(() => {});
+          await supabase.storage
+            .from(previousCategory === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE)
+            .remove([previousStoragePath])
+            .catch(() => {});
         }
 
         setSheetsList(prev =>
@@ -909,10 +804,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
         showToast(`Partitura "${formTitle}" atualizada com sucesso!`);
       } else {
-        const insertPayload = {
+        const insertPayload: Record<string, any> = {
           titulo: formTitle.trim(),
           compositor: composerDisplay,
-          instrumento_id: INSTRUMENT_OPTIONS.includes(formInstrument) ? ['saxofone_alto','saxofone_tenor','saxofone_soprano','clarinete','trombone','trompete','teclado','contrabaixo','guitarra','outros'][INSTRUMENT_OPTIONS.indexOf(formInstrument)] : 'outros',
+          instrumento_id: instrumentoId,
           tonalidade: formTonality,
           tom_original: formTonality,
           nivel_dificuldade: formLevel,
@@ -921,18 +816,19 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           categoria: formCategory,
           preco: 0,
           publicado: formPublished,
-          storage_bucket: SHEET_STORAGE_BUCKETS.FREE,
-          storage_path: storagePath,
+          storage_bucket: usedBucket,
+          storage_path: storagePath || null,
+          mime_type: 'application/pdf',
+          tamanho_bytes: selectedPdfFile?.size || 0,
           is_featured: markAsFeaturedOnCreate,
           featured_order: markAsFeaturedOnCreate ? 1 : 0,
-          tamanho_bytes: selectedPdfFile?.size || 0,
           enviado_por: user?.id || null,
         };
 
         const { data: inserted, error: insErr } = await supabase
           .from('partituras')
           .insert(insertPayload)
-          .select()
+          .select(PARTITURAS_SELECT_COLUMNS)
           .single();
 
         if (insErr) throw insErr;
@@ -956,13 +852,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
           categoria: normalized.categoria === 'paga' ? 'paga' : 'gratuita',
           preco: Number(normalized.preco ?? 0),
           publicado: normalized.publicado ?? true,
-          pdfUrl: normalized.categoria === 'paga' ? undefined : (normalized.arquivo_pdf_url || undefined),
+          pdfUrl: normalized.categoria === 'paga' ? undefined : (finalPdfUrl || undefined),
           storagePath: normalized.storage_path || undefined,
           isFeatured: normalized.is_featured ?? markAsFeaturedOnCreate,
           featuredOrder: normalized.featured_order ?? 0,
           fileSizeBytes: selectedPdfFile?.size,
           createdAt: normalized.created_at,
-          createdBy: user?.email || undefined,
+          createdBy: user?.id || undefined,
         };
 
         setSheetsList(prev => [newSheet, ...prev]);
@@ -974,7 +870,6 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       setEditingSheet(null);
       resetForm();
     } catch (err: any) {
-      // Rollback automático para não deixar PDF órfão no Storage se o banco falhar
       if (newlyUploadedObject) {
         await supabase.storage
           .from(newlyUploadedObject.bucket)
@@ -1036,7 +931,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handlePreviewAdminSheet = async (sheet: SheetMusic) => {
     try {
       const resolved = await resolvePartituraPdfUrl({
-        id: sheet.id,
+        id: String(sheet.id),
         titulo: sheet.title,
         compositor: sheet.composer,
         instrumento: sheet.instrument,
@@ -1044,6 +939,9 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
         nivel: sheet.level,
         arquivo_pdf_url: sheet.pdfUrl || null,
         storage_path: sheet.storagePath || null,
+        is_featured: Boolean(sheet.isFeatured),
+        featured_order: Number(sheet.featuredOrder ?? 0),
+        file_size_bytes: Number(sheet.fileSizeBytes ?? 0),
         categoria: sheet.categoria || 'gratuita',
         preco: sheet.preco ?? 0,
         publicado: sheet.publicado ?? true,
@@ -1053,13 +951,18 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       setViewingSheet(sheet);
     } catch (err: any) {
       if (sheet.storagePath) {
-        const bucket = sheet.categoria === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE;
-        const { data } = await supabase.storage.from(bucket).createSignedUrl(sheet.storagePath, 120);
-        if (data?.signedUrl) {
-          setViewingSheetPdfUrl(data.signedUrl);
-          setViewingSheetProtected(sheet.categoria === 'paga');
-          setViewingSheet(sheet);
-          return;
+        const buckets = [
+          sheet.categoria === 'paga' ? SHEET_STORAGE_BUCKETS.PAID : SHEET_STORAGE_BUCKETS.FREE,
+          SHEET_STORAGE_BUCKETS.TUTTI_DEFAULT,
+        ];
+        for (const bucket of buckets) {
+          const { data } = await supabase.storage.from(bucket).createSignedUrl(sheet.storagePath, 120);
+          if (data?.signedUrl) {
+            setViewingSheetPdfUrl(data.signedUrl);
+            setViewingSheetProtected(sheet.categoria === 'paga');
+            setViewingSheet(sheet);
+            return;
+          }
         }
       }
       setViewingSheetPdfUrl(sheet.pdfUrl || null);
@@ -1071,12 +974,11 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetPublished = async (sheet: SheetMusic) => {
     const nextPub = !(sheet.publicado ?? true);
     try {
-      const { data: updatedVisibility, error } = await supabase
+      const { error } = await supabase
         .from('partituras')
         .update({ publicado: nextPub, updated_at: new Date().toISOString() })
         .eq('id', sheet.id);
       if (error) throw error;
-      if (!updatedVisibility || updatedVisibility.length !== 1) throw new Error('Visibilidade não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, publicado: nextPub } : s));
       showToast(nextPub ? `"${sheet.title}" publicada no catálogo!` : `"${sheet.title}" movida para rascunhos/oculta.`);
     } catch {
@@ -1087,16 +989,14 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const handleToggleSheetCategory = async (sheet: SheetMusic) => {
     const nextCat: 'gratuita' | 'paga' = sheet.categoria === 'paga' ? 'gratuita' : 'paga';
     try {
-      const { data: updatedCategory, error } = await supabase
+      const { error } = await supabase
         .from('partituras')
         .update({
           categoria: nextCat,
           updated_at: new Date().toISOString(),
         })
-        .eq('id', sheet.id)
-        .select('id');
+        .eq('id', sheet.id);
       if (error) throw error;
-      if (!updatedCategory || updatedCategory.length !== 1) throw new Error('Categoria não confirmada no banco.');
       setSheetsList(prev => prev.map(s => s.id === sheet.id ? { ...s, categoria: nextCat } : s));
       showToast(
         nextCat === 'paga'
@@ -1108,95 +1008,38 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     }
   };
 
-  useEffect(() => {
-    if (activeTab !== 'partituras') return;
-    let active = true;
-    supabase.from('conjuntos_partituras').select('id,titulo,preco,publicado')
-      .order('created_at', { ascending: false }).then(({ data, error }) => {
-        if (active && !error) setBundleList((data || []).map(b => ({ ...b, preco: Number(b.preco) })));
-      });
-    return () => { active = false; };
-  }, [activeTab]);
-
-  const handleCreateBundle = async () => {
-    const price = Number(bundlePrice.replace(',', '.'));
-    if (!bundleTitle.trim() || !Number.isFinite(price) || price <= 0 || bundleSelectedIds.length === 0) {
-      showToast('Informe nome, preço válido e selecione ao menos uma partitura.');
-      return;
-    }
-    setBundleSaving(true);
-    let createdId: string | null = null;
-    try {
-      const { data, error } = await supabase.from('conjuntos_partituras')
-        .insert({ titulo: bundleTitle.trim(), preco: price, publicado: false })
-        .select('id,titulo,preco,publicado').single();
-      if (error || !data) throw error || new Error('Não foi possível criar o conjunto.');
-      createdId = data.id;
-      const { error: itemsError } = await supabase.from('conjuntos_partituras_itens')
-        .insert(bundleSelectedIds.map(partitura_id => ({ conjunto_id: data.id, partitura_id })));
-      if (itemsError) throw itemsError;
-      setBundleList(prev => [{ ...data, preco: Number(data.preco) }, ...prev]);
-      setBundleTitle('');
-      setBundlePrice('');
-      setBundleSelectedIds([]);
-      showToast('Conjunto criado como rascunho. Publique após conferir os itens.');
-    } catch (err: any) {
-      if (createdId) await supabase.from('conjuntos_partituras').delete().eq('id', createdId);
-      showToast(err?.message || 'Não foi possível criar o conjunto.');
-    } finally {
-      setBundleSaving(false);
-    }
-  };
-
-  const handlePublishBundle = async (id: string, published: boolean) => {
-    const { data, error } = await supabase.from('conjuntos_partituras')
-      .update({ publicado: !published }).eq('id', id).select('id');
-    if (error || data?.length !== 1) {
-      showToast('Não foi possível atualizar a publicação do conjunto.');
-      return;
-    }
-    setBundleList(prev => prev.map(b => b.id === id ? { ...b, publicado: !published } : b));
-    showToast(!published ? 'Conjunto publicado.' : 'Conjunto ocultado.');
-  };
-
   const handleDeleteSheet = async (sheet: SheetMusic) => {
     if (!window.confirm(`Tem certeza de que deseja excluir a partitura oficial "${sheet.title}"? Esta ação removerá o arquivo da biblioteca.`)) {
       return;
     }
 
     try {
-      const { data: deletedRows, error: deleteError } = await supabase.from('partituras').delete().eq('id', sheet.id).select('id');
-      if (deleteError) throw deleteError;
-      if (!deletedRows || deletedRows.length !== 1) throw new Error('Exclusão não confirmada no banco.');
+      await supabase.from('partituras').delete().eq('id', sheet.id);
 
-      let storageCleanupError = false;
       if (sheet.storagePath) {
-        const bucket = SHEET_STORAGE_BUCKETS.FREE;
-        const { error: removalError } = await supabase.storage.from(bucket).remove([sheet.storagePath]);
-        storageCleanupError = Boolean(removalError);
+        const bucket = sheet.categoria === 'paga' ? 'partituras-pagas' : 'partituras';
+        await supabase.storage.from(bucket).remove([sheet.storagePath]);
       }
 
       setSheetsList(prev => prev.filter(s => s.id !== sheet.id));
-      showToast(storageCleanupError
-        ? 'Registro excluído, mas o PDF não pôde ser removido do armazenamento. Verifique o Storage.'
-        : `Partitura "${sheet.title}" excluída com sucesso.`);
+      showToast(`Partitura "${sheet.title}" excluída com sucesso.`);
     } catch {
       showToast('Erro ao excluir partitura no Supabase.');
     }
   };
 
-  // --- PLANOS EDITÁVEIS (CRUD public.planos) ---
+  // --- PLANOS EDITÁVEIS (CRUD public.planos - 10 colunas reais) ---
   const handleOpenCreatePlan = () => {
     setEditingPlan(null);
     setPlanIdInput('');
     setPlanNome('');
     setPlanDescricao('');
-    setPlanPreco('49.90');
-    setPlanRecorrencia('mensal');
+    setPlanPreco('19.90');
+    setPlanPeriodo('');
+    setPlanRecorrencia('contrato_manual');
     setPlanBeneficiosText('Acesso completo às aulas\nEstúdio virtual completo\nSuporte pedagógico Tutti');
-    setPlanStripeProductId('');
     setPlanStripePriceId('');
-    setPlanOrdem(String(plansList.length + 1));
+    setPlanStripeTestPriceId('');
     setPlanAtivo(true);
     setIsPlanModalOpen(true);
   };
@@ -1206,12 +1049,12 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     setPlanIdInput(plan.id);
     setPlanNome(plan.nome);
     setPlanDescricao(plan.descricao || '');
-    setPlanPreco(String(plan.preco ?? 0));
-    setPlanRecorrencia((plan.recorrencia as any) || 'mensal');
+    setPlanPreco((Number(plan.preco_centavos ?? 0) / 100).toFixed(2));
+    setPlanPeriodo(plan.periodo || '');
+    setPlanRecorrencia((plan.recorrencia as any) || 'contrato_manual');
     setPlanBeneficiosText((plan.beneficios || []).join('\n'));
-    setPlanStripeProductId(plan.stripe_product_id || '');
     setPlanStripePriceId(plan.stripe_price_id || '');
-    setPlanOrdem(String(plan.ordem ?? 0));
+    setPlanStripeTestPriceId(plan.stripe_test_price_id || '');
     setPlanAtivo(plan.ativo !== false);
     setIsPlanModalOpen(true);
   };
@@ -1234,58 +1077,35 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
       .map(line => line.trim())
       .filter(Boolean);
 
-    const intervalo =
-      planRecorrencia === 'trimestral' || planRecorrencia === 'semestral' || planRecorrencia === 'mensal'
-        ? 'month'
-        : 'one_time';
-    const intervalo_count =
-      planRecorrencia === 'trimestral' ? 3 : planRecorrencia === 'semestral' ? 6 : 1;
+    const precoCentavos = Math.round(parsedPrice * 100);
 
     setIsSavingPlan(true);
     try {
-      const payload = {
+      const payload: DbPlano = {
         id: idSlug,
         nome: planNome.trim(),
-        descricao: planDescricao.trim(),
-        preco: parsedPrice,
-        moeda: 'BRL',
-        recorrencia: planRecorrencia,
-        beneficios,
-        stripe_product_id: planStripeProductId.trim() || null,
-        stripe_price_id: planStripePriceId.trim() || null,
-        ordem: Number(planOrdem) || 0,
-        intervalo,
-        intervalo_count,
         ativo: planAtivo,
-        updated_at: new Date().toISOString(),
+        periodo: planPeriodo.trim() || null,
+        preco_centavos: precoCentavos,
+        descricao: planDescricao.trim() || null,
+        beneficios,
+        stripe_price_id: planStripePriceId.trim() || null,
+        recorrencia: planRecorrencia,
+        stripe_test_price_id: planStripeTestPriceId.trim() || null,
       };
 
       const { error } = await supabase.from('planos').upsert(payload, { onConflict: 'id' });
       if (error) throw error;
 
-      const updated: DbPlano = {
-        id: idSlug,
-        nome: payload.nome,
-        descricao: payload.descricao,
-        preco: payload.preco,
-        moeda: 'BRL',
-        recorrencia: payload.recorrencia,
-        beneficios: payload.beneficios,
-        stripe_product_id: payload.stripe_product_id,
-        stripe_price_id: payload.stripe_price_id,
-        ordem: payload.ordem,
-        ativo: payload.ativo,
-      };
-
       setPlansList(prev => {
         const exists = prev.some(p => p.id === idSlug);
-        const next = exists ? prev.map(p => (p.id === idSlug ? updated : p)) : [...prev, updated];
-        return [...next].sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
+        const next = exists ? prev.map(p => (p.id === idSlug ? payload : p)) : [...prev, payload];
+        return sortPlans(next);
       });
 
       setIsPlanModalOpen(false);
       setEditingPlan(null);
-      showToast(`Plano "${updated.nome}" salvo e sincronizado em tempo real!`);
+      showToast(`Plano "${payload.nome}" salvo e sincronizado em tempo real!`);
     } catch (err: any) {
       showToast(`Erro ao salvar plano: ${err?.message || err}`);
     } finally {
@@ -1298,7 +1118,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
     try {
       const { error } = await supabase
         .from('planos')
-        .update({ ativo: nextActive, updated_at: new Date().toISOString() })
+        .update({ ativo: nextActive })
         .eq('id', plan.id);
       if (error) throw error;
       setPlansList(prev => prev.map(p => (p.id === plan.id ? { ...p, ativo: nextActive } : p)));
@@ -1543,32 +1363,49 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
 
   // Toggle or reorder featured sheets
   const handleToggleFeatured = async (sheetId: string | number) => {
-    const sheet = sheetsList.find(s => s.id === sheetId);
+    const sheet = sheetsList.find(s => String(s.id) === String(sheetId));
     if (!sheet) return;
 
     const nextFeatured = !sheet.isFeatured;
     try {
-      const { data: updatedFeatured, error: featuredError } = await supabase
+      await supabase
         .from('partituras')
         .update({ is_featured: nextFeatured })
-        .eq('id', sheetId)
-        .select('id');
-      if (featuredError) throw featuredError;
-      if (!updatedFeatured || updatedFeatured.length !== 1) {
-        throw new Error('A atualização do destaque não foi confirmada pelo banco de dados.');
-      }
+        .eq('id', sheetId);
 
-      setSheetsList(prev => prev.map(s => s.id === sheetId ? { ...s, isFeatured: nextFeatured } : s));
+      setSheetsList(prev => prev.map(s => String(s.id) === String(sheetId) ? { ...s, isFeatured: nextFeatured } : s));
       showToast(nextFeatured ? `"${sheet.title}" adicionada aos destaques! ★` : `"${sheet.title}" removida dos destaques.`);
     } catch {
       showToast('Erro ao atualizar destaque no Supabase.');
     }
   };
 
-  // Reordering requires a persisted featured_order column and an authorized backend.
-  // Never pretend a local-only reorder was saved to the shared catalog.
-  const handleMoveFeatured = async (_sheetId: string | number, _direction: 'up' | 'down') => {
-    showToast('Reordenação indisponível: é necessário configurar e validar a ordem dos destaques no Supabase.');
+  // Reorder featured sheets
+  const handleMoveFeatured = async (sheetId: string | number, direction: 'up' | 'down') => {
+    const featured = sheetsList.filter(s => s.isFeatured);
+    const index = featured.findIndex(s => String(s.id) === String(sheetId));
+    if (index < 0) return;
+    if (direction === 'up' && index === 0) return;
+    if (direction === 'down' && index === featured.length - 1) return;
+
+    const targetIndex = direction === 'up' ? index - 1 : index + 1;
+    const reordered = [...featured];
+    const temp = reordered[index];
+    reordered[index] = reordered[targetIndex];
+    reordered[targetIndex] = temp;
+
+    // Update order in state
+    setSheetsList(prev => {
+      return prev.map(item => {
+        const foundIdx = reordered.findIndex(r => r.id === item.id);
+        if (foundIdx >= 0) {
+          return { ...item, featuredOrder: foundIdx + 1 };
+        }
+        return item;
+      });
+    });
+
+    showToast('Ordem dos destaques atualizada!');
   };
 
   // Approve Teacher Request via RPC (aprovar_professor_rpc)
@@ -1665,7 +1502,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
       {/* Top Banner: Developer Environment Status */}
-      <div className="bg-gradient-to-r from-[#18120c] via-[#211710] to-[#131722] border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+      <div className="dev-banner-dark bg-gradient-to-r from-[#18120c] via-[#211710] to-[#131722] border-2 border-amber-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 w-96 h-96 bg-amber-500/10 rounded-full blur-3xl pointer-events-none"></div>
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
@@ -1770,78 +1607,6 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </h2>
                 <p className="text-xs text-slate-400">Resumo em tempo real sincronizado com a base PostgreSQL / Supabase.</p>
               </div>
-
-              {/* Admin-only financial preflight; never creates or activates a charge. */}
-              <section className="rounded-2xl border border-amber-500/30 bg-[#0b0d14] p-5 space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                  <div>
-                    <h3 className="font-bold text-amber-300 text-sm">Pré-verificação comercial — Tutti Pro</h3>
-                    <p className="text-xs text-slate-400">Consulta segura da Stripe, Supabase e travas de cobrança. Não realiza pagamentos.</p>
-                  </div>
-                  <button type="button" disabled={checkingCommerce} onClick={checkCommerceReadiness}
-                    className="rounded-xl bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
-                    {checkingCommerce?'Verificando...':'Verificar cobranças'}
-                  </button>
-                </div>
-                {commerceCheck?.error && <p role="alert" className="text-xs text-rose-300">Verificação indisponível: {commerceCheck.error}</p>}
-                {commerceCheck?.checks && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-white">
-                      {commerceCheck.preflightPass?'Pré-requisitos técnicos verificados':'Existem requisitos técnicos pendentes'}
-                      {' — '} vendas públicas: não autorizadas sem teste completo
-                    </p>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                      {Object.entries(commerceCheck.checks as Record<string,boolean>).map(([key,value])=>(
-                        <div key={key} className="flex items-center gap-2">
-                          <span className={value?'text-emerald-400':'text-amber-300'}>{value?'✓':'Pendente'}</span>
-                          <span className="text-slate-300">{({
-                            frontendEnabled:'Botão público de pagamento',serverEnabled:'Checkout público do servidor',pilotEnabled:'Piloto restrito no servidor',
-                            stripeAccount:'Conta Stripe apta',stripePrice:'Preço de R$ 19,90',
-                            stripeRequiredReads:'Permissões de leitura Stripe',webhookSecretConfigured:'Assinatura do webhook configurada',
-                            catalog:'PDFs exclusivos disponíveis',fulfillmentProject:'Supabase de entrega validado'
-                          } as Record<string,string>)[key] || key}</span>
-                        </div>
-                      ))}
-                    </div>
-                    {commerceCheck.stripeIssues && Object.keys(commerceCheck.stripeIssues).length > 0 && (
-                      <div className="rounded-lg border border-amber-500/20 p-3 space-y-1">
-                        <p className="text-xs font-semibold text-amber-300">Diagnóstico Stripe (sem credenciais)</p>
-                        {Object.entries(commerceCheck.stripeIssues as Record<string,string>).map(([key,reason])=>(
-                          <p key={key} className="text-xs text-slate-300">
-                            {({
-                              configuration:'Configuração',stripeAccount:'Conta Stripe',stripePrice:'Preço Stripe',
-                              checkoutSessions:'Sessões de checkout',paymentIntents:'Intenções de pagamento',
-                              charges:'Cobranças'
-                            } as Record<string,string>)[key] || key}
-                            {': '}{({
-                              permissao_negada:'Permissão insuficiente na chave Stripe',
-                              credencial_invalida:'Credencial Stripe não autenticou',
-                              recurso_nao_encontrado:'Recurso não encontrado',
-                              falha_de_consulta:'Consulta Stripe indisponível',
-                              conta_incorreta_ou_bloqueada:'Conta incorreta ou cobranças suspensas',
-                              preco_incorreto_ou_inativo:'Preço não corresponde ao Pro Vitalício',
-                              credencial_ausente_ou_formato_invalido:'Chave ausente ou formato inválido',
-                              plano_invalido:'Preço do plano não está configurado corretamente',
-                              diagnostico_indisponivel:'Diagnóstico indisponível'
-                            } as Record<string,string>)[reason] || 'Falha na verificação'}
-                          </p>
-                        ))}
-                      </div>
-                    )}
-                    {commerceCheck?.checks?.pilotEnabled === true && commerceCheck.preflightPass === true && (
-                      <div className="rounded-lg border border-amber-500/30 p-3 space-y-2">
-                        <p className="text-xs font-semibold text-amber-200">Teste controlado — compra real de R$ 19,90</p>
-                        <p className="text-xs text-slate-300">Exclusivo ao administrador autenticado. Não abre o checkout ao público. Você só será cobrado se concluir o pagamento no site seguro da Stripe.</p>
-                        <button type="button" disabled={startingPilotCheckout} onClick={startPilotCheckout}
-                          className="rounded-xl border border-amber-400 bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
-                          {startingPilotCheckout?'Abrindo checkout...':'Abrir compra controlada (R$ 19,90)'}
-                        </button>
-                      </div>
-                    )}
-                    <p className="text-[11px] text-slate-400">A aprovação definitiva exige pagamento controlado, webhook confirmado e download autorizado.</p>
-                  </div>
-                )}
-              </section>
 
               {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
@@ -1993,20 +1758,6 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                   <span>Adicionar Partitura (PDF)</span>
                 </button>
               </div>
-
-              <section className="rounded-2xl border border-emerald-400/20 bg-[#0b0d14] p-5 space-y-2">
-                <h3 className="text-emerald-300 font-bold text-sm">Biblioteca automática do Tutti Pro Vitalício</h3>
-                <p className="text-xs text-slate-300">
-                  Ao adicionar um PDF e selecionar <strong>Exclusiva (Tutti Pro)</strong>, o arquivo
-                  fica armazenado no Supabase Storage privado. Quando for publicado,
-                  será disponibilizado automaticamente a todos os alunos com Pro Vitalício ativo.
-                  Não é necessário criar conjuntos nem vincular cada PDF a cada aluno.
-                </p>
-                <p className="text-xs text-slate-400">
-                  Partituras marcadas como gratuitas também entram automaticamente no catálogo,
-                  com acesso livre. Os arquivos e registros antigos são preservados.
-                </p>
-              </section>
 
               {/* Search, Category and Instrument Filter */}
               <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 flex flex-col sm:flex-row items-center gap-3">
@@ -2327,17 +2078,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </div>
               </div>
 
-              {requestsLoadError && (
-                <div role="alert" className="rounded-xl border border-red-500/40 bg-red-500/10 p-4 text-sm text-red-200">
-                  <p className="font-bold">Erro ao carregar solicitações</p>
-                  <p className="mt-1">{requestsLoadError}</p>
-                  <button type="button" onClick={() => loadTeacherManagementData()} className="mt-3 rounded-lg border border-red-300/30 px-3 py-1.5 font-bold hover:bg-red-500/10">Tentar novamente</button>
-                </div>
-              )}
-
-              {isLoadingRequests && <p role="status" className="text-sm text-slate-300">Carregando solicitações...</p>}
-
-              {!requestsLoadError && !isLoadingRequests && filteredRequests.length > 0 ? (
+              {filteredRequests.length > 0 ? (
                 <div className="space-y-4">
                   {filteredRequests.map(req => {
                     const isProcessing = processingRequestId === req.id;
@@ -2623,14 +2364,16 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                             <div className="flex items-center gap-2">
                               <h3 className="font-syne font-black text-lg text-white">{plano.nome}</h3>
                               <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-violet-500/20 text-violet-300 border border-violet-500/30">
-                                {plano.recorrencia}
+                                {plano.recorrencia || 'manual'}
                               </span>
                             </div>
-                            <span className="text-[11px] font-mono text-slate-500">ID: {plano.id} • Ordem #{plano.ordem ?? 0}</span>
+                            <span className="text-[11px] font-mono text-slate-400">
+                              ID: {plano.id}{plano.periodo ? ` • Período: ${plano.periodo}` : ''}
+                            </span>
                           </div>
                           <div className="text-right">
                             <div className="text-xl font-syne font-black text-emerald-400">
-                              R$ {Number(plano.preco || 0).toFixed(2).replace('.', ',')}
+                              {formatBrlFromCents(plano.preco_centavos)}
                             </div>
                             <span className={`text-[10px] font-bold ${plano.ativo ? 'text-emerald-400' : 'text-rose-400'}`}>
                               {plano.ativo ? 'Ativo' : 'Oculto'}
@@ -2656,21 +2399,21 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                           </ul>
                         )}
 
-                        {plano.stripe_product_id && (
+                        {plano.stripe_price_id && (
                           <div className="pt-2 flex items-center justify-between text-[11px]">
-                            <span className="text-slate-400 font-mono text-[10px]">Stripe ID:</span>
+                            <span className="text-slate-400 font-mono text-[10px]">Stripe Price ID:</span>
                             <button
                               type="button"
                               onClick={() => {
-                                navigator.clipboard.writeText(plano.stripe_product_id!);
-                                setCopiedStripeId(plano.stripe_product_id!);
-                                showToast(`Stripe ID copiado: ${plano.stripe_product_id}`);
+                                navigator.clipboard.writeText(plano.stripe_price_id!);
+                                setCopiedStripeId(plano.stripe_price_id!);
+                                showToast(`Stripe Price ID copiado: ${plano.stripe_price_id}`);
                                 setTimeout(() => setCopiedStripeId(null), 2000);
                               }}
                               className="font-mono text-[11px] text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded border border-amber-500/30 flex items-center gap-1 cursor-pointer"
                             >
-                              <span>{plano.stripe_product_id}</span>
-                              {copiedStripeId === plano.stripe_product_id ? (
+                              <span>{plano.stripe_price_id}</span>
+                              {copiedStripeId === plano.stripe_price_id ? (
                                 <CheckCheck size={12} className="text-emerald-400" />
                               ) : (
                                 <Copy size={12} />
@@ -2959,10 +2702,10 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 <div className="flex items-center justify-between pb-3 border-b border-white/5">
                   <div>
                     <span className="font-bold text-white block">Conexão com Banco de Dados</span>
-                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto {SUPABASE_PROJECT_ID})</span>
+                    <span className="text-slate-400">PostgreSQL / Supabase (Projeto viwxalwpvuvgcyxsdjbi)</span>
                   </div>
-                  <span className={`px-2.5 py-1 rounded-full font-bold ${databaseStatus === 'connected' ? 'bg-emerald-500/20 text-emerald-400' : databaseStatus === 'checking' ? 'bg-slate-500/20 text-slate-400' : 'bg-red-500/20 text-red-400'}`}>
-                    {databaseStatus === 'connected' ? '✓ Conectado' : databaseStatus === 'checking' ? 'Verificando...' : 'Sem conexão'}
+                  <span className="px-2.5 py-1 rounded-full bg-emerald-500/20 text-emerald-400 font-bold">
+                    ✓ Conectado
                   </span>
                 </div>
 
@@ -3275,13 +3018,13 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     onChange={e => setFormCategory(e.target.value as 'gratuita' | 'paga')}
                     className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400"
                   >
-                    <option value="gratuita">Gratuita — acesso livre</option>
-                    <option value="paga">Exclusiva — biblioteca Tutti Pro</option>
+                    <option value="gratuita">Partitura Gratuita (Bucket Público)</option>
+                    <option value="paga">Partitura Paga (Bucket Privado Protegido)</option>
                   </select>
                   <p className="text-[11px] mt-1.5 font-medium text-slate-400">
                     {formCategory === 'paga'
-                      ? 'PDF protegido no Storage privado. Ao publicar, é liberado automaticamente a todo aluno com Tutti Pro Vitalício ativo, inclusive para compras anteriores.'
-                      : 'PDF no Storage privado com política de acesso público à categoria gratuita; liberado automaticamente para todos.'}
+                      ? 'Armazenada no bucket privado protegido. A comercialização será feita em conjuntos de partituras.'
+                      : 'Armazenada no bucket público com acesso livre para leitura e download na plataforma.'}
                   </p>
                 </div>
 
@@ -3558,7 +3301,7 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     required
                     value={planPreco}
                     onChange={e => setPlanPreco(e.target.value)}
-                    placeholder="299.90"
+                    placeholder="19.90"
                     className="w-full bg-[#0b0d14] text-emerald-300 font-mono font-bold border border-white/10 rounded-xl px-3 py-2.5"
                   />
                 </div>
@@ -3571,21 +3314,23 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                     onChange={e => setPlanRecorrencia(e.target.value as any)}
                     className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
                   >
+                    <option value="unico">Pagamento Único</option>
+                    <option value="contrato_manual">Contrato Manual (WhatsApp)</option>
                     <option value="mensal">Mensal</option>
                     <option value="trimestral">Trimestral</option>
                     <option value="semestral">Semestral</option>
                     <option value="vitalicio">Vitalício</option>
-                    <option value="unico">Pagamento Único</option>
                   </select>
                 </div>
                 <div>
                   <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
-                    Ordem
+                    Período (rótulo)
                   </label>
                   <input
-                    type="number"
-                    value={planOrdem}
-                    onChange={e => setPlanOrdem(e.target.value)}
+                    type="text"
+                    value={planPeriodo}
+                    onChange={e => setPlanPeriodo(e.target.value)}
+                    placeholder="ex: mensal, trimestral"
                     className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3 py-2.5"
                   />
                 </div>
@@ -3618,24 +3363,24 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
-                    Stripe Product ID
-                  </label>
-                  <input
-                    type="text"
-                    value={planStripeProductId}
-                    onChange={e => setPlanStripeProductId(e.target.value)}
-                    placeholder="prod_..."
-                    className="w-full bg-[#0b0d14] text-amber-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
-                  />
-                </div>
-                <div>
-                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
-                    Stripe Price ID (opcional)
+                    Stripe Live Price ID
                   </label>
                   <input
                     type="text"
                     value={planStripePriceId}
                     onChange={e => setPlanStripePriceId(e.target.value)}
+                    placeholder="price_..."
+                    className="w-full bg-[#0b0d14] text-amber-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
+                  />
+                </div>
+                <div>
+                  <label className="block text-slate-300 font-bold uppercase text-[10px] mb-1">
+                    Stripe Test Price ID
+                  </label>
+                  <input
+                    type="text"
+                    value={planStripeTestPriceId}
+                    onChange={e => setPlanStripeTestPriceId(e.target.value)}
                     placeholder="price_..."
                     className="w-full bg-[#0b0d14] text-amber-300 font-mono border border-white/10 rounded-xl px-3 py-2.5"
                   />
