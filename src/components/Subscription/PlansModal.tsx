@@ -1,157 +1,63 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, Check, Sparkles, Zap, Crown, ArrowRight, MessageCircle, ShieldCheck, CreditCard, Loader2 } from 'lucide-react';
+import {
+  X,
+  Check,
+  Sparkles,
+  Zap,
+  Crown,
+  ArrowRight,
+  MessageCircle,
+  ShieldCheck,
+  Loader2,
+  CheckCircle2,
+  AlertTriangle,
+} from 'lucide-react';
 import { useAppRouter } from '../../App';
 import { useAuth } from '../../context/AuthContext';
-import { TUTTI_STRIPE_PLANS } from '../../data/stripePlans';
-import { createStripeCheckoutSession } from '../../services/stripeService';
+import {
+  CheckoutError,
+  createStripeCheckoutSession,
+  hasActiveProOrUltraSubscription,
+} from '../../services/stripeService';
+import {
+  DbPlano,
+  buildUltraWhatsAppUrl,
+  fetchActivePlans,
+  formatBrlFromCents,
+  isFreePlan,
+  isProPlan,
+  isTuttiPaymentsEnabled,
+  isUltraPlan,
+} from '../../services/plansService';
 import { supabase } from '../../lib/supabase';
-import { OfficialContacts, buildTuttiWhatsAppUrl } from '../Common/OfficialContacts';
-
-export interface DbPlano {
-  id: string;
-  nome: string;
-  descricao: string | null;
-  preco: number;
-  moeda?: string;
-  recorrencia: string; // 'mensal' | 'trimestral' | 'semestral' | 'vitalicio' | 'unico'
-  beneficios: string[];
-  stripe_product_id?: string | null;
-  stripe_price_id?: string | null;
-  ordem?: number;
-  ativo: boolean;
-}
+import { OfficialContacts, TUTTI_PHONE_DISPLAY, buildTuttiWhatsAppUrl } from '../Common/OfficialContacts';
 
 interface PlansModalProps {
   isOpen: boolean;
   onClose: () => void;
 }
 
-const FALLBACK_PLANS: DbPlano[] = [
-  {
-    id: 'free',
-    nome: 'Grátis',
-    descricao: 'Acesso inicial para explorar a plataforma e começar seus estudos.',
-    preco: 0,
-    recorrencia: 'mensal',
-    beneficios: [
-      'Partituras gratuitas liberadas',
-      'Acordes maiores/menores violão e teclado',
-      'Desenhos técnicos de sopros e metais',
-      'Metrônomo / afinador',
-      'Maestro IA limitada (5 perguntas/semana)',
-    ],
-    ordem: 1,
-    ativo: true,
-  },
-  {
-    id: 'pro',
-    nome: 'Tutti Pro Vitalício',
-    descricao: 'Pagamento único de R$ 19,90: acesso vitalício a todas as partituras exclusivas atuais e futuras. Aulas particulares exigem contrato Ultra.',
-    preco: 19.9,
-    recorrencia: 'vitalicio',
-    beneficios: [
-      'Toda a biblioteca de partituras exclusivas, inclusive novos PDFs adicionados futuramente',
-      'Acesso às partituras gratuitas sem restrição',
-      'Acesso completo às aulas gravadas e trilha prática',
-      'Acordes e digitações avançadas',
-      'Metrônomo / afinador profissional',
-      'IA Maestro ilimitada',
-      'Suporte direto com a equipe Tutti',
-    ],
-    ordem: 2,
-    ativo: true,
-  },
-  {
-    id: 'mensal',
-    nome: 'Ultra Mensal',
-    descricao: 'Aulas particulares mediante atendimento pelo WhatsApp e contrato individual com a Tutti. Sem checkout Stripe.',
-    preco: 299.9,
-    recorrencia: 'mensal',
-    beneficios: [
-      'Aulas virtuais individuais com professores reais',
-      'Suporte VIP e acompanhamento individual',
-      'Acesso completo às aulas gravadas e IA Maestro ilimitada',
-      'Estúdio completo com timbres reais e BPM configurável',
-    ],
-    stripe_product_id: TUTTI_STRIPE_PLANS.monthly.stripeProductId,
-    ordem: 3,
-    ativo: true,
-  },
-  {
-    id: 'trimestral',
-    nome: 'Tutti Ultra Trimestral',
-    descricao: 'Contratação trimestral individual por WhatsApp, com contrato e condições acordadas com a Tutti.',
-    preco: 799.9,
-    recorrencia: 'trimestral',
-    beneficios: [
-      'Aulas virtuais e individuais com professores reais',
-      'Mentoria personalizada e suporte pedagógico VIP',
-      'Acesso a todas as partituras gratuitas e aulas completas',
-      'Maestro IA ilimitado 24h',
-      'Estúdio completo (Sopros, Metais, Teclado e Violão)',
-    ],
-    stripe_product_id: TUTTI_STRIPE_PLANS.trimestral.stripeProductId,
-    ordem: 4,
-    ativo: true,
-  },
-  {
-    id: 'semestral',
-    nome: 'Tutti Ultra Semestral',
-    descricao: 'Contratação semestral individual por WhatsApp, com contrato e condições acordadas com a Tutti.',
-    preco: 1649.9,
-    recorrencia: 'semestral',
-    beneficios: [
-      'Aulas virtuais e individuais com professores reais',
-      'Mentoria personalizada e suporte pedagógico VIP',
-      'Acesso completo às aulas e partituras gratuitas',
-      'Maestro IA ilimitado 24h',
-      'Estúdio completo (Sopros, Metais, Teclado e Violão)',
-    ],
-    stripe_product_id: TUTTI_STRIPE_PLANS.semestral.stripeProductId,
-    ordem: 5,
-    ativo: true,
-  },
-];
-
 export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
   const { userPlan, setUserPlan, showToast, navigate } = useAppRouter();
   const { user } = useAuth();
-  const [billingPeriod, setBillingPeriod] = useState<'monthly' | 'trimestral' | 'semestral'>('monthly');
+  const [billingPeriod, setBillingPeriod] = useState<'all' | 'monthly' | 'trimestral' | 'semestral'>('all');
   const [loadingCheckoutPlan, setLoadingCheckoutPlan] = useState<string | null>(null);
-  const [plans, setPlans] = useState<DbPlano[]>(FALLBACK_PLANS);
-  const [loadingPlans, setLoadingPlans] = useState(false);
+  const [checkoutBanner, setCheckoutBanner] = useState<string | null>(null);
+  const [plans, setPlans] = useState<DbPlano[]>([]);
+  const [loadingPlans, setLoadingPlans] = useState(true);
+  const [plansError, setPlansError] = useState<string | null>(null);
+  const [alreadyOwnsPaid, setAlreadyOwnsPaid] = useState(false);
+
+  const paymentsLiveFlag = isTuttiPaymentsEnabled();
 
   const loadPlans = useCallback(async () => {
     setLoadingPlans(true);
+    setPlansError(null);
     try {
-      const { data, error } = await supabase
-        .from('planos')
-        .select('*')
-        .eq('ativo', true)
-        .order('id', { ascending: true });
-
-      if (!error && data && data.length > 0) {
-        const mapped: DbPlano[] = data.map((row: any) => ({
-          id: String(row.id),
-          nome: row.nome,
-          descricao: row.descricao || '',
-          preco: ({ pro: 19.9, mensal: 299.9, trimestral: 799.9, semestral: 1649.9 } as Record<string, number>)[row.id] ?? Number(row.preco_centavos || 0) / 100,
-          moeda: row.moeda || 'BRL',
-          recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' || row.id === 'ultra_trimestral' ? 'trimestral' : row.id === 'semestral' || row.id === 'ultra_semestral' ? 'semestral' : 'mensal'),
-          beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
-          stripe_product_id: row.stripe_product_id || null,
-          stripe_price_id: row.stripe_price_id || null,
-          ordem: Number(FALLBACK_PLANS.find(p => p.id === row.id)?.ordem ?? 99),
-          ativo: Boolean(row.ativo),
-        }));
-        // Keep unseeded plans visible; server validates all amounts independently.
-        const ids = new Set(mapped.map(p => p.id));
-        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped.filter(p => ['free', 'pro', 'mensal', 'trimestral', 'semestral'].includes(p.id))]);
-      } else {
-        setPlans(FALLBACK_PLANS);
-      }
-    } catch {
-      setPlans(FALLBACK_PLANS);
+      const dbPlans = await fetchActivePlans();
+      setPlans(dbPlans);
+    } catch (err: any) {
+      setPlansError(err?.message || 'Erro ao carregar planos do servidor.');
     } finally {
       setLoadingPlans(false);
     }
@@ -159,7 +65,14 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
   useEffect(() => {
     if (!isOpen) return;
+    setCheckoutBanner(null);
     loadPlans();
+
+    if (user?.id) {
+      hasActiveProOrUltraSubscription(user.id).then(setAlreadyOwnsPaid).catch(() => {});
+    } else {
+      setAlreadyOwnsPaid(false);
+    }
 
     const channel = supabase
       .channel('plans-modal-realtime')
@@ -171,42 +84,41 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [isOpen, loadPlans]);
+  }, [isOpen, user?.id, loadPlans]);
 
   if (!isOpen) return null;
 
-  const whatsappUrl = buildTuttiWhatsAppUrl(
-    `Olá! Gostaria de tirar dúvidas sobre o plano ${
-      billingPeriod === 'trimestral' ? 'Trimestral' : billingPeriod === 'semestral' ? 'Semestral' : 'Mensal / Vitalício'
-    } da Tutti Escola de Música.`
+  const generalWhatsappUrl = buildTuttiWhatsAppUrl(
+    'Olá Secretaria Tutti Escola de Música! Gostaria de tirar dúvidas sobre os planos e matrículas.'
   );
 
   const handleSelectFree = () => {
     setUserPlan('free');
-    showToast('Plano Grátis ativo! Aproveite a plataforma e o Maestro IA.');
+    showToast('Plano Grátis selecionado! Aproveite o acervo gratuito e as ferramentas.');
     onClose();
   };
 
-  const handleInitiateStripeCheckout = async (planoId: string) => {
-    if (planoId !== 'pro') {
-      showToast('Os planos Ultra são contratados diretamente com a Tutti pelo WhatsApp.');
-      return;
-    }
-    if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
-      showToast('O checkout do Tutti Pro Vitalício está em preparação. A compra segura será liberada após a validação da Stripe.');
-      return;
-    }
+  const handleInitiateProCheckout = async (plano: DbPlano) => {
+    setCheckoutBanner(null);
+
     if (!user) {
-      showToast('Por favor, faça login ou cadastre-se na Tutti antes de contratar um plano.');
+      showToast('Faça login para continuar com a assinatura Tutti Pro.');
       onClose();
-      navigate('/auth');
+      navigate('/auth', { redirect: 'checkout_pro' });
+      return;
+    }
+
+    if (alreadyOwnsPaid || userPlan === 'pro' || userPlan === 'ultra') {
+      const msg = 'Plano já adquirido nesta conta.';
+      setCheckoutBanner(msg);
+      showToast(msg);
       return;
     }
 
     try {
-      setLoadingCheckoutPlan(planoId);
+      setLoadingCheckoutPlan(plano.id);
       showToast('Conectando ao Checkout Seguro da Stripe...');
-      const { url } = await createStripeCheckoutSession(planoId);
+      const { url } = await createStripeCheckoutSession(plano.id);
       if (url) {
         window.location.href = url;
       } else {
@@ -214,33 +126,42 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
       }
     } catch (err: any) {
       setLoadingCheckoutPlan(null);
-      showToast(err.message || 'Erro ao gerar checkout seguro com a Stripe.');
+      if (err instanceof CheckoutError && err.code === 'ALREADY_OWNED') {
+        setAlreadyOwnsPaid(true);
+        setCheckoutBanner('Plano já adquirido nesta conta.');
+        showToast('Plano já adquirido nesta conta.');
+        return;
+      }
+      const message = err?.message || 'Erro ao gerar checkout seguro com a Stripe.';
+      setCheckoutBanner(message);
+      showToast(message);
     }
   };
 
   const visiblePlans = plans.filter((p) => {
-    if (billingPeriod === 'trimestral') return p.recorrencia === 'trimestral';
-    if (billingPeriod === 'semestral') return p.recorrencia === 'semestral';
-    return p.recorrencia === 'mensal' || p.recorrencia === 'vitalicio' || p.recorrencia === 'unico';
+    if (billingPeriod === 'all') return true;
+    if (billingPeriod === 'trimestral') return p.id.includes('trimestral');
+    if (billingPeriod === 'semestral') return p.id.includes('semestral');
+    return p.id === 'free' || p.id === 'pro' || p.id === 'mensal';
   });
-
-  const formatBRL = (val: number) => `R$ ${val.toFixed(2).replace('.', ',')}`;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-6xl my-auto bg-[#0f0b08] text-slate-100 border border-amber-900/40 rounded-3xl p-6 sm:p-10 shadow-2xl space-y-8 overflow-hidden modal-dark">
+      <div className="modal-dark relative w-full max-w-6xl my-auto bg-[#0f0b08] text-slate-100 border border-amber-900/40 rounded-3xl p-5 sm:p-8 shadow-2xl space-y-6 overflow-hidden">
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-64 bg-amber-600/10 rounded-full blur-[100px] pointer-events-none" />
-        <div className="absolute -bottom-10 right-10 w-80 h-80 bg-amber-500/10 rounded-full blur-[100px] pointer-events-none" />
+        <div className="absolute -bottom-10 right-10 w-80 h-80 bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none" />
 
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/5 hover:bg-white/15 text-slate-400 hover:text-white flex items-center justify-center border border-white/10 transition-colors z-20 cursor-pointer"
+          aria-label="Fechar janela de planos"
+          className="absolute top-5 right-5 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 text-slate-200 hover:text-white flex items-center justify-center border border-white/15 transition-colors z-20 cursor-pointer"
         >
           <X size={20} />
         </button>
 
         {/* Header */}
-        <div className="text-center space-y-3 relative z-10 max-w-2xl mx-auto pt-2">
+        <div className="text-center space-y-3 relative z-10 max-w-3xl mx-auto pt-2">
           <div className="flex items-center justify-center gap-2 mb-1">
             <img
               src="/assets/aistudio/Gemini_Generated_Image_kkz0gekkz0gekkz0_03cb0dc7.jfif"
@@ -248,131 +169,184 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
               className="w-7 h-7 rounded-full border border-amber-500/40 object-cover shadow-sm"
             />
             <span className="text-[11px] font-extrabold uppercase tracking-[0.25em] text-amber-300 font-mono">
-              TUTTI ESCOLA DE MÚSICA • PLANOS
+              TUTTI ESCOLA DE MÚSICA • PLANOS OFICIAIS
             </span>
           </div>
 
-          <h2 className="text-3xl sm:text-5xl font-syne font-black tracking-tight text-white leading-tight">
-            Comece de graça. Escale quando{' '}
-            <span className="font-serif italic font-normal text-transparent bg-clip-text bg-gradient-to-r from-violet-300 via-white to-cyan-300">
-              quiser.
+          <h2 className="text-2xl sm:text-4xl font-syne font-black tracking-tight text-white leading-tight">
+            Comece de graça. Evolua no{' '}
+            <span className="font-serif italic font-normal text-amber-300">
+              seu ritmo.
             </span>
           </h2>
 
-          <p className="text-xs sm:text-sm text-slate-400 max-w-lg mx-auto">
-            Valores e benefícios sincronizados em tempo real com a escola. Escolha o plano ideal para o seu instrumento.
+          <p className="text-xs sm:text-sm text-slate-300 max-w-xl mx-auto">
+            Valores oficiais sincronizados diretamente com o catálogo da Tutti. Tutti Pro com acesso vitalício às partituras exclusivas e Tutti Ultra com aulas individuais ao vivo via Secretaria.
           </p>
 
-          {/* Billing Switch */}
-          <div className="pt-3 flex justify-center items-center">
-            <div className="inline-flex p-1 bg-[#131722] rounded-full border border-white/10 shadow-inner gap-1">
-              <button
-                type="button"
-                onClick={() => setBillingPeriod('monthly')}
-                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  billingPeriod === 'monthly'
-                    ? 'bg-gradient-to-r from-violet-600 to-indigo-600 text-white shadow-lg shadow-violet-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Mensal & Vitalício
-              </button>
-              <button
-                type="button"
-                onClick={() => setBillingPeriod('trimestral')}
-                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  billingPeriod === 'trimestral'
-                    ? 'bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-lg shadow-emerald-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Trimestral
-              </button>
-              <button
-                type="button"
-                onClick={() => setBillingPeriod('semestral')}
-                className={`px-5 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
-                  billingPeriod === 'semestral'
-                    ? 'bg-gradient-to-r from-amber-600 to-yellow-600 text-white shadow-lg shadow-amber-500/30'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Semestral
-              </button>
+          {/* Filtro por ciclo */}
+          <div className="pt-2 flex justify-center items-center">
+            <div className="inline-flex flex-wrap justify-center p-1 bg-[#141824] rounded-full border border-white/15 shadow-inner gap-1">
+              {(
+                [
+                  { id: 'all', label: 'Todos os Planos', activeClass: 'bg-amber-500 text-slate-950' },
+                  { id: 'monthly', label: 'Mensal & Vitalício', activeClass: 'bg-violet-600 text-white' },
+                  { id: 'trimestral', label: 'Trimestral', activeClass: 'bg-emerald-600 text-white' },
+                  { id: 'semestral', label: 'Semestral', activeClass: 'bg-amber-600 text-white' },
+                ] as const
+              ).map((tab) => (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setBillingPeriod(tab.id)}
+                  className={`px-4 py-2 rounded-full text-xs font-bold transition-all cursor-pointer ${
+                    billingPeriod === tab.id
+                      ? `${tab.activeClass} shadow-md`
+                      : 'text-slate-300 hover:text-white hover:bg-white/5'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
             </div>
           </div>
         </div>
 
-        {/* Dynamic Plans Grid */}
-        {loadingPlans && plans.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 text-sm flex items-center justify-center gap-2">
-            <Loader2 size={18} className="animate-spin text-amber-400" /> Carregando planos...
+        {/* Aviso controlado quando checkout público live está em modo piloto */}
+        {!paymentsLiveFlag && (
+          <div className="relative z-10 p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/35 text-amber-200 text-xs flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+              <span>
+                <strong>Modo Piloto Controlado:</strong> o Tutti Pro Vitalício pode operar com validação controlada no servidor; os planos Tutti Ultra são contratados diretamente pelo WhatsApp oficial.
+              </span>
+            </div>
+            <a
+              href={generalWhatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-emerald-300 hover:text-emerald-200 font-bold underline flex items-center gap-1"
+            >
+              <MessageCircle size={13} /> Falar com a Secretaria
+            </a>
+          </div>
+        )}
+
+        {checkoutBanner && (
+          <div className="relative z-10 p-3.5 rounded-2xl bg-rose-950/60 border border-rose-500/40 text-rose-100 text-xs flex flex-wrap items-center justify-between gap-3">
+            <span>{checkoutBanner}</span>
+            <a
+              href={generalWhatsappUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold inline-flex items-center gap-1"
+            >
+              <MessageCircle size={12} /> Chamar no WhatsApp
+            </a>
+          </div>
+        )}
+
+        {/* Grade de Planos */}
+        {loadingPlans ? (
+          <div className="py-12 text-center text-slate-300 text-sm flex items-center justify-center gap-2 relative z-10">
+            <Loader2 size={18} className="animate-spin text-amber-400" /> Carregando valores atualizados...
+          </div>
+        ) : plansError ? (
+          <div className="p-8 text-center text-xs text-rose-200 bg-[#131722] rounded-2xl border border-rose-500/30 space-y-3 relative z-10">
+            <p>{plansError}</p>
+            <button
+              type="button"
+              onClick={loadPlans}
+              className="px-4 py-2 rounded-xl bg-amber-500 text-slate-950 font-bold cursor-pointer"
+            >
+              Tentar novamente
+            </button>
           </div>
         ) : visiblePlans.length > 0 ? (
-          <div className={`grid gap-6 items-stretch relative z-10 pt-2 ${
-            visiblePlans.length === 1
-              ? 'grid-cols-1 max-w-xl mx-auto w-full'
-              : visiblePlans.length === 2
-              ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto w-full'
-              : 'grid-cols-1 lg:grid-cols-3'
-          }`}>
+          <div
+            className={`grid gap-5 items-stretch relative z-10 pt-2 ${
+              visiblePlans.length === 1
+                ? 'grid-cols-1 max-w-xl mx-auto w-full'
+                : visiblePlans.length === 2
+                ? 'grid-cols-1 md:grid-cols-2 max-w-4xl mx-auto w-full'
+                : visiblePlans.length >= 4
+                ? 'grid-cols-1 md:grid-cols-2 xl:grid-cols-3'
+                : 'grid-cols-1 lg:grid-cols-3'
+            }`}
+          >
             {visiblePlans.map((plano) => {
-              const isFree = plano.id === 'free' || Number(plano.preco) === 0;
-              const isPro = plano.id === 'pro' || plano.recorrencia === 'vitalicio' || plano.recorrencia === 'unico';
-              const isUltra = !isFree && !isPro;
-              const isCurrent = (isFree && userPlan === 'free') || (isPro && userPlan === 'pro') || (isUltra && userPlan === 'ultra');
+              const isFree = isFreePlan(plano);
+              const isPro = isProPlan(plano);
+              const isUltra = isUltraPlan(plano);
+              const formattedPrice = formatBrlFromCents(plano.preco_centavos);
+              const isCurrent =
+                (isFree && userPlan === 'free') ||
+                (isPro && (userPlan === 'pro' || alreadyOwnsPaid)) ||
+                (isUltra && userPlan === 'ultra');
+              const ultraWaUrl = buildUltraWhatsAppUrl(plano, user?.email);
 
               return (
                 <div
                   key={plano.id}
-                  className={`rounded-3xl p-6 sm:p-8 flex flex-col justify-between border-2 transition-all duration-300 relative ${
+                  className={`rounded-3xl p-6 flex flex-col justify-between border-2 transition-all duration-300 relative ${
                     isUltra
-                      ? 'bg-[#18130e] border-emerald-500/75 shadow-xl shadow-emerald-500/15'
+                      ? 'bg-[#121a18] border-emerald-500/60 shadow-xl shadow-emerald-500/10'
                       : isPro
-                      ? 'bg-[#1c1611] border-amber-500/80 shadow-2xl shadow-amber-500/20'
-                      : 'bg-[#18130e]/80 border-amber-900/30'
+                      ? 'bg-[#1c1611] border-amber-500/80 shadow-2xl shadow-amber-500/15'
+                      : 'bg-[#151822] border-white/15'
                   }`}
                 >
                   {(isPro || isUltra) && (
-                    <div className="absolute -top-3.5 right-6 z-20">
-                      <span className={`px-3.5 py-1 rounded-full text-black text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1 ${
-                        isUltra ? 'bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500' : 'bg-gradient-to-r from-amber-500 to-yellow-500'
-                      }`}>
+                    <div className="absolute -top-3 right-5 z-20">
+                      <span
+                        className={`px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider shadow-lg flex items-center gap-1 ${
+                          isUltra
+                            ? 'bg-emerald-500 text-slate-950'
+                            : 'bg-amber-400 text-slate-950'
+                        }`}
+                      >
                         {isUltra ? <Crown size={11} /> : <Sparkles size={11} />}
                         <span>{isUltra ? 'Aulas Ao Vivo VIP' : 'Acesso Vitalício'}</span>
                       </span>
                     </div>
                   )}
 
-                  <div className="space-y-5">
+                  <div className="space-y-4">
                     <div>
-                      <div className="flex items-center justify-between gap-2">
-                        <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
-                          <span>{plano.nome}</span>
-                          {isUltra && <Crown size={18} className="text-amber-400" />}
-                        </h3>
-                      </div>
+                      <h3 className="text-xl font-syne font-bold text-white flex items-center gap-2">
+                        <span>{plano.nome}</span>
+                        {isUltra && <Crown size={18} className="text-emerald-400" />}
+                      </h3>
 
-                      <div className="flex items-baseline gap-1 mt-3">
-                        <span className="text-3xl sm:text-4xl font-syne font-black text-white">
-                          {isUltra ? 'Sob consulta' : formatBRL(plano.preco)}
+                      <div className="flex items-baseline gap-1.5 mt-2.5">
+                        <span className="text-3xl font-syne font-black text-white">
+                          {formattedPrice}
                         </span>
-                        <span className="text-xs font-semibold text-slate-400">
-                          {isFree ? '' : isPro ? 'pagamento único' : 'contrato individual'}
+                        <span className="text-xs font-semibold text-slate-300">
+                          {isFree
+                            ? 'sem custo'
+                            : isPro
+                            ? 'pagamento único'
+                            : plano.periodo
+                            ? `/${plano.periodo}`
+                            : ''}
                         </span>
                       </div>
 
                       {plano.descricao && (
-                        <p className="text-xs text-slate-400 mt-2 leading-relaxed">{plano.descricao}</p>
+                        <p className="text-xs text-slate-300 mt-2 leading-relaxed">{plano.descricao}</p>
                       )}
                     </div>
 
                     <div className="h-px bg-white/10" />
 
-                    <ul className="space-y-3 text-xs leading-relaxed">
-                      {plano.beneficios.map((ben, idx) => (
+                    <ul className="space-y-2.5 text-xs leading-relaxed">
+                      {(plano.beneficios || []).map((ben, idx) => (
                         <li key={idx} className="flex items-start gap-2.5 text-slate-200">
-                          <Check size={16} className={`${isUltra ? 'text-emerald-400' : 'text-amber-400'} flex-shrink-0 mt-0.5`} />
+                          <Check
+                            size={15}
+                            className={`${isUltra ? 'text-emerald-400' : 'text-amber-400'} flex-shrink-0 mt-0.5`}
+                          />
                           <span>{ben}</span>
                         </li>
                       ))}
@@ -384,61 +358,67 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                       <button
                         type="button"
                         onClick={handleSelectFree}
-                        className="w-full py-3.5 rounded-2xl bg-[#08090e] hover:bg-white/10 text-white font-syne font-bold text-xs border border-white/15 transition-all cursor-pointer"
+                        className="w-full py-3.5 px-4 rounded-2xl bg-[#1f2433] hover:bg-[#2a3145] text-white font-syne font-bold text-xs border border-white/20 transition-all cursor-pointer"
                       >
-                        {isCurrent ? 'Plano Atual (Começar Agora)' : 'Começar Agora'}
+                        {isCurrent ? 'Plano Atual • Começar Agora' : 'Começar Grátis'}
                       </button>
-                    ) : isUltra ? (
+                    ) : isPro ? (
+                      alreadyOwnsPaid || userPlan === 'pro' || userPlan === 'ultra' ? (
+                        <div className="w-full py-3.5 px-4 rounded-2xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 font-syne font-bold text-xs flex items-center justify-center gap-2">
+                          <CheckCircle2 size={15} />
+                          <span>Plano já adquirido</span>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          disabled={Boolean(loadingCheckoutPlan)}
+                          onClick={() => handleInitiateProCheckout(plano)}
+                          className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60"
+                        >
+                          {loadingCheckoutPlan === plano.id ? (
+                            <>
+                              <Loader2 size={15} className="animate-spin" />
+                              <span>Conectando ao Stripe...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Zap size={15} />
+                              <span>Assinar {plano.nome} ({formattedPrice})</span>
+                              <ArrowRight size={14} />
+                            </>
+                          )}
+                        </button>
+                      )
+                    ) : (
+                      /* TUTTI ULTRA: Fluxo principal oficial via WhatsApp sem Stripe Checkout */
                       <a
-                        href={buildTuttiWhatsAppUrl(`Olá! Gostaria de contratar o ${plano.nome} da Tutti Escola de Música. Quero conversar sobre as aulas e formalizar meu contrato individual.`)}
+                        href={ultraWaUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black"
+                        className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 text-center"
                       >
-                        <MessageCircle size={16} />
+                        <MessageCircle size={15} />
                         <span>Conversar no WhatsApp e contratar</span>
                         <ArrowRight size={14} />
                       </a>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={!!loadingCheckoutPlan || isCurrent}
-                        onClick={() => handleInitiateStripeCheckout(plano.id)}
-                        className="w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 cursor-pointer disabled:opacity-60 bg-gradient-to-r from-violet-600 via-indigo-600 to-cyan-500 text-white"
-                      >
-                        {loadingCheckoutPlan === plano.id ? (
-                          <>
-                            <Loader2 size={15} className="animate-spin" />
-                            <span>Conectando ao Stripe...</span>
-                          </>
-                        ) : (
-                          <>
-                            <Zap size={15} />
-                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : 'Adquirir Pro Vitalício — R$ 19,90'}</span>
-                            <ArrowRight size={14} />
-                          </>
-                        )}
-                      </button>
                     )}
 
                     <div className="flex flex-wrap items-center justify-between text-[11px] px-1 gap-2">
-                      {isUltra ? (
-                        <span className="text-emerald-300 text-[10px] font-medium">Atendimento e contrato diretamente com a Tutti</span>
-                      ) : plano.stripe_product_id ? (
-                        <span className="font-mono text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20 flex items-center gap-1">
-                          <ShieldCheck size={12} /> {plano.stripe_product_id}
-                        </span>
-                      ) : (
-                        <span className="text-slate-500 text-[10px]">Tutti Escola de Música</span>
-                      )}
+                      <span className="text-slate-300 text-[10px] font-medium">
+                        {isUltra
+                          ? 'Matrícula assistida pela Secretaria'
+                          : isPro
+                          ? 'Checkout Seguro Stripe • Acesso Vitalício'
+                          : 'Tutti Escola de Música'}
+                      </span>
                       <a
-                        href={whatsappUrl}
+                        href={isUltra ? ultraWaUrl : generalWhatsappUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-slate-400 hover:text-white flex items-center gap-1 transition-colors"
+                        className="text-emerald-300 hover:text-emerald-200 flex items-center gap-1 transition-colors font-semibold"
                       >
-                        <MessageCircle size={12} className="text-emerald-400" />
-                        <span>Secretaria (21) 92037-5422</span>
+                        <MessageCircle size={12} />
+                        <span>{TUTTI_PHONE_DISPLAY}</span>
                       </a>
                     </div>
                   </div>
@@ -447,24 +427,23 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
             })}
           </div>
         ) : (
-          <div className="p-8 text-center text-xs text-slate-400 bg-[#131722] rounded-2xl border border-white/10">
-            Nenhum plano ativo cadastrado para este período.
+          <div className="p-8 text-center text-xs text-slate-300 bg-[#131722] rounded-2xl border border-white/10 relative z-10">
+            Nenhum plano ativo disponível para este filtro.
           </div>
         )}
 
-        {/* Official Contacts */}
+        {/* Contatos Oficiais */}
         <div className="pt-4 border-t border-white/10 relative z-10 space-y-4">
           <OfficialContacts compact />
-          <div className="flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center justify-between gap-4 text-[11px] text-slate-300">
             <div className="flex items-center gap-2">
               <ShieldCheck size={16} className="text-emerald-400" />
-              <span>Pro Vitalício: pagamento único via Stripe • Ultra: contrato individual via WhatsApp</span>
+              <span>Preços sincronizados em tempo real com a Tutti Escola de Música</span>
             </div>
-            <div>Planos gerenciados em tempo real pelo painel da Tutti</div>
+            <div>Tutti Pro via Stripe • Tutti Ultra via Secretaria WhatsApp</div>
           </div>
         </div>
       </div>
     </div>
   );
 };
-
