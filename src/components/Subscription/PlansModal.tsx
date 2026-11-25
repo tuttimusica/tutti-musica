@@ -192,7 +192,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
       showToast('Os planos Ultra são contratados diretamente com a Tutti pelo WhatsApp.');
       return;
     }
-    if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true') {
+    if (import.meta.env.VITE_TUTTI_PAYMENTS_ENABLED !== 'true' && new URLSearchParams(window.location.search).get('tutti_pro_pilot') !== '1') {
       showToast('O checkout do Tutti Pro Vitalício está em preparação. A compra segura será liberada após a validação da Stripe.');
       return;
     }
@@ -414,7 +414,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                         ) : (
                           <>
                             <Zap size={15} />
-                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : `Adquirir Pro Vitalício — ${formatBRL(plano.preco)}`}</span>
+                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : new URLSearchParams(window.location.search).get('tutti_pro_pilot') === '1' ? `Compra piloto real — ${formatBRL(plano.preco)}` : `Adquirir Pro Vitalício — ${formatBRL(plano.preco)}`}</span>
                             <ArrowRight size={14} />
                           </>
                         )}
