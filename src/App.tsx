@@ -550,16 +550,16 @@ const HomePage: React.FC = () => {
           {/* Highlights metrics */}
           <div className="pt-4 flex flex-wrap justify-center lg:justify-start gap-8 border-t border-white/10">
             <div>
-              <div className="text-2xl font-syne font-black text-white">+15.000</div>
-              <div className="text-xs text-slate-400 font-medium">Alunos ativos no Brasil</div>
+              <div className="text-2xl font-syne font-black text-white">Biblioteca</div>
+              <div className="text-xs text-slate-400 font-medium">Partituras e coleções</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-cyan-400">100%</div>
-              <div className="text-xs text-slate-400 font-medium">Didática prática e interativa</div>
+              <div className="text-2xl font-syne font-black text-cyan-400">Aulas</div>
+              <div className="text-xs text-slate-400 font-medium">Aprendizado musical</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-emerald-400">4.9 / 5.0</div>
-              <div className="text-xs text-slate-400 font-medium">Avaliação da comunidade</div>
+              <div className="text-2xl font-syne font-black text-emerald-400">Tutti Pro</div>
+              <div className="text-xs text-slate-400 font-medium">Biblioteca exclusiva vitalícia</div>
             </div>
           </div>
         </div>
