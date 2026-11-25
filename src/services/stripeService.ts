@@ -185,3 +185,33 @@ export async function fetchUserPaymentHistory(userId: string): Promise<PaymentHi
     return [];
   }
 }
+
+/** Verified against the user's own Supabase entitlement, never the URL alone. */
+export type CheckoutVerificationStatus = 'pendente' | 'aprovado' | 'cancelado' | 'falhou';
+export interface VerifyCheckoutSessionResult {
+  status: CheckoutVerificationStatus;
+  message?: string;
+  planoId?: string | null;
+}
+
+export async function verifyCheckoutSession(sessionId: string): Promise<VerifyCheckoutSessionResult> {
+  const {data:{session}}=await supabase.auth.getSession();
+  if(!session?.user?.id) return {status:'pendente',message:'Faça login para verificar seu acesso.'};
+  if(!/^cs_(live|test)_[A-Za-z0-9]+$/.test(sessionId))
+    return {status:'falhou',message:'Sessão de compra inválida.'};
+  const {data,error}=await supabase.from('assinaturas_usuarios')
+    .select('plano_id,status')
+    .eq('user_id',session.user.id)
+    .eq('stripe_checkout_session_id',sessionId)
+    .maybeSingle();
+  if(error) return {status:'pendente',message:'Aguardando confirmação de pagamento.'};
+  if(data?.status==='ativo') return {status:'aprovado',planoId:data.plano_id};
+  if(data?.status==='cancelado') return {status:'cancelado',planoId:data.plano_id};
+  return {status:'pendente',message:'Pagamento ainda não confirmado pelo servidor.'};
+}
+
+export async function hasActiveProOrUltraSubscription(userId?: string): Promise<boolean> {
+  if(!userId) return false;
+  const sub=await fetchUserActiveSubscription(userId);
+  return !!(sub?.status==='ativo' && ['pro','mensal','trimestral','semestral'].includes(sub.planoId));
+}
