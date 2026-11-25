@@ -112,7 +112,6 @@ const Header: React.FC = () => {
     { path: '/estudio', label: 'Estúdio & Instrumentos' },
     { path: '/agenda', label: 'Agenda de Aula' },
     { path: '/loja', label: 'Loja' },
-    { path: '/comunidade', label: 'Comunidade' },
   ];
 
   const roleNavLinks = user ? [
@@ -2849,7 +2848,7 @@ export default function App() {
       const p = window.location.pathname;
       const validPaths = [
         '/', '/aulas', '/partituras', '/estudio', '/agenda', 
-        '/comunidade', '/loja', '/perfil', '/auth', '/login', 
+        '/loja', '/perfil', '/auth', '/login', 
         '/admin', '/professor', '/aluno'
       ];
       if (validPaths.includes(p)) return p;
@@ -3110,13 +3109,6 @@ export default function App() {
               <div style={{ display: currentPath === '/agenda' ? 'block' : 'none' }}>
                 <ProtectedRoute isActive={currentPath === '/agenda'} routeName="a sua Agenda de Aulas e Masterclasses">
                   <AgendaPage />
-                </ProtectedRoute>
-              </div>
-            )}
-            {visitedTabs.has('/comunidade') && (
-              <div style={{ display: currentPath === '/comunidade' ? 'block' : 'none' }}>
-                <ProtectedRoute isActive={currentPath === '/comunidade'} routeName="o Mural da Comunidade Musical Tutti">
-                  <ComunidadePage />
                 </ProtectedRoute>
               </div>
             )}
