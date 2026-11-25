@@ -135,7 +135,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
           id: String(row.id),
           nome: row.nome,
           descricao: row.descricao || '',
-          preco: ({ pro: 19.9, mensal: 299.9, trimestral: 799.9, semestral: 1649.9 } as Record<string, number>)[row.id] ?? Number(row.preco_centavos || 0) / 100,
+          preco: Number(row.preco_centavos ?? 0) / 100,
           moeda: row.moeda || 'BRL',
           recorrencia: (row.id === 'pro' ? 'vitalicio' : row.id === 'trimestral' || row.id === 'ultra_trimestral' ? 'trimestral' : row.id === 'semestral' || row.id === 'ultra_semestral' ? 'semestral' : 'mensal'),
           beneficios: Array.isArray(row.beneficios) ? row.beneficios : [],
@@ -146,12 +146,12 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
         }));
         // Keep unseeded plans visible; server validates all amounts independently.
         const ids = new Set(mapped.map(p => p.id));
-        setPlans([...FALLBACK_PLANS.filter(p => !ids.has(p.id)), ...mapped.filter(p => ['free', 'pro', 'mensal', 'trimestral', 'semestral'].includes(p.id))]);
+        setPlans([...FALLBACK_PLANS.filter(p => p.id === 'free' && !ids.has(p.id)), ...mapped.filter(p => ['free', 'pro', 'mensal', 'trimestral', 'semestral'].includes(p.id))]);
       } else {
-        setPlans(FALLBACK_PLANS);
+        setPlans(FALLBACK_PLANS.filter(p => p.id === 'free'));
       }
     } catch {
-      setPlans(FALLBACK_PLANS);
+      setPlans(FALLBACK_PLANS.filter(p => p.id === 'free'));
     } finally {
       setLoadingPlans(false);
     }
@@ -317,7 +317,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
               : 'grid-cols-1 lg:grid-cols-3'
           }`}>
             {visiblePlans.map((plano) => {
-              const isFree = plano.id === 'free' || Number(plano.preco) === 0;
+              const isFree = plano.id === 'free';
               const isPro = plano.id === 'pro' || plano.recorrencia === 'vitalicio' || plano.recorrencia === 'unico';
               const isUltra = !isFree && !isPro;
               const isCurrent = (isFree && userPlan === 'free') || (isPro && userPlan === 'pro') || (isUltra && userPlan === 'ultra');
@@ -355,7 +355,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
 
                       <div className="flex items-baseline gap-1 mt-3">
                         <span className="text-3xl sm:text-4xl font-syne font-black text-white">
-                          {isUltra ? 'Sob consulta' : formatBRL(plano.preco)}
+                          {formatBRL(plano.preco)}
                         </span>
                         <span className="text-xs font-semibold text-slate-400">
                           {isFree ? '' : isPro ? 'pagamento único' : 'contrato individual'}
@@ -390,7 +390,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                       </button>
                     ) : isUltra ? (
                       <a
-                        href={buildTuttiWhatsAppUrl(`Olá! Gostaria de contratar o ${plano.nome} da Tutti Escola de Música. Quero conversar sobre as aulas e formalizar meu contrato individual.`)}
+                        href={buildTuttiWhatsAppUrl(`Olá! Tenho interesse no ${plano.nome} da Tutti Escola de Música, anunciado por ${formatBRL(plano.preco)}. Gostaria de conversar sobre as aulas, disponibilidade e contrato individual.`)}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="w-full py-3.5 rounded-2xl font-syne font-black text-xs transition-all shadow-lg flex items-center justify-center gap-2 bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-black"
@@ -414,7 +414,7 @@ export const PlansModal: React.FC<PlansModalProps> = ({ isOpen, onClose }) => {
                         ) : (
                           <>
                             <Zap size={15} />
-                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : 'Adquirir Pro Vitalício — R$ 19,90'}</span>
+                            <span>{isCurrent ? 'Tutti Pro Vitalício ativo' : `Adquirir Pro Vitalício — ${formatBRL(plano.preco)}`}</span>
                             <ArrowRight size={14} />
                           </>
                         )}
