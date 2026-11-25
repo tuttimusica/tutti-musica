@@ -32,13 +32,11 @@ import { OfficialContacts } from '../Common/OfficialContacts';
 import {
   DbPartitura,
   fetchPublishedPartituras,
-  fetchUnlockedPartituraIds,
+  fetchUserLibraryAccess,
+  normalizeSearchText,
   resolvePartituraPdfUrl,
-  createPaidSheetCheckout,
-  DbConjuntoPartituras,
-  fetchPublishedConjuntos,
-  createBundleCheckout
 } from '../../services/partiturasService';
+import { filterActiveLessons } from '../../utils/agendaUtils';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { SheetMusic } from '../../data/musicData';
 
@@ -49,7 +47,7 @@ export interface StudentPanelProps {
 
 export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNavigateHome }) => {
   const { user, profile, logout, cancelarMarcacaoAula } = useAuth();
-  const { navigate, showToast } = useAppRouter();
+  const { navigate, showToast, userPlan } = useAppRouter();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'assinatura' | 'aulas' | 'marcacoes' | 'partituras' | 'professores' | 'perfil'>(() => {
     try {
       const p = new URLSearchParams(window.location.search);
@@ -62,27 +60,39 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   const [isPlansModalOpen, setIsPlansModalOpen] = useState(false);
   const [searchPartituras, setSearchPartituras] = useState('');
   const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
-  const [sheetBundles, setSheetBundles] = useState<DbConjuntoPartituras[]>([]);
+  const [hasFullProAccess, setHasFullProAccess] = useState(false);
   const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<string>>(new Set());
   const [openingSheetId, setOpeningSheetId] = useState<string | null>(null);
   const [activeViewer, setActiveViewer] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
   const [teachers, setTeachers] = useState<any[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
 
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeBookings = React.useMemo(
+    () => filterActiveLessons(studentBookings, new Date(nowTick)),
+    [studentBookings, nowTick]
+  );
+
   const loadPartiturasAndAccess = useCallback(async () => {
     try {
-      const [sheets, unlocked] = await Promise.all([
+      const isAdmin = profile?.role === 'desenvolvedor';
+      const [sheets, access] = await Promise.all([
         fetchPublishedPartituras(),
-        fetchUnlockedPartituraIds(user?.id)
+        fetchUserLibraryAccess(user?.id, userPlan, isAdmin),
       ]);
       setStudyMaterials(sheets);
-      setUnlockedSheetIds(unlocked);
-      setSheetBundles(await fetchPublishedConjuntos());
+      setHasFullProAccess(access.hasFullProAccess);
+      setUnlockedSheetIds(access.unlockedIds);
     } catch (e) {
       console.debug('Erro ao carregar partituras no painel do aluno:', e);
     }
-  }, [user?.id]);
+  }, [user?.id, userPlan, profile?.role]);
 
   // Load real student bookings, study materials, and approved teachers from Supabase
   useEffect(() => {
@@ -94,7 +104,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
           const { data: bookingsData } = await supabase
             .from('marcacoes_aulas')
             .select('*')
-            .eq('aluno_id', user.id)
+            .or(`aluno_email.eq.${user.email},aluno_id.eq.${user.id}`)
             .order('data_aula', { ascending: true });
 
           if (bookingsData) {
@@ -105,20 +115,37 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
         // 2. Real study materials & unlocked paid sheets
         await loadPartiturasAndAccess();
 
-        // 3. Read only curated public fields of approved teachers.
-        // Student must not query other users' private profiles or applications.
-        const { data: teachersData, error: teachersError } = await supabase.rpc('tutti_list_professores');
-        if (teachersError) {
-          console.warn('Diretório de professores indisponível:', teachersError.code);
-          setTeachers([]);
-        } else {
-          setTeachers((teachersData || []).map((t: any) => ({
-            id: t.user_id,
-            name: t.nome_completo || 'Professor Tutti',
-            instrument: t.current_instrument || 'Diversos Instrumentos',
-            bio: t.bio || 'Professor credenciado pela Tutti.',
-            avatar: t.avatar_url || undefined
+        // 3. Real approved teachers
+        const { data: teachersData } = await supabase
+          .from('usuarios')
+          .select('*')
+          .eq('role', 'teacher')
+          .eq('approval_status', 'aprovado');
+
+        if (teachersData && teachersData.length > 0) {
+          setTeachers(teachersData.map((t: any) => ({
+            name: t.nome || t.displayName || t.email?.split('@')[0] || 'Professor Tutti',
+            instrument: t.instrumento || t.current_instrument || 'Diversos Instrumentos',
+            bio: t.bio || 'Professor integrante do corpo docente oficial da Escola Tutti de Música.',
+            rating: '5.0',
+            avatar: t.photo_url || t.photoURL
           })));
+        } else {
+          const { data: solData } = await supabase
+            .from('solicitacoes_professores')
+            .select('*')
+            .eq('status', 'aprovado');
+
+          if (solData && solData.length > 0) {
+            setTeachers(solData.map((s: any) => ({
+              name: s.nome,
+              instrument: s.instrumento,
+              bio: s.bio || 'Professor credenciado pela Escola Tutti de Música.',
+              rating: '5.0'
+            })));
+          } else {
+            setTeachers([]);
+          }
         }
       } catch (e) {
         console.debug('Erro ao carregar dados do aluno no Supabase:', e);
@@ -179,20 +206,17 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       });
     } catch (err: any) {
       showToast(err?.message || 'Não foi possível abrir o PDF desta partitura.');
+      if ((err?.message || '').toLowerCase().includes('pro')) {
+        setIsPlansModalOpen(true);
+      }
     } finally {
       setOpeningSheetId(null);
     }
   };
 
-  const handleBuyPaidPartitura = async (item: DbPartitura) => {
-    try {
-      setOpeningSheetId(item.id);
-      const { url } = await createPaidSheetCheckout(item.id);
-      window.location.href = url;
-    } catch (err: any) {
-      showToast(err?.message || 'Não foi possível iniciar o pagamento.');
-      setOpeningSheetId(null);
-    }
+  const handleUnlockProAccess = () => {
+    showToast('Ative o Plano Tutti Pro Vitalício para acessar todas as partituras exclusivas.');
+    setIsPlansModalOpen(true);
   };
 
   const handleLogout = async () => {
@@ -278,9 +302,9 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 >
                   <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-slate-400'}`} />
                   <span className="flex-1 text-left">{item.label}</span>
-                  {item.id === 'marcacoes' && studentBookings.length > 0 && (
+                  {item.id === 'marcacoes' && activeBookings.length > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-300 rounded-full font-bold">
-                      {studentBookings.length}
+                      {activeBookings.length}
                     </span>
                   )}
                 </button>
@@ -347,8 +371,8 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     <span>Aulas Agendadas</span>
                     <Calendar className="w-4 h-4 text-amber-400" />
                   </div>
-                  <div className="text-3xl font-serif font-bold text-white mt-3">{studentBookings.length}</div>
-                  <p className="text-xs text-slate-400 mt-1">Encontros com professores</p>
+                  <div className="text-3xl font-serif font-bold text-white mt-3">{activeBookings.length}</div>
+                  <p className="text-xs text-slate-400 mt-1">Próximos encontros ativos</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-cyan-500/30 transition">
@@ -373,7 +397,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
               </div>
 
               {/* Next Scheduled Lesson Card */}
-              {studentBookings.length > 0 ? (
+              {activeBookings.length > 0 ? (
                 <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#0e141f] to-[#0e141f] border border-amber-500/30">
                   <div className="flex items-center gap-2 text-xs font-mono text-amber-400 uppercase tracking-wider mb-2">
                     <Bell className="w-4 h-4" /> Próxima Aula Agendada
@@ -381,30 +405,30 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                       <h3 className="text-lg font-bold text-white">
-                        Aula com {studentBookings[0].professor_nome}
+                        Aula com {activeBookings[0].professor_nome}
                       </h3>
                       <div className="flex flex-wrap items-center gap-4 text-sm text-slate-300 mt-2">
                         <span className="flex items-center gap-1.5">
                           <Calendar className="w-4 h-4 text-amber-400" />
-                          {studentBookings[0].data_aula}
+                          {activeBookings[0].data_aula}
                         </span>
                         <span className="flex items-center gap-1.5">
                           <Clock className="w-4 h-4 text-cyan-400" />
-                          {studentBookings[0].hora_inicio} ({studentBookings[0].duracao_minutos} min)
+                          {activeBookings[0].hora_inicio} ({activeBookings[0].duracao_minutos} min)
                         </span>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {studentBookings[0].status}
+                          {activeBookings[0].status}
                         </span>
                       </div>
-                      {studentBookings[0].observacoes && (
+                      {activeBookings[0].observacoes && (
                         <p className="text-xs text-slate-400 mt-2 italic">
-                          "Obs: {studentBookings[0].observacoes}"
+                          "Obs: {activeBookings[0].observacoes}"
                         </p>
                       )}
                     </div>
 
                     <a
-                      href={studentBookings[0].link_meet || 'https://meet.google.com/new'}
+                      href={activeBookings[0].link_meet || 'https://meet.google.com/new'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition"
@@ -449,7 +473,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     {studyMaterials.length > 0 ? (
                       studyMaterials.slice(0, 4).map((mat) => {
                         const isPaid = mat.categoria === 'paga';
-                        const isUnlocked = !isPaid || unlockedSheetIds.has(mat.id);
+                        const isUnlocked = !isPaid || hasFullProAccess || unlockedSheetIds.has(mat.id);
                         return (
                           <div key={mat.id} className="p-3 rounded-xl bg-white/5 border border-white/5 flex items-center justify-between gap-2">
                             <div className="flex items-center gap-3 min-w-0">
@@ -457,7 +481,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                               <div className="min-w-0">
                                 <p className="text-sm font-semibold text-white truncate">{mat.titulo}</p>
                                 <p className="text-xs text-slate-400 truncate">
-                                  {mat.compositor} • {mat.instrumento} • {isPaid ? (isUnlocked ? 'Paga (Liberada)' : `R$ ${Number(mat.preco || 0).toFixed(2).replace('.', ',')}`) : 'Gratuita'}
+                                  {mat.compositor} • {mat.instrumento} • {isPaid ? (isUnlocked ? 'Pro Liberada' : 'Exclusiva Pro') : 'Gratuita'}
                                 </p>
                               </div>
                             </div>
@@ -474,10 +498,10 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                             ) : (
                               <button
                                 type="button"
-                                onClick={() => handleBuyPaidPartitura(mat)}
+                                onClick={handleUnlockProAccess}
                                 className="text-xs font-mono text-amber-300 hover:underline flex items-center gap-1 shrink-0 cursor-pointer"
                               >
-                                <Lock className="w-3 h-3" /> Adquirir
+                                <Lock className="w-3 h-3" /> Liberar Pro
                               </button>
                             )}
                           </div>
@@ -522,7 +546,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {studentBookings.map((aula) => (
+                {activeBookings.map((aula) => (
                   <div key={aula.id} className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
@@ -559,12 +583,12 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   </div>
                 ))}
 
-                {studentBookings.length === 0 && (
+                {activeBookings.length === 0 && (
                   <div className="col-span-2 p-12 text-center rounded-2xl bg-[#0e141f] border border-white/10 space-y-2">
                     <Video className="w-12 h-12 text-slate-600 mx-auto mb-2" />
-                    <h4 className="text-white font-bold text-base">Nenhuma aula encontrada.</h4>
+                    <h4 className="text-white font-bold text-base">Nenhuma aula próxima ou em andamento.</h4>
                     <p className="text-xs text-slate-400">
-                      Suas aulas aparecerão aqui assim que seu professor registrar os horários na agenda Tutti.
+                      Suas próximas aulas aparecerão aqui assim que seu professor registrar os horários na agenda Tutti.
                     </p>
                   </div>
                 )}
@@ -579,7 +603,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 <div>
                   <h2 className="text-xl font-bold text-white font-serif">Minha Agenda de Aulas</h2>
                   <p className="text-xs text-slate-400 mt-1">
-                    Visualize todos os agendamentos realizados e histórico de presença.
+                    Exibindo apenas aulas ativas, em andamento ou futuras (horário oficial de Brasília).
                   </p>
                 </div>
               </div>
@@ -596,7 +620,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {studentBookings.map((m) => (
+                    {activeBookings.map((m) => (
                       <tr key={m.id} className="hover:bg-white/[0.02] transition">
                         <td className="p-4">
                           <div className="font-semibold text-white">
@@ -626,19 +650,22 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                           <button
                             onClick={async () => {
                               await cancelarMarcacaoAula(m.id);
-                              showToast('Solicitação de cancelamento enviada.');
+                              setStudentBookings((prev) =>
+                                prev.map((b) => (b.id === m.id ? { ...b, status: 'cancelada' } : b))
+                              );
+                              showToast('Aula cancelada e removida da agenda ativa.');
                             }}
-                            className="px-3 py-1 rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition"
+                            className="px-3 py-1 rounded-lg text-xs font-medium text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
                           >
-                            Solicitar Cancelamento
+                            Cancelar Aula
                           </button>
                         </td>
                       </tr>
                     ))}
-                    {studentBookings.length === 0 && (
+                    {activeBookings.length === 0 && (
                       <tr>
-                        <td colSpan={5} className="p-8 text-center text-slate-500 text-sm">
-                          Nenhuma marcação encontrada na sua conta.
+                        <td colSpan={5} className="p-8 text-center text-slate-400 text-sm">
+                          Nenhuma aula próxima encontrada na sua agenda ativa.
                         </td>
                       </tr>
                     )}
@@ -673,39 +700,14 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 </div>
               </div>
 
-              {sheetBundles.length > 0 && (
-                <section className="rounded-2xl border border-amber-400/20 bg-amber-500/5 p-5 space-y-3">
-                  <h3 className="text-sm font-bold text-amber-300">Conjuntos de Partituras</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    {sheetBundles.map(bundle => (
-                      <div key={bundle.id} className="rounded-xl bg-black/20 p-4 border border-white/10">
-                        <h4 className="font-semibold text-white">{bundle.titulo}</h4>
-                        <p className="text-xs text-slate-400 mt-1">{bundle.descricao || 'Coleção Tutti'}</p>
-                        <button type="button" className="mt-3 px-3 py-2 rounded-lg bg-amber-500 text-black text-xs font-bold"
-                          onClick={async () => {
-                            try {
-                              const url = await createBundleCheckout(bundle.id);
-                              window.location.assign(url);
-                            } catch (err: any) {
-                              showToast(err?.message || 'Pagamento indisponível.');
-                            }
-                          }}>
-                          Adquirir conjunto • R$ {bundle.preco.toFixed(2).replace('.', ',')}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-              )}
-
               {(() => {
-                const term = searchPartituras.trim().toLowerCase();
+                const term = normalizeSearchText(searchPartituras);
                 const filtered = studyMaterials.filter(
                   (p) =>
                     !term ||
-                    p.titulo.toLowerCase().includes(term) ||
-                    (p.compositor || '').toLowerCase().includes(term) ||
-                    (p.instrumento || '').toLowerCase().includes(term)
+                    normalizeSearchText(p.titulo).includes(term) ||
+                    normalizeSearchText(p.compositor || '').includes(term) ||
+                    normalizeSearchText(p.instrumento || '').includes(term)
                 );
                 const featured = filtered.filter((p) => p.is_featured);
                 const freeSheets = filtered.filter((p) => p.categoria !== 'paga');
@@ -713,7 +715,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
 
                 const renderCard = (item: DbPartitura) => {
                   const isPaid = item.categoria === 'paga';
-                  const isUnlocked = !isPaid || unlockedSheetIds.has(item.id);
+                  const isUnlocked = !isPaid || hasFullProAccess || unlockedSheetIds.has(item.id);
                   const isBusy = openingSheetId === item.id;
                   return (
                     <div
@@ -734,11 +736,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                               isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'
                             }`}>
-                              {isPaid
-                                ? Number(item.preco || 0) > 0
-                                  ? `Paga • R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
-                                  : 'Exclusiva • Paga'
-                                : 'Gratuita'}
+                              {isPaid ? (isUnlocked ? 'Pro Liberada' : 'Exclusiva Pro') : 'Gratuita'}
                             </span>
                           </div>
                         </div>
@@ -749,8 +747,8 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                       </div>
 
                       <div className="mt-5 pt-3 border-t border-white/5 flex items-center justify-between gap-2">
-                        <span className="text-[11px] text-slate-500 font-mono">
-                          {isPaid ? (isUnlocked ? 'Desbloqueada' : 'Protegida') : 'Acesso Livre'}
+                        <span className="text-[11px] text-slate-400 font-mono">
+                          {isPaid ? (isUnlocked ? 'Desbloqueada' : 'Exclusiva Pro') : 'Acesso Livre'}
                         </span>
                         {isUnlocked ? (
                           <button
@@ -766,21 +764,11 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                           <button
                             type="button"
                             disabled={isBusy}
-                            onClick={() => {
-                              if (Number(item.preco || 0) <= 0) {
-                                showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
-                                return;
-                              }
-                              handleBuyPaidPartitura(item);
-                            }}
+                            onClick={handleUnlockProAccess}
                             className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold transition cursor-pointer"
                           >
-                            {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Lock className="w-3.5 h-3.5" />}
-                            <span>
-                              {Number(item.preco || 0) > 0
-                                ? `Adquirir R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
-                                : 'Em Conjunto'}
-                            </span>
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Liberar no Pro</span>
                           </button>
                         )}
                       </div>
