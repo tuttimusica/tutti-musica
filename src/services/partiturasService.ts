@@ -438,3 +438,21 @@ Promise<{hasFullProAccess:boolean;unlockedIds:Set<string>}>{
   // Browser view state never grants download. /api/partituras/signed-url verifies RLS.
   return {hasFullProAccess,unlockedIds};
 }
+
+
+/** Compatibility with AI Studio imports; these map to real production columns. */
+export const PARTITURAS_SELECT_COLUMNS='*';
+export function resolveInstrumentId(raw?:string|null):string{
+ const normalized=normalizeSearchText(raw||'').replace(/\s+/g,'_');
+ if(!normalized)return 'outros';
+ if(INSTRUMENT_LABELS[normalized])return normalized;
+ if(normalized.includes('sax')&&normalized.includes('tenor'))return 'saxofone_tenor';
+ if(normalized.includes('sax')&&normalized.includes('soprano'))return 'saxofone_soprano';
+ if(normalized.includes('sax'))return 'saxofone_alto';
+ if(normalized.includes('clarin'))return 'clarinete';
+ if(normalized.includes('trompet'))return 'trompete';
+ if(normalized.includes('trombon'))return 'trombone';
+ if(normalized.includes('piano')||normalized.includes('teclado'))return 'teclado';
+ if(normalized.includes('viol'))return 'violao';
+ return normalized;
+}
