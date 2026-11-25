@@ -303,6 +303,11 @@ export interface DbConjuntoPartituras {
   descricao: string | null;
   preco: number;
   publicado: boolean;
+  categoria?: string | null;
+  capa_url?: string | null;
+  created_at?: string;
+  itens_count?: number;
+  partituras?: DbPartitura[];
 }
 
 export async function fetchPublishedConjuntos(): Promise<DbConjuntoPartituras[]> {
@@ -314,10 +319,122 @@ export async function fetchPublishedConjuntos(): Promise<DbConjuntoPartituras[]>
     console.warn('Catálogo de conjuntos indisponível:', error.code);
     return [];
   }
-  return (data || []).map(row => ({ ...row, preco: Number(row.preco || 0) }));
+  const {data:links,error:linksError}=await supabase.from('conjuntos_partituras_itens').select('conjunto_id');
+  const counts=new Map<string,number>();
+  if(!linksError)for(const link of links||[])counts.set(String(link.conjunto_id),(counts.get(String(link.conjunto_id))||0)+1);
+  return (data || []).map(row => ({
+    ...row, preco:Number(row.preco||0),itens_count:counts.get(String(row.id))||0,
+    categoria:'pro',capa_url:null
+  }));
 }
 
 export async function createBundleCheckout(_conjuntoId: string): Promise<string> {
   throw new Error('A biblioteca exclusiva agora faz parte do Tutti Pro Vitalício. Não vendemos PDFs em checkout separado.');
 
+}
+
+
+/** Library browsing helpers — read-only, RLS-backed, using the real production schema. */
+export type DbConjunto = DbConjuntoPartituras;
+export interface PartituraFilterOptions {
+  instrumentos:{id:string;label:string}[];
+  estilos:string[];
+  compositores:string[];
+}
+export interface PartiturasPaginationParams {
+  page:number;
+  pageSize:number;
+  search?:string;
+  instrumento?:string;
+  estilo?:string;
+  compositor?:string;
+  acesso?:'todas'|'gratuitas'|'pro'|'destaques';
+  conjuntoId?:string|null;
+}
+export interface PartiturasPaginatedResult {
+  items:DbPartitura[];
+  total:number;
+  page:number;
+  pageSize:number;
+  totalPages:number;
+}
+export async function fetchPartituraFilterOptions():Promise<PartituraFilterOptions>{
+  const {data,error}=await supabase.from('partituras')
+    .select('instrumento_id,estilo_musical,compositor').eq('publicado',true);
+  if(error)throw error;
+  const instruments=new Map<string,string>();
+  const estilos=new Set<string>(),compositores=new Set<string>();
+  for(const row of data||[]){
+    if(row.instrumento_id) {
+      const k=String(row.instrumento_id);
+      instruments.set(k, INSTRUMENT_LABELS[k]||k.replace(/_/g,' '));
+    }
+    if(row.estilo_musical)estilos.add(String(row.estilo_musical));
+    if(row.compositor)compositores.add(String(row.compositor));
+  }
+  return {
+    instrumentos:[...instruments].map(([id,label])=>({id,label})).sort((a,b)=>a.label.localeCompare(b.label,'pt-BR')),
+    estilos:[...estilos].sort((a,b)=>a.localeCompare(b,'pt-BR')),
+    compositores:[...compositores].sort((a,b)=>a.localeCompare(b,'pt-BR'))
+  };
+}
+export async function fetchPartiturasPaginated(params:PartiturasPaginationParams):Promise<PartiturasPaginatedResult>{
+  const page=Math.max(1,Math.floor(params.page||1));
+  const pageSize=Math.min(48,Math.max(1,Math.floor(params.pageSize||12)));
+  let query=supabase.from('partituras').select('*',{count:'exact'}).eq('publicado',true);
+  if(params.conjuntoId){
+    const {data:links,error}=await supabase.from('conjuntos_partituras_itens')
+      .select('partitura_id').eq('conjunto_id',params.conjuntoId);
+    if(error)throw error;
+    const ids=(links||[]).map(l=>l.partitura_id).filter(Boolean);
+    if(!ids.length)return {items:[],total:0,page,pageSize,totalPages:1};
+    query=query.in('id',ids);
+  }
+  if(params.instrumento&&params.instrumento!=='todos')query=query.eq('instrumento_id',params.instrumento);
+  if(params.estilo&&params.estilo!=='todos')query=query.eq('estilo_musical',params.estilo);
+  if(params.compositor&&params.compositor!=='todos')query=query.eq('compositor',params.compositor);
+  if(params.acesso==='gratuitas')query=query.eq('categoria','gratuita');
+  else if(params.acesso==='pro')query=query.eq('categoria','paga');
+  else if(params.acesso==='destaques')query=query.eq('is_featured',true);
+  const raw=String(params.search||'').trim().slice(0,80).replace(/[%*,()]/g,'');
+  if(raw)query=query.or('titulo.ilike.%'+raw+'%,compositor.ilike.%'+raw+'%');
+  const {data,count,error}=await query
+    .order('is_featured',{ascending:false}).order('created_at',{ascending:false})
+    .range((page-1)*pageSize,page*pageSize-1);
+  if(error)throw error;
+  const total=count||0;
+  return {items:(data||[]).map(normalizeDbPartitura),total,page,pageSize,totalPages:Math.max(1,Math.ceil(total/pageSize))};
+}
+export async function fetchConjuntoWithItems(id:string):Promise<DbConjunto|null>{
+  const {data:conjunto,error}=await supabase.from('conjuntos_partituras')
+    .select('id,titulo,descricao,preco,publicado,created_at').eq('id',id).eq('publicado',true).maybeSingle();
+  if(error)throw error;
+  if(!conjunto)return null;
+  const {data:links,error:linksErr}=await supabase.from('conjuntos_partituras_itens')
+    .select('partitura_id').eq('conjunto_id',id);
+  if(linksErr)throw linksErr;
+  const ids=(links||[]).map(l=>l.partitura_id).filter(Boolean);
+  const partituras:DbPartitura[]=[];
+  if(ids.length){
+    const {data,error:sheetErr}=await supabase.from('partituras')
+      .select('*').eq('publicado',true).in('id',ids);
+    if(sheetErr)throw sheetErr;
+    partituras.push(...(data||[]).map(normalizeDbPartitura));
+  }
+  return {...conjunto,preco:Number(conjunto.preco||0),categoria:'pro',capa_url:null,
+    itens_count:partituras.length,partituras};
+}
+export async function fetchUserLibraryAccess(userId?:string, _userPlan?:'free'|'pro'|'ultra', _isAdmin?:boolean):
+Promise<{hasFullProAccess:boolean;unlockedIds:Set<string>}>{
+  if(!userId)return {hasFullProAccess:false,unlockedIds:new Set()};
+  const unlockedIds=await fetchUnlockedPartituraIds(userId);
+  const {data,error}=await supabase.from('assinaturas_usuarios')
+    .select('plano_id,status,data_inicio,data_fim').eq('user_id',userId).eq('status','ativo');
+  const now=Date.now();
+  const hasFullProAccess=!error&&(data||[]).some(s=>
+    ['pro','mensal','trimestral','semestral'].includes(s.plano_id)&&
+    new Date(s.data_inicio).getTime()<=now&&
+    (!s.data_fim||new Date(s.data_fim).getTime()>now));
+  // Browser view state never grants download. /api/partituras/signed-url verifies RLS.
+  return {hasFullProAccess,unlockedIds};
 }
