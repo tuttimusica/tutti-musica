@@ -42,7 +42,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   // Data remains in Supabase for audit/history, never deleted by UI.
   const upcomingTeacherBookings = teacherBookings.filter(b =>
     b.status === 'agendada' &&
-    Date.parse(`${b.data_aula}T${b.hora_inicio}-03:00`) + 60 * 60 * 1000 > scheduleNow
+    Date.parse(`${b.data_aula}T${b.hora_inicio}-03:00`) + Math.max(1, Number(b.duracao_minutos) || 60) * 60 * 1000 > scheduleNow
   );
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
 
@@ -344,7 +344,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   // Derive linked students dynamically from real bookings (NO mock students)
   const uniqueLinkedStudents = Array.from(
     new Map(
-      teacherBookings
+      upcomingTeacherBookings
         .filter(b => b.aluno_email)
         .map(b => [b.aluno_email, {
           nome: b.aluno_nome,

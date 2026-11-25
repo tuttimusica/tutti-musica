@@ -213,6 +213,20 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
     }
   };
 
+  // Only live, upcoming appointments belong on the student's active screen.
+  // Keep original records in Supabase for administrative/contractual audit.
+  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setScheduleNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
+  const visibleStudentBookings = studentBookings.filter(booking => {
+    if (booking.status !== 'agendada') return false;
+    const start = Date.parse(`${booking.data_aula}T${booking.hora_inicio}-03:00`);
+    const duration = Math.max(1, Number(booking.duracao_minutos) || 60);
+    return Number.isFinite(start) && (start + duration * 60000) > scheduleNow;
+  });
+
   const navItems = [
     { id: 'dashboard', label: 'Início & Resumo', icon: Sparkles },
     { id: 'assinatura', label: 'Minha Assinatura', icon: CreditCard },
@@ -278,9 +292,9 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                 >
                   <Icon className={`w-4 h-4 ${isActive ? 'text-amber-400' : 'text-slate-400'}`} />
                   <span className="flex-1 text-left">{item.label}</span>
-                  {item.id === 'marcacoes' && studentBookings.length > 0 && (
+                  {item.id === 'marcacoes' && visibleStudentBookings.length > 0 && (
                     <span className="px-2 py-0.5 text-xs bg-amber-500/20 text-amber-300 rounded-full font-bold">
-                      {studentBookings.length}
+                      {visibleStudentBookings.length}
                     </span>
                   )}
                 </button>
@@ -347,7 +361,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     <span>Aulas Agendadas</span>
                     <Calendar className="w-4 h-4 text-amber-400" />
                   </div>
-                  <div className="text-3xl font-serif font-bold text-white mt-3">{studentBookings.length}</div>
+                  <div className="text-3xl font-serif font-bold text-white mt-3">{visibleStudentBookings.length}</div>
                   <p className="text-xs text-slate-400 mt-1">Encontros com professores</p>
                 </div>
 
@@ -373,7 +387,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
               </div>
 
               {/* Next Scheduled Lesson Card */}
-              {studentBookings.length > 0 ? (
+              {visibleStudentBookings.length > 0 ? (
                 <div className="p-6 rounded-2xl bg-gradient-to-r from-amber-950/40 via-[#0e141f] to-[#0e141f] border border-amber-500/30">
                   <div className="flex items-center gap-2 text-xs font-mono text-amber-400 uppercase tracking-wider mb-2">
                     <Bell className="w-4 h-4" /> Próxima Aula Agendada
@@ -381,30 +395,30 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                     <div>
                       <h3 className="text-lg font-bold text-white">
-                        Aula com {studentBookings[0].professor_nome}
+                        Aula com {visibleStudentBookings[0].professor_nome}
                       </h3>
                       <div className="flex flex-wrap items-center gap-4 text-sm text-slate-300 mt-2">
                         <span className="flex items-center gap-1.5">
                           <Calendar className="w-4 h-4 text-amber-400" />
-                          {studentBookings[0].data_aula}
+                          {visibleStudentBookings[0].data_aula}
                         </span>
                         <span className="flex items-center gap-1.5">
                           <Clock className="w-4 h-4 text-cyan-400" />
-                          {studentBookings[0].hora_inicio} ({studentBookings[0].duracao_minutos} min)
+                          {visibleStudentBookings[0].hora_inicio} ({visibleStudentBookings[0].duracao_minutos} min)
                         </span>
                         <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                          {studentBookings[0].status}
+                          {visibleStudentBookings[0].status}
                         </span>
                       </div>
-                      {studentBookings[0].observacoes && (
+                      {visibleStudentBookings[0].observacoes && (
                         <p className="text-xs text-slate-400 mt-2 italic">
-                          "Obs: {studentBookings[0].observacoes}"
+                          "Obs: {visibleStudentBookings[0].observacoes}"
                         </p>
                       )}
                     </div>
 
                     <a
-                      href={studentBookings[0].link_meet || 'https://meet.google.com/new'}
+                      href={visibleStudentBookings[0].link_meet || 'https://meet.google.com/new'}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex items-center justify-center gap-2 px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition"
@@ -522,7 +536,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {studentBookings.map((aula) => (
+                {visibleStudentBookings.map((aula) => (
                   <div key={aula.id} className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between">
@@ -559,7 +573,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   </div>
                 ))}
 
-                {studentBookings.length === 0 && (
+                {visibleStudentBookings.length === 0 && (
                   <div className="col-span-2 p-12 text-center rounded-2xl bg-[#0e141f] border border-white/10 space-y-2">
                     <Video className="w-12 h-12 text-slate-600 mx-auto mb-2" />
                     <h4 className="text-white font-bold text-base">Nenhuma aula encontrada.</h4>
@@ -596,7 +610,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {studentBookings.map((m) => (
+                    {visibleStudentBookings.map((m) => (
                       <tr key={m.id} className="hover:bg-white/[0.02] transition">
                         <td className="p-4">
                           <div className="font-semibold text-white">
@@ -635,7 +649,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                         </td>
                       </tr>
                     ))}
-                    {studentBookings.length === 0 && (
+                    {visibleStudentBookings.length === 0 && (
                       <tr>
                         <td colSpan={5} className="p-8 text-center text-slate-500 text-sm">
                           Nenhuma marcação encontrada na sua conta.
