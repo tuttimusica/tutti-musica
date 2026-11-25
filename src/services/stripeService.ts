@@ -215,3 +215,12 @@ export async function hasActiveProOrUltraSubscription(userId?: string): Promise<
   const sub=await fetchUserActiveSubscription(userId);
   return !!(sub?.status==='ativo' && ['pro','mensal','trimestral','semestral'].includes(sub.planoId));
 }
+
+
+export class CheckoutError extends Error {
+ code?:string;
+ statusCode?:number;
+ constructor(message:string,code?:string,statusCode?:number){
+   super(message);this.name='CheckoutError';this.code=code;this.statusCode=statusCode;
+ }
+}
