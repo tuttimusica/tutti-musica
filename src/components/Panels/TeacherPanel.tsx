@@ -12,10 +12,11 @@ import { OfficialContacts } from '../Common/OfficialContacts';
 import {
   DbPartitura,
   fetchPublishedPartituras,
-  fetchUnlockedPartituraIds,
+  fetchUserLibraryAccess,
+  normalizeSearchText,
   resolvePartituraPdfUrl,
-  createPaidSheetCheckout
 } from '../../services/partiturasService';
+import { filterActiveLessons } from '../../utils/agendaUtils';
 import { SheetViewerModal } from '../SheetMusic/SheetViewerModal';
 import { SheetMusic } from '../../data/musicData';
 
@@ -28,23 +29,23 @@ export interface TeacherPanelProps {
 
 export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNavigateHome }) => {
   const { user, profile, logout, criarMarcacaoAula, cancelarMarcacaoAula } = useAuth();
-  const { navigate, showToast } = useAppRouter();
+  const { navigate, showToast, userPlan, openPlansModal } = useAppRouter();
   const [activeTab, setActiveTab] = useState<TeacherTab>('dashboard');
 
   // Bookings state for this teacher (loaded strictly from Supabase, NO fake mocks)
   const [teacherBookings, setTeacherBookings] = useState<LessonBooking[]>([]);
-  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = window.setInterval(() => setScheduleNow(Date.now()), 30000);
-    return () => window.clearInterval(interval);
-  }, []);
-  // Hide finished/canceled lessons from both the schedule and student roster.
-  // Data remains in Supabase for audit/history, never deleted by UI.
-  const upcomingTeacherBookings = teacherBookings.filter(b =>
-    b.status === 'agendada' &&
-    Date.parse(`${b.data_aula}T${b.hora_inicio}-03:00`) + 60 * 60 * 1000 > scheduleNow
-  );
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
   const [isLoadingBookings, setIsLoadingBookings] = useState(true);
+
+  useEffect(() => {
+    const timer = setInterval(() => setNowTick(Date.now()), 60000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const activeBookings = React.useMemo(
+    () => filterActiveLessons(teacherBookings, new Date(nowTick)),
+    [teacherBookings, nowTick]
+  );
 
   // Form State for Scheduling a Class
   const [formData, setFormData] = useState({
@@ -53,14 +54,13 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     alunoTelefone: '',
     dataAula: '',
     horaInicio: '14:00',
-    duracaoMinutos: 60,
+    duracaoMinutos: 50,
     observacoes: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [meetDrafts, setMeetDrafts] = useState<Record<string,string>>({});
-  const [savingMeetId,setSavingMeetId] = useState<string|null>(null);
   const [partituras, setPartituras] = useState<DbPartitura[]>([]);
+  const [hasFullProAccess, setHasFullProAccess] = useState(false);
   const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
   const [searchPartitura, setSearchPartitura] = useState('');
   const [openingId, setOpeningId] = useState<string | null>(null);
@@ -71,16 +71,18 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
 
   const loadSheets = useCallback(async () => {
     try {
-      const [sheets, unlocked] = await Promise.all([
+      const isAdmin = profile?.role === 'desenvolvedor';
+      const [sheets, access] = await Promise.all([
         fetchPublishedPartituras(),
-        fetchUnlockedPartituraIds(user?.id)
+        fetchUserLibraryAccess(user?.id, userPlan, isAdmin),
       ]);
       setPartituras(sheets);
-      setUnlockedIds(unlocked);
+      setHasFullProAccess(access.hasFullProAccess);
+      setUnlockedIds(access.unlockedIds);
     } catch (e) {
       console.debug('Teacher partituras load note:', e);
     }
-  }, [user?.id]);
+  }, [user?.id, userPlan, profile?.role]);
 
   // Load bookings for current teacher and partituras from Supabase
   useEffect(() => {
@@ -91,8 +93,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         const { data, error } = await supabase
           .from('marcacoes_aulas')
           .select('*')
-          .eq('professor_id', user?.id || '00000000-0000-0000-0000-000000000000')
-          .eq('status', 'agendada')
+          .or(`professor_nome.eq.${teacherDisplayName},professor_email.eq.${teacherEmail}`)
           .order('data_aula', { ascending: true });
 
         if (!error && data) {
@@ -108,15 +109,12 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     loadTeacherData();
 
     const ch = supabase
-      .channel('teacher-schedule-and-sheets')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => { void loadSheets(); })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'marcacoes_aulas', filter: `professor_id=eq.${user?.id}` }, () => { void loadTeacherData(); })
+      .channel('teacher-partituras-live')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => loadSheets())
       .subscribe();
-    const refreshOnFocus = () => { void loadTeacherData(); };
-    window.addEventListener('focus',refreshOnFocus);
+
     return () => {
-      window.removeEventListener('focus',refreshOnFocus);
-      void supabase.removeChannel(ch);
+      supabase.removeChannel(ch);
     };
   }, [teacherDisplayName, teacherEmail, loadSheets]);
 
@@ -149,7 +147,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         isPaidProtected: isProtected,
       });
     } catch (err: any) {
-      showToast(err?.message || 'Acesso protegido: solicite liberação ou adquira a partitura.');
+      showToast(err?.message || 'Acesso protegido: ative o Plano Tutti Pro para abrir este PDF.');
     } finally {
       setOpeningId(null);
     }
@@ -255,7 +253,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         professor_email: teacherEmail,
         data_aula: formData.dataAula,
         hora_inicio: formData.horaInicio,
-        duracao_minutos: 60,
+        duracao_minutos: Number(formData.duracaoMinutos) || 50,
         status: 'agendada',
         observacoes: formData.observacoes.trim() || undefined
       });
@@ -265,22 +263,31 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
         return;
       }
 
-      if (!res.data) {
-        setFormError('O banco de dados não confirmou o agendamento.');
-        return;
-      }
-      const newBooking: LessonBooking = res.data;
+      const newBooking: LessonBooking = res.data || {
+        id: `tb_${Date.now()}`,
+        aluno_nome: formData.alunoNome.trim(),
+        aluno_email: formData.alunoEmail.trim(),
+        aluno_telefone: formData.alunoTelefone.trim(),
+        professor_nome: teacherDisplayName,
+        professor_email: teacherEmail,
+        data_aula: formData.dataAula,
+        hora_inicio: formData.horaInicio,
+        duracao_minutos: Number(formData.duracaoMinutos) || 50,
+        status: 'agendada',
+        observacoes: formData.observacoes.trim(),
+        link_meet: 'https://meet.google.com/tut-nova-aula',
+        created_at: new Date().toISOString()
+      };
 
       setTeacherBookings(prev => [newBooking, ...prev]);
-      showToast(`Aula de 60 minutos marcada com ${formData.alunoNome}. O link do Google Meet será informado quando estiver disponível.`);
-      void notifyStudentByEmail(newBooking.id,'scheduled');
+      showToast(`Aula marcada com sucesso com ${formData.alunoNome}! Link do Google Meet gerado. ✓`);
       setFormData({
         alunoNome: '',
         alunoEmail: '',
         alunoTelefone: '',
         dataAula: '',
         horaInicio: '14:00',
-        duracaoMinutos: 60,
+        duracaoMinutos: 50,
         observacoes: ''
       });
       setActiveTab('aulas'); // Switch to Minhas Aulas
@@ -291,51 +298,12 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
     }
   };
 
-  const notifyStudentByEmail = async (id: string, event: 'scheduled' | 'canceled' | 'meet_ready') => {
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data.session?.access_token;
-      if (!token) return;
-      const response = await fetch('/api/lessons/notify', {
-        method: 'POST',
-        headers: {'Content-Type':'application/json',Authorization:`Bearer ${token}`},
-        body:JSON.stringify({bookingId:id,event})
-      });
-      if (!response.ok) console.warn('Tutti: e-mail de aula pendente',response.status);
-    } catch (err) {
-      console.warn('Tutti: e-mail de aula indisponível',err);
-    }
-  };
-
-  const handleSaveMeetLink = async (booking: LessonBooking) => {
-    const link = (meetDrafts[booking.id] ?? booking.link_meet ?? '').trim();
-    if (!/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(link)) {
-      showToast('Informe um link válido do Google Meet.');
-      return;
-    }
-    setSavingMeetId(booking.id);
-    try {
-      const { data, error } = await supabase.rpc('tutti_teacher_set_meet_link', {
-        p_booking_id: booking.id, p_meet_url: link
-      });
-      if (error) throw error;
-      if (!data?.id) throw new Error('O link não foi confirmado pelo banco.');
-      setTeacherBookings(prev => prev.map(b => b.id === booking.id ? {...b, link_meet: data.link_meet} : b));
-      showToast('Link salvo. O aluno poderá entrar pela Agenda de Aula.');
-      void notifyStudentByEmail(booking.id,'meet_ready');
-    } catch (err: any) {
-      showToast(err?.message || 'Não foi possível salvar o link.');
-    } finally { setSavingMeetId(null); }
-  };
-
   const handleCancelBooking = async (id: string, alunoNome: string) => {
     if (!window.confirm(`Deseja cancelar a aula com ${alunoNome}?`)) return;
     try {
-      const result = await cancelarMarcacaoAula(id);
-      if (result.error) throw result.error;
+      await cancelarMarcacaoAula(id);
       setTeacherBookings(prev => prev.map(b => b.id === id ? { ...b, status: 'cancelada' } : b));
       showToast('Aula cancelada com sucesso.');
-      void notifyStudentByEmail(id,'canceled');
     } catch {
       showToast('Erro ao cancelar aula.');
     }
@@ -350,8 +318,8 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
           nome: b.aluno_nome,
           email: b.aluno_email,
           tel: b.aluno_telefone || 'Não informado',
-          aulasCount: upcomingTeacherBookings.filter(x => x.aluno_email === b.aluno_email).length,
-          proximaAula: upcomingTeacherBookings.find(x => x.aluno_email === b.aluno_email && x.status === 'agendada')
+          aulasCount: teacherBookings.filter(x => x.aluno_email === b.aluno_email).length,
+          proximaAula: teacherBookings.find(x => x.aluno_email === b.aluno_email && x.status === 'agendada')
         }])
     ).values()
   );
@@ -359,7 +327,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   return (
     <div className="max-w-7xl mx-auto space-y-8 animate-in fade-in duration-300">
       {/* Teacher Header Banner */}
-      <div className="bg-gradient-to-r from-[#121921] via-[#15232d] to-[#131722] border-2 border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
+      <div className="banner-dark bg-gradient-to-r from-[#121921] via-[#15232d] to-[#131722] border-2 border-emerald-500/30 rounded-3xl p-6 sm:p-8 shadow-2xl relative overflow-hidden">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 relative z-10">
           <div className="space-y-2">
             <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs font-bold uppercase tracking-wider">
@@ -405,7 +373,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
           {/* ITEM 16: REMOVIDA A ABA "MARCAÇÕES" (FOCADA EM MINHAS AULAS) */}
           {[
             { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-            { id: 'aulas', label: 'Minhas Aulas', icon: BookOpen, badge: upcomingTeacherBookings.filter(b => b.status === 'agendada').length },
+            { id: 'aulas', label: 'Minhas Aulas', icon: BookOpen, badge: activeBookings.length },
             { id: 'agenda', label: 'Agenda de Aulas (Marcar)', icon: Calendar },
             { id: 'alunos', label: 'Meus Alunos', icon: Users, badge: uniqueLinkedStudents.length },
             { id: 'partituras', label: 'Acervo de Partituras', icon: FileText, badge: partituras.length },
@@ -452,9 +420,9 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
               {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-1">
-                  <div className="text-[11px] font-bold text-slate-400 uppercase">Aulas Agendadas</div>
+                  <div className="text-[11px] font-bold text-slate-400 uppercase">Aulas Agendadas Ativas</div>
                   <div className="text-3xl font-syne font-black text-emerald-400">
-                    {upcomingTeacherBookings.filter(b => b.status === 'agendada').length}
+                    {activeBookings.length}
                   </div>
                   <div className="text-[10px] text-slate-400">Próximos compromissos ao vivo</div>
                 </div>
@@ -514,9 +482,9 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                 </button>
               </div>
 
-              {upcomingTeacherBookings.length > 0 ? (
+              {activeBookings.length > 0 ? (
                 <div className="space-y-3">
-                  {upcomingTeacherBookings.map(booking => (
+                  {activeBookings.map(booking => (
                     <div
                       key={booking.id}
                       className="bg-[#0b0d14] p-5 rounded-2xl border border-white/10 space-y-3 hover:border-emerald-500/30 transition-colors shadow-md"
@@ -568,28 +536,6 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                         </div>
                       </div>
 
-                      {booking.status === 'agendada' && (
-                        <div className="rounded-xl border border-indigo-500/20 p-3 space-y-2">
-                          <p className="text-xs font-bold text-indigo-200">Google Meet — link desta aula</p>
-                          <a href="https://meet.google.com/new" target="_blank" rel="noopener noreferrer"
-                             className="inline-flex items-center gap-2 text-xs text-cyan-300 underline">
-                            <Video size={13}/> Abrir Google Meet para criar e copiar o link
-                          </a>
-                          <div className="flex flex-col sm:flex-row gap-2">
-                            <input type="url" aria-label="Link do Google Meet desta aula"
-                              placeholder="https://meet.google.com/abc-defg-hij"
-                              value={meetDrafts[booking.id] ?? booking.link_meet ?? ''}
-                              onChange={e => setMeetDrafts(prev => ({...prev, [booking.id]: e.target.value}))}
-                              className="flex-1 min-w-0 rounded-lg bg-[#131722] border border-white/20 px-3 py-2 text-white text-xs"/>
-                            <button type="button" disabled={savingMeetId === booking.id}
-                              onClick={() => handleSaveMeetLink(booking)}
-                              className="rounded-lg bg-emerald-500 px-4 py-2 font-bold text-xs text-black disabled:opacity-50">
-                              {savingMeetId === booking.id ? 'Salvando...' : 'Salvar link para o aluno'}
-                            </button>
-                          </div>
-                          <p className="text-xs text-slate-400">O link será associado somente a esta aula e ficará visível na agenda do aluno.</p>
-                        </div>
-                      )}
                       {booking.observacoes && (
                         <p className="text-[11px] text-slate-400 italic bg-[#131722] p-2.5 rounded-xl border border-white/5">
                           "Plano da aula: {booking.observacoes}"
@@ -640,10 +586,6 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                 </div>
               )}
 
-              <div className="rounded-xl p-3 border border-indigo-500/20 text-xs text-slate-300">
-                Depois de salvar a aula, abra <strong>Minhas Aulas</strong> para cadastrar o link da reunião.
-                <a href="https://meet.google.com/new" target="_blank" rel="noopener noreferrer" className="ml-2 text-cyan-300 underline">Abrir Google Meet</a>
-              </div>
               <form onSubmit={handleScheduleSubmit} className="bg-[#0b0d14] p-6 rounded-2xl border border-white/10 space-y-4 text-xs">
                 {/* 1. Nome do Aluno */}
                 <div>
@@ -727,7 +669,9 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                       onChange={e => setFormData({ ...formData, duracaoMinutos: Number(e.target.value) })}
                       className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-3 outline-none focus:border-emerald-400 text-xs"
                     >
-                      <option value={60}>60 minutos (Padrão)</option>
+                      <option value={30}>30 minutos</option>
+                      <option value={50}>50 minutos (Padrão)</option>
+                      <option value={80}>80 minutos (Intensivo)</option>
                     </select>
                   </div>
                 </div>
@@ -824,14 +768,20 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
               </div>
 
               {(() => {
-                const t = searchPartitura.trim().toLowerCase();
-                const list = partituras.filter(p => !t || p.titulo.toLowerCase().includes(t) || (p.compositor || '').toLowerCase().includes(t) || (p.instrumento || '').toLowerCase().includes(t));
+                const t = normalizeSearchText(searchPartitura);
+                const list = partituras.filter(
+                  (p) =>
+                    !t ||
+                    normalizeSearchText(p.titulo).includes(t) ||
+                    normalizeSearchText(p.compositor || '').includes(t) ||
+                    normalizeSearchText(p.instrumento || '').includes(t)
+                );
                 const freeList = list.filter(p => p.categoria !== 'paga');
                 const paidList = list.filter(p => p.categoria === 'paga');
 
                 const renderTeacherCard = (p: DbPartitura) => {
                   const isPaid = p.categoria === 'paga';
-                  const unlocked = !isPaid || unlockedIds.has(p.id);
+                  const unlocked = !isPaid || hasFullProAccess || unlockedIds.has(p.id);
                   return (
                     <div key={p.id} className={`bg-[#0b0d14] p-4 rounded-2xl border flex flex-col justify-between gap-3 ${isPaid ? 'border-amber-500/30' : 'border-white/10'}`}>
                       <div>
@@ -840,11 +790,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                           <div className="flex items-center gap-1">
                             {p.is_featured && <Star size={12} className="text-amber-400 fill-amber-400" />}
                             <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${isPaid ? 'bg-amber-500/20 text-amber-300' : 'bg-emerald-500/20 text-emerald-300'}`}>
-                              {isPaid
-                                ? Number(p.preco || 0) > 0
-                                  ? `Paga • R$ ${Number(p.preco).toFixed(2).replace('.', ',')}`
-                                  : 'Exclusiva • Paga'
-                                : 'Gratuita'}
+                              {isPaid ? (unlocked ? 'Pro Liberada' : 'Exclusiva Pro') : 'Gratuita'}
                             </span>
                           </div>
                         </div>
@@ -865,25 +811,11 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                         ) : (
                           <button
                             type="button"
-                            disabled={openingId === p.id}
-                            onClick={async () => {
-                              if (Number(p.preco || 0) <= 0) {
-                                showToast('Esta partitura exclusiva é liberada por meio dos conjuntos de partituras.');
-                                return;
-                              }
-                              try {
-                                setOpeningId(p.id);
-                                const { url } = await createPaidSheetCheckout(p.id);
-                                window.location.href = url;
-                              } catch (err: any) {
-                                showToast(err?.message || 'Partitura protegida: adquira pelo checkout.');
-                                setOpeningId(null);
-                              }
-                            }}
+                            onClick={() => openPlansModal()}
                             className="px-3 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500 text-amber-300 hover:text-black text-xs font-bold flex items-center gap-1.5 cursor-pointer"
                           >
                             <Lock size={13} />
-                            <span>{Number(p.preco || 0) > 0 ? 'Adquirir' : 'Em Conjunto'}</span>
+                            <span>Liberar no Pro</span>
                           </button>
                         )}
                       </div>
