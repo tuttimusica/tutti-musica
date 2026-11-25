@@ -84,6 +84,52 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
   const { user, profile, logout, aprovarProfessor, rejeitarProfessor } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<DevTab>('dashboard');
+  const [commerceCheck, setCommerceCheck] = useState<any>(null);
+  const [checkingCommerce, setCheckingCommerce] = useState(false);
+  const [startingPilotCheckout, setStartingPilotCheckout] = useState(false);
+  const startPilotCheckout = async () => {
+    if (!window.confirm('Teste com pagamento REAL de R$ 19,90. O valor será cobrado somente se você concluir o pagamento na Stripe. Deseja abrir o checkout?')) return;
+    setStartingPilotCheckout(true);
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if (error || !session?.access_token) throw new Error('Faça login novamente antes de iniciar o teste.');
+      const response=await fetch('/api/stripe/create-plan-checkout',{
+        method:'POST',
+        headers:{Authorization:`Bearer ${session.access_token}`,'Content-Type':'application/json'},
+        body:JSON.stringify({plano_id:'pro'}),
+        cache:'no-store',
+      });
+      const data=await response.json().catch(()=>({}));
+      if(!response.ok || typeof data.url!=='string' || !data.url.startsWith('https://checkout.stripe.com/'))
+        throw new Error('Não foi possível iniciar a compra controlada. Nenhum pagamento foi realizado.');
+      window.location.assign(data.url);
+    }catch(error:any) {
+      showToast(error?.message || 'Falha ao abrir teste controlado.');
+      setStartingPilotCheckout(false);
+    }
+  };
+
+  const checkCommerceReadiness = async () => {
+    setCheckingCommerce(true);
+    setCommerceCheck(null);
+    try {
+      const { data: { session }, error } = await supabase.auth.getSession();
+      if(error || !session?.access_token) throw Error('Entre novamente como administrador para verificar.');
+      const response=await fetch('/api/stripe/create-plan-checkout?readiness=1',{
+        headers:{Authorization:`Bearer ${session.access_token}`},
+        cache:'no-store'
+      });
+      const payload=await response.json().catch(()=>({}));
+      if(!response.ok) throw Error(payload.error || 'Diagnóstico indisponível.');
+      setCommerceCheck(payload);
+    } catch(error:any) {
+      setCommerceCheck({error:error?.message||'Diagnóstico indisponível.'});
+    } finally {
+      setCheckingCommerce(false);
+    }
+  };
+
+
 
   // Teacher Requests State (loaded from Supabase)
   const [requests, setRequests] = useState<TeacherRequest[]>([]);
@@ -1607,6 +1653,78 @@ export const DeveloperPanel: React.FC<DeveloperPanelProps> = ({ onLogoutToAuth, 
                 </h2>
                 <p className="text-xs text-slate-400">Resumo em tempo real sincronizado com a base PostgreSQL / Supabase.</p>
               </div>
+
+              {/* Admin-only financial preflight; never creates or activates a charge. */}
+              <section className="rounded-2xl border border-amber-500/30 bg-[#0b0d14] p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-amber-300 text-sm">Pré-verificação comercial — Tutti Pro</h3>
+                    <p className="text-xs text-slate-400">Consulta segura da Stripe, Supabase e travas de cobrança. Não realiza pagamentos.</p>
+                  </div>
+                  <button type="button" disabled={checkingCommerce} onClick={checkCommerceReadiness}
+                    className="rounded-xl bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
+                    {checkingCommerce?'Verificando...':'Verificar cobranças'}
+                  </button>
+                </div>
+                {commerceCheck?.error && <p role="alert" className="text-xs text-rose-300">Verificação indisponível: {commerceCheck.error}</p>}
+                {commerceCheck?.checks && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-white">
+                      {commerceCheck.preflightPass?'Pré-requisitos técnicos verificados':'Existem requisitos técnicos pendentes'}
+                      {' — '} vendas públicas: não autorizadas sem teste completo
+                    </p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                      {Object.entries(commerceCheck.checks as Record<string,boolean>).map(([key,value])=>(
+                        <div key={key} className="flex items-center gap-2">
+                          <span className={value?'text-emerald-400':'text-amber-300'}>{value?'✓':'Pendente'}</span>
+                          <span className="text-slate-300">{({
+                            frontendEnabled:'Botão público de pagamento',serverEnabled:'Checkout público do servidor',pilotEnabled:'Piloto restrito no servidor',
+                            stripeAccount:'Conta Stripe apta',stripePrice:'Preço de R$ 19,90',
+                            stripeRequiredReads:'Permissões de leitura Stripe',webhookSecretConfigured:'Assinatura do webhook configurada',
+                            catalog:'PDFs exclusivos disponíveis',fulfillmentProject:'Supabase de entrega validado'
+                          } as Record<string,string>)[key] || key}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {commerceCheck.stripeIssues && Object.keys(commerceCheck.stripeIssues).length > 0 && (
+                      <div className="rounded-lg border border-amber-500/20 p-3 space-y-1">
+                        <p className="text-xs font-semibold text-amber-300">Diagnóstico Stripe (sem credenciais)</p>
+                        {Object.entries(commerceCheck.stripeIssues as Record<string,string>).map(([key,reason])=>(
+                          <p key={key} className="text-xs text-slate-300">
+                            {({
+                              configuration:'Configuração',stripeAccount:'Conta Stripe',stripePrice:'Preço Stripe',
+                              checkoutSessions:'Sessões de checkout',paymentIntents:'Intenções de pagamento',
+                              charges:'Cobranças'
+                            } as Record<string,string>)[key] || key}
+                            {': '}{({
+                              permissao_negada:'Permissão insuficiente na chave Stripe',
+                              credencial_invalida:'Credencial Stripe não autenticou',
+                              recurso_nao_encontrado:'Recurso não encontrado',
+                              falha_de_consulta:'Consulta Stripe indisponível',
+                              conta_incorreta_ou_bloqueada:'Conta incorreta ou cobranças suspensas',
+                              preco_incorreto_ou_inativo:'Preço não corresponde ao Pro Vitalício',
+                              credencial_ausente_ou_formato_invalido:'Chave ausente ou formato inválido',
+                              plano_invalido:'Preço do plano não está configurado corretamente',
+                              diagnostico_indisponivel:'Diagnóstico indisponível'
+                            } as Record<string,string>)[reason] || 'Falha na verificação'}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                    {commerceCheck?.checks?.pilotEnabled === true && commerceCheck.preflightPass === true && (
+                      <div className="rounded-lg border border-amber-500/30 p-3 space-y-2">
+                        <p className="text-xs font-semibold text-amber-200">Teste controlado — compra real de R$ 19,90</p>
+                        <p className="text-xs text-slate-300">Exclusivo ao administrador autenticado. Não abre o checkout ao público. Você só será cobrado se concluir o pagamento no site seguro da Stripe.</p>
+                        <button type="button" disabled={startingPilotCheckout} onClick={startPilotCheckout}
+                          className="rounded-xl border border-amber-400 bg-amber-500 text-black px-4 py-2 text-xs font-bold disabled:opacity-60">
+                          {startingPilotCheckout?'Abrindo checkout...':'Abrir compra controlada (R$ 19,90)'}
+                        </button>
+                      </div>
+                    )}
+                    <p className="text-[11px] text-slate-400">A aprovação definitiva exige pagamento controlado, webhook confirmado e download autorizado.</p>
+                  </div>
+                )}
+              </section>
 
               {/* KPI Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
