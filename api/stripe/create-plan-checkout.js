@@ -44,13 +44,24 @@ export default async function handler(req,res){
    // credential for the SAME Supabase project and can identify this user.
    // This is not authorization from client metadata; it is a backend readiness gate.
    const admin=createClient(url,fulfillmentKey,{auth:{persistSession:false,autoRefreshToken:false}});
-   // While the public checkout is closed, only an email-confirmed developer
-   // in the server-owned administrator allowlist may start a real pilot checkout.
+   // While public checkout is closed, authorize a verified admin or ONE
+   // explicitly configured pilot student. Never accept a client-supplied email.
    if(prod&&!liveEnabled) {
      const {data:authorized,error:pilotError}=await admin
        .from('administradores_autorizados').select('email').limit(1000);
-     if(pilotError||!isAuthorizedProPilot(user.email,authorized))
+     if(pilotError) return send(res,503,{error:'pilot_authorization_unavailable'});
+     const isAdminPilot=isAuthorizedProPilot(user.email,authorized);
+     const pilotEmail=(process.env.TUTTI_PRO_PILOT_STUDENT_EMAIL||'').trim().toLowerCase();
+     const isSelectedStudent=pilotEmail.length>3 &&
+       user.email.trim().toLowerCase()===pilotEmail && !isAdminPilot;
+     if(!isAdminPilot&&!isSelectedStudent)
        return send(res,403,{error:'pilot_not_authorized'});
+     if(isSelectedStudent) {
+       const {data:student,error:studentError}=await admin.from('usuarios')
+         .select('role,user_id').eq('user_id',user.id).maybeSingle();
+       if(studentError||student?.user_id!==user.id||student?.role!=='student')
+         return send(res,403,{error:'pilot_student_not_authorized'});
+     }
    }
 
    const {data:ownedUser,error:adminError}=await admin.auth.admin.getUserById(user.id);
