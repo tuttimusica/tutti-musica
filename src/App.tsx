@@ -12,7 +12,7 @@ import {
 
 import { 
   INSTRUMENTS, SHEETS_CATALOG, LESSONS_DATABASE, 
-  STORE_PRODUCTS, MASTERCLASSES, COMMUNITY_POSTS,
+  STORE_PRODUCTS, MASTERCLASSES,
   Instrument, SheetMusic, Lesson, Product 
 } from './data/musicData';
 import { audioEngine } from './services/audioEngine';
@@ -22,6 +22,7 @@ import { TunerModal } from './components/AudioTools/TunerModal';
 import { MaestroPanel } from './components/MaestroIA/MaestroPanel';
 import { SheetViewerModal } from './components/SheetMusic/SheetViewerModal';
 import { LocalSheetLibrary } from './components/SheetMusic/LocalSheetLibrary';
+import { PartiturasLibrary } from './components/SheetMusic/PartiturasLibrary';
 import { CheckoutModal } from './components/Store/CheckoutModal';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { AuthModal } from './components/Auth/AuthModal';
@@ -34,24 +35,39 @@ import { supabase, SUPABASE_PROJECT_ID } from './services/supabase';
 import { SaxophoneStudio } from './components/Studio/SaxophoneStudio';
 import { GuitarStudio } from './components/Studio/GuitarStudio';
 import { KeyboardStudio } from './components/Studio/KeyboardStudio';
-import { CommunityFeed } from './components/Community/CommunityFeed';
 import { PlansModal } from './components/Subscription/PlansModal';
 import { SocialModal } from './components/Social/SocialModal';
 import { OfficialContacts } from './components/Common/OfficialContacts';
+import { filterActiveLessons } from './utils/agendaUtils';
+import { verifyCheckoutSession, VerifyCheckoutSessionResult } from './services/stripeService';
 import {
   DbPartitura,
   fetchPublishedPartituras,
-  fetchUnlockedPartituraIds,
+  fetchUserLibraryAccess,
   resolvePartituraPdfUrl,
+  createPaidSheetCheckout,
 } from './services/partiturasService';
 import { RouterContext, RouterContextType, useAppRouter } from './context/RouterContext';
 export { useAppRouter, RouterContext };
 export type { RouterContextType };
 
+function normalizeRoutePath(pathname: string): string {
+  const clean = (pathname || '/').replace(/\/+$/, '') || '/';
+  if (clean === '/comunidade' || clean.startsWith('/comunidade/')) {
+    return '/';
+  }
+  const validPaths = [
+    '/', '/aulas', '/partituras', '/estudio', '/agenda',
+    '/loja', '/perfil', '/auth', '/login',
+    '/admin', '/professor', '/aluno'
+  ];
+  return validPaths.includes(clean) ? clean : '/';
+}
+
 function mapDbPartituraToSheetMusic(item: DbPartitura): SheetMusic {
   const isPaid = item.categoria === 'paga';
   return {
-    id: Number.parseInt(item.id.replace(/-/g,'').slice(0,12),16),
+    id: item.id,
     title: item.titulo,
     composer: item.compositor || 'Compositor Tutti',
     instrument: item.instrumento || 'Saxofone Alto',
@@ -112,7 +128,6 @@ const Header: React.FC = () => {
     { path: '/estudio', label: 'Estúdio & Instrumentos' },
     { path: '/agenda', label: 'Agenda de Aula' },
     { path: '/loja', label: 'Loja' },
-    { path: '/comunidade', label: 'Comunidade' },
   ];
 
   const roleNavLinks = user ? [
@@ -385,31 +400,31 @@ const MobileNav: React.FC = () => {
 
 // 1. HOME PAGE
 const HomePage: React.FC = () => {
-  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal, openSocialModal, showToast } = useAppRouter();
+  const { navigate, openSheetViewer, theme, toggleTheme, openPlansModal, openSocialModal, showToast, userPlan } = useAppRouter();
   const { user, profile } = useAuth();
   const [featuredDbSheets, setFeaturedDbSheets] = useState<DbPartitura[]>([]);
   const [totalPublishedSheets, setTotalPublishedSheets] = useState<number>(0);
-  const [totalFreeSheets, setTotalFreeSheets] = useState<number>(0);
   const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
+  const [hasFullProAccess, setHasFullProAccess] = useState<boolean>(false);
   const [openingId, setOpeningId] = useState<string | null>(null);
 
   useSEO("Início", "Aprenda Saxofone, Teclado, Violão, Canto, Bateria e Violino com o Maestro Lucas.");
 
   const loadHomeSheets = useCallback(async () => {
     try {
-      const [all, unlocked] = await Promise.all([
+      const [all, access] = await Promise.all([
         fetchPublishedPartituras(),
-        fetchUnlockedPartituraIds(user?.id),
+        fetchUserLibraryAccess(user?.id, userPlan, profile?.role === 'desenvolvedor'),
       ]);
       setTotalPublishedSheets(all.length);
-      setTotalFreeSheets(all.filter(sheet => sheet.categoria === 'gratuita').length);
-      setUnlockedIds(unlocked);
+      setUnlockedIds(access.unlockedIds);
+      setHasFullProAccess(access.hasFullProAccess);
       const featuredOnly = all.filter(s => s.is_featured);
       setFeaturedDbSheets((featuredOnly.length > 0 ? featuredOnly : all).slice(0, 6));
     } catch (err) {
       console.warn('Home sheets load note:', err);
     }
-  }, [user?.id]);
+  }, [user?.id, userPlan, profile?.role]);
 
   useEffect(() => {
     loadHomeSheets();
@@ -426,16 +441,28 @@ const HomePage: React.FC = () => {
 
   const handleOpenHomeSheet = async (item: DbPartitura) => {
     const isPaid = item.categoria === 'paga';
-    const hasPrivilege = profile?.role === 'desenvolvedor';
+    const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor' || hasFullProAccess;
     const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
 
     if (!isUnlocked) {
       if (!user) {
-        showToast('Entre para conhecer o Tutti Pro Vitalício e liberar toda a biblioteca exclusiva.');
-        navigate('/auth');
+        showToast('Faça login para acessar partituras exclusivas do Tutti Pro.');
+        navigate('/auth', { redirect: 'checkout_pro' });
         return;
       }
-      showToast('As partituras exclusivas fazem parte do Tutti Pro Vitalício: R$ 19,90, pagamento único.');
+      if (Number(item.preco || 0) > 0) {
+        setOpeningId(item.id);
+        try {
+          const { url } = await createPaidSheetCheckout(item.id);
+          window.location.href = url;
+        } catch (err: any) {
+          showToast(err?.message || 'Não foi possível iniciar o pagamento.');
+        } finally {
+          setOpeningId(null);
+        }
+        return;
+      }
+      showToast('Partitura exclusiva do Plano Tutti Pro. Desbloqueie toda a biblioteca!');
       openPlansModal();
       return;
     }
@@ -467,9 +494,6 @@ const HomePage: React.FC = () => {
             <h1 className="text-5xl sm:text-6xl md:text-7xl font-syne font-black tracking-tight leading-tight text-white">
               Tutti
             </h1>
-            <p className="mt-3 text-lg sm:text-xl font-syne font-bold tracking-wide text-amber-300">
-              Cada som faz parte
-            </p>
           </div>
 
           {/* BOTÃO EM BAIXO DO TUTTI: Troca de cor da tela (Preto ⇄ Branco) */}
@@ -526,16 +550,16 @@ const HomePage: React.FC = () => {
           {/* Highlights metrics */}
           <div className="pt-4 flex flex-wrap justify-center lg:justify-start gap-8 border-t border-white/10">
             <div>
-              <div className="text-2xl font-syne font-black text-white">{totalPublishedSheets}</div>
-              <div className="text-xs text-slate-400 font-medium">Partituras no catálogo</div>
+              <div className="text-2xl font-syne font-black text-white">+15.000</div>
+              <div className="text-xs text-slate-400 font-medium">Alunos ativos no Brasil</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-cyan-400">Online</div>
-              <div className="text-xs text-slate-400 font-medium">Aulas e estúdio virtual</div>
+              <div className="text-2xl font-syne font-black text-cyan-400">100%</div>
+              <div className="text-xs text-slate-400 font-medium">Didática prática e interativa</div>
             </div>
             <div>
-              <div className="text-2xl font-syne font-black text-emerald-400">{totalFreeSheets}</div>
-              <div className="text-xs text-slate-400 font-medium">Partituras gratuitas</div>
+              <div className="text-2xl font-syne font-black text-emerald-400">4.9 / 5.0</div>
+              <div className="text-xs text-slate-400 font-medium">Avaliação da comunidade</div>
             </div>
           </div>
         </div>
@@ -681,7 +705,7 @@ const HomePage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {featuredDbSheets.map((item) => {
               const isPaid = item.categoria === 'paga';
-              const hasPrivilege = profile?.role === 'desenvolvedor';
+              const hasPrivilege = profile?.role === 'desenvolvedor' || profile?.role === 'professor' || hasFullProAccess;
               const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
               return (
                 <div
@@ -708,8 +732,8 @@ const HomePage: React.FC = () => {
                             ? isUnlocked
                               ? 'Paga • Liberada'
                               : Number(item.preco || 0) > 0
-                                ? 'Incluída no Tutti Pro'
-                                : 'Incluída no Tutti Pro'
+                                ? `Paga • R$ ${Number(item.preco).toFixed(2).replace('.', ',')}`
+                                : 'Exclusiva • Paga'
                             : 'Gratuita'}
                         </span>
                       </div>
@@ -1180,374 +1204,14 @@ const AulasPage: React.FC = () => {
   );
 };
 
-// 3. PARTITURAS PAGE (Gratuitas vs Pagas vs Destaques - Sem dados mockados)
+// 3. PARTITURAS PAGE (Biblioteca Escalável com Filtros, Conjuntos e Paginação Server-Side)
 const PartiturasPage: React.FC = () => {
-  const { openSheetViewer, navigate, showToast, openPlansModal } = useAppRouter();
-  const { user, profile } = useAuth();
-  const [searchTerm, setSearchTerm] = useState('');
-  const [selectedInstrument, setSelectedInstrument] = useState('Todos');
-  const [filterLevel, setFilterLevel] = useState('Todos');
-  const [dbSheets, setDbSheets] = useState<DbPartitura[]>([]);
-  const [unlockedIds, setUnlockedIds] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(true);
-  const [busySheetId, setBusySheetId] = useState<string | null>(null);
-
   useSEO(
     "Biblioteca de Partituras Tutti",
-    "Explore partituras gratuitas, partituras em destaque e partituras pagas com visualização segura em PDF."
+    "Explore partituras gratuitas, exclusivas Tutti Pro e conjuntos organizados por instrumento, compositor e estilo."
   );
 
-  const instrumentOptions = [
-    'Todos',
-    'Saxofone Alto',
-    'Saxofone Tenor',
-    'Saxofone Soprano',
-    'Clarinete',
-    'Trombone',
-    'Trompete',
-    'Teclado',
-    'Contrabaixo',
-    'Guitarra',
-    'Outros'
-  ];
-
-  const levels = ['Todos', 'Iniciante', 'Intermediário', 'Avançado'];
-
-  const loadSheets = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [sheets, unlocked] = await Promise.all([
-        fetchPublishedPartituras(),
-        fetchUnlockedPartituraIds(user?.id),
-      ]);
-      setDbSheets(sheets);
-      setUnlockedIds(unlocked);
-    } catch (e) {
-      console.warn('Erro ao carregar partituras do Supabase:', e);
-      setDbSheets([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [user?.id]);
-
-  useEffect(() => {
-    loadSheets();
-    const channel = supabase
-      .channel('partituras-page-realtime')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras' }, () => {
-        loadSheets();
-      })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'partituras_acessos' }, () => {
-        loadSheets();
-      })
-      .subscribe();
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [loadSheets]);
-
-  useEffect(() => {
-    const refresh=()=>{void loadSheets();};
-    window.addEventListener('focus',refresh);
-    return ()=>window.removeEventListener('focus',refresh);
-  },[loadSheets]);
-
-  const filteredSheets = useMemo(() => {
-    return dbSheets.filter(item => {
-      const term = searchTerm.toLowerCase();
-      const matchSearch =
-        !term ||
-        item.titulo.toLowerCase().includes(term) ||
-        (item.compositor || '').toLowerCase().includes(term) ||
-        (item.instrumento || '').toLowerCase().includes(term);
-      const matchInstrument =
-        selectedInstrument === 'Todos' ||
-        (item.instrumento || '').toLowerCase().includes(selectedInstrument.toLowerCase());
-      const matchLevel = filterLevel === 'Todos' || item.nivel === filterLevel;
-      return matchSearch && matchInstrument && matchLevel;
-    });
-  }, [dbSheets, searchTerm, selectedInstrument, filterLevel]);
-
-  const featuredSheets = useMemo(
-    () => filteredSheets.filter(s => s.is_featured),
-    [filteredSheets]
-  );
-  const freeSheets = useMemo(
-    () => filteredSheets.filter(s => s.categoria !== 'paga'),
-    [filteredSheets]
-  );
-  const paidSheets = useMemo(
-    () => filteredSheets.filter(s => s.categoria === 'paga'),
-    [filteredSheets]
-  );
-
-  const handleOpenSheet = async (item: DbPartitura) => {
-    setBusySheetId(item.id);
-    try {
-      const resolved = await resolvePartituraPdfUrl(item);
-      openSheetViewer(mapDbPartituraToSheetMusic(item), {
-        pdfUrl: resolved.url,
-        isPaidProtected: resolved.protected || item.categoria === 'paga',
-      });
-    } catch (err: any) {
-      showToast(err?.message || 'Esta partitura é protegida. Adquira para liberar.');
-    } finally {
-      setBusySheetId(null);
-    }
-  };
-
-  const handleBuyPaidSheet = (_item: DbPartitura) => {
-    if (!user) {
-      showToast('Faça login para adquirir o Tutti Pro Vitalício e acessar a biblioteca exclusiva.');
-      navigate('/auth');
-      return;
-    }
-    showToast('Todas as partituras exclusivas estão incluídas no Tutti Pro Vitalício — R$ 19,90, pagamento único.');
-    openPlansModal();
-  };
-
-  const renderSheetCard = (item: DbPartitura) => {
-    const isPaid = item.categoria === 'paga';
-    const hasPrivilege = profile?.role === 'desenvolvedor';
-    const isUnlocked = !isPaid || unlockedIds.has(item.id) || hasPrivilege;
-
-    return (
-      <div
-        key={item.id}
-        className="bg-[#131722] hover:bg-[#191f2e] border border-white/10 hover:border-cyan-400/50 rounded-3xl p-6 transition-all duration-300 shadow-xl flex flex-col justify-between group"
-      >
-        <div>
-          <div className="flex justify-between items-start mb-4 gap-2">
-            <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center text-3xl font-serif group-hover:scale-110 transition-transform">
-              𝄞
-            </div>
-            <div className="flex flex-col items-end gap-1">
-              <span className={`px-3 py-1 rounded-full text-xs font-bold ${
-                item.nivel === 'Iniciante' ? 'bg-emerald-500/20 text-emerald-400' :
-                item.nivel === 'Intermediário' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-rose-500/20 text-rose-300'
-              }`}>
-                {item.nivel}
-              </span>
-              <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold flex items-center gap-1 border ${
-                isPaid
-                  ? isUnlocked
-                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
-                  : 'bg-cyan-500/15 text-cyan-300 border-cyan-500/30'
-              }`}>
-                {isPaid ? (isUnlocked ? <Unlock size={10} /> : <Lock size={10} />) : <Unlock size={10} />}
-                {isPaid
-                  ? isUnlocked
-                    ? 'Pro • Liberada'
-                    : 'Exclusiva • Tutti Pro'
-                  : 'Gratuita'}
-              </span>
-            </div>
-          </div>
-
-          <h3 className="text-xl font-syne font-bold text-white mb-1 group-hover:text-cyan-400 transition-colors">
-            {item.titulo}
-          </h3>
-          <p className="text-xs text-slate-400 font-semibold mb-2">
-            {item.compositor} • {item.instrumento}
-          </p>
-          <p className="text-xs text-slate-400 line-clamp-2 leading-relaxed">
-            {item.descricao || 'Arranjo oficial catalogado pela Tutti Escola de Música.'}
-          </p>
-        </div>
-
-        <div className="mt-6 pt-4 border-t border-white/10 flex items-center justify-between gap-2">
-          <div className="text-xs text-slate-400 font-mono">
-            <strong className="text-white">{item.tonalidade || 'C'}</strong> • {item.tempo_bpm || 120} BPM
-          </div>
-
-          <div className="flex items-center gap-2">
-            {isUnlocked ? (
-              <>
-                <button
-                  onClick={() => handleOpenSheet(item)}
-                  disabled={busySheetId === item.id}
-                  className="px-3.5 py-2 rounded-xl bg-cyan-500/20 hover:bg-cyan-400 text-cyan-300 hover:text-black font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
-                >
-                  {busySheetId === item.id ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <Eye size={13} />
-                  )}
-                  <span>Visualizar PDF</span>
-                </button>
-                {!isPaid && item.arquivo_pdf_url && (
-                  <a
-                    href={item.arquivo_pdf_url}
-                    download={`${item.titulo}.pdf`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="p-2 rounded-xl bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white transition-colors"
-                    title="Baixar Partitura Gratuita"
-                  >
-                    <Download size={14} />
-                  </a>
-                )}
-              </>
-            ) : (
-              <button
-                onClick={() => handleBuyPaidSheet(item)}
-                disabled={busySheetId === item.id}
-                className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-black text-xs flex items-center gap-1.5 transition-colors cursor-pointer shadow-md"
-              >
-                {busySheetId === item.id ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <Lock size={12} />
-                )}
-                <span>Desbloquear com Pro</span>
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  return (
-    <div className="animate-in fade-in duration-500 space-y-10">
-      {/* Header */}
-      <div className="text-center space-y-3">
-        <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">Acervo Musical Oficial</span>
-        <h1 className="text-4xl sm:text-5xl font-syne font-black text-white">
-          Biblioteca de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Partituras Tutti</span>
-        </h1>
-        <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Partituras gratuitas para todos e exclusivas para membros Tutti Pro Vitalício. Novos PDFs entram automaticamente na biblioteca.
-        </p>
-      </div>
-
-      {/* Filter and Search Bar */}
-      <div className="bg-[#131722] p-4 sm:p-6 rounded-3xl border border-white/10 shadow-xl space-y-4">
-        <div className="relative">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" size={20} />
-          <input
-            type="text"
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            placeholder="Buscar por música, compositor (ex: Tom Jobim, Pixinguinha) ou instrumento..."
-            className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-2xl pl-12 pr-4 py-3.5 text-sm outline-none focus:border-cyan-400 transition-colors"
-          />
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-              Filtrar por Instrumento
-            </label>
-            <select
-              value={selectedInstrument}
-              onChange={(e) => setSelectedInstrument(e.target.value)}
-              className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400 cursor-pointer"
-            >
-              {instrumentOptions.map(inst => (
-                <option key={inst} value={inst}>{inst}</option>
-              ))}
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1.5">
-              Nível de Dificuldade
-            </label>
-            <select
-              value={filterLevel}
-              onChange={(e) => setFilterLevel(e.target.value)}
-              className="w-full bg-[#0b0d14] text-white border border-white/10 rounded-xl px-3.5 py-2.5 text-xs outline-none focus:border-cyan-400 cursor-pointer"
-            >
-              {levels.map(l => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {loading ? (
-        <div className="py-16 text-center text-slate-400 flex items-center justify-center gap-2">
-          <Loader2 size={20} className="animate-spin text-cyan-400" />
-          <span className="text-sm font-semibold">Carregando acervo do Supabase...</span>
-        </div>
-      ) : filteredSheets.length === 0 ? (
-        <div className="py-16 text-center text-slate-400 bg-[#131722] rounded-3xl border border-white/10 space-y-2">
-          <Music size={32} className="mx-auto text-slate-500" />
-          <p className="text-base font-semibold text-white">Nenhuma partitura publicada encontrada.</p>
-          <p className="text-xs text-slate-400">
-            Ajuste os filtros ou aguarde novas publicações adicionadas pelo Desenvolvedor.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-12">
-          {/* SEÇÃO 1: PARTITURAS EM DESTAQUE */}
-          {featuredSheets.length > 0 && (
-            <section className="space-y-4">
-              <div className="flex items-center justify-between border-b border-white/10 pb-3">
-                <div className="flex items-center gap-2">
-                  <Star size={18} className="text-amber-400 fill-amber-400" />
-                  <h2 className="text-2xl font-syne font-black text-white">Partituras em Destaque</h2>
-                </div>
-                <span className="text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
-                  {featuredSheets.length} selecionada(s)
-                </span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {featuredSheets.map(renderSheetCard)}
-              </div>
-            </section>
-          )}
-
-          {/* SEÇÃO 2: PARTITURAS GRATUITAS */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <Unlock size={18} className="text-emerald-400" />
-                <h2 className="text-2xl font-syne font-black text-white">Partituras Gratuitas</h2>
-              </div>
-              <span className="text-xs font-bold text-emerald-300 bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/30">
-                {freeSheets.length} disponível(is)
-              </span>
-            </div>
-            {freeSheets.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {freeSheets.map(renderSheetCard)}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-xs text-slate-400 bg-[#131722] rounded-2xl border border-white/10">
-                Nenhuma partitura gratuita corresponde aos filtros selecionados.
-              </div>
-            )}
-          </section>
-
-          {/* SEÇÃO 3: PARTITURAS PAGAS */}
-          <section className="space-y-4">
-            <div className="flex items-center justify-between border-b border-white/10 pb-3">
-              <div className="flex items-center gap-2">
-                <Lock size={18} className="text-amber-400" />
-                <h2 className="text-2xl font-syne font-black text-white">Biblioteca Exclusiva Tutti Pro</h2>
-              </div>
-              <span className="text-xs font-bold text-amber-300 bg-amber-500/10 px-3 py-1 rounded-full border border-amber-500/30">
-                {paidSheets.length} edição(ões)
-              </span>
-            </div>
-            {paidSheets.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-                {paidSheets.map(renderSheetCard)}
-              </div>
-            ) : (
-              <div className="p-8 text-center text-xs text-slate-400 bg-[#131722] rounded-2xl border border-white/10">
-                Nenhuma partitura paga corresponde aos filtros selecionados.
-              </div>
-            )}
-          </section>
-        </div>
-      )}
-    </div>
-  );
+  return <PartiturasLibrary />;
 };
 
 // 4. ESTÚDIO & INSTRUMENTOS INTERATIVOS PAGE
@@ -1697,7 +1361,7 @@ const EstudioPage: React.FC = () => {
   );
 };
 
-// 5. AGENDA DE AULA PAGE (Agenda própria de cada aluno com Google Meet)
+// 5. AGENDA DE AULA PAGE (Agenda própria do aluno - Horário oficial de Brasília, sem aulas passadas)
 interface StudentLesson {
   id: string;
   studentName: string;
@@ -1705,131 +1369,117 @@ interface StudentLesson {
   topic: string;
   date: string;
   time: string;
-  googleMeetUrl: string;
-  instructor: string;
-}
-
-// 5. AGENDA DE AULA PAGE (Item 21: Agenda do Aluno com Google Meet)
-interface StudentLesson {
-  id: string;
-  studentName: string;
-  instrument: string;
-  topic: string;
-  date: string;
-  time: string;
+  durationMinutes?: number;
+  status?: string;
   googleMeetUrl: string;
   instructor: string;
 }
 
 const AgendaPage: React.FC = () => {
-  const { showToast, openPlansModal } = useAppRouter();
+  const { openPlansModal } = useAppRouter();
   const { user, profile } = useAuth();
-  useSEO("Agenda de Aula", "Sua agenda própria e individual de aulas com link exclusivo do Google Meet.");
+  useSEO("Agenda de Aula", "Sua agenda própria e individual de aulas futuras e em andamento via Google Meet.");
 
   const [lessons, setLessons] = useState<StudentLesson[]>([]);
-  const [scheduleNow, setScheduleNow] = useState(() => Date.now());
-  useEffect(() => {
-    const interval = window.setInterval(() => setScheduleNow(Date.now()), 30000);
-    return () => window.clearInterval(interval);
-  }, []);
-  // A past lesson disappears automatically after 60 minutes, regardless of whether
-  // the user leaves this tab open. Supabase retains its history.
-  const upcomingLessons = lessons.filter(l =>
-    Date.parse(`${l.date}T${l.time}-03:00`) + 60 * 60 * 1000 > scheduleNow
-  );
   const [loadingLessons, setLoadingLessons] = useState(true);
-  const [lessonsError, setLessonsError] = useState<string | null>(null);
+  const [nowTick, setNowTick] = useState<number>(() => Date.now());
 
   const studentName = profile?.displayName || user?.user_metadata?.full_name || 'Aluno(a) Tutti';
 
-  // A agenda exibe somente aulas ativas do aluno autenticado.
-  // Não restaurar agendamentos de cache local: cancelamentos são autoritativos no Supabase.
+  // Limpar qualquer cache legado desatualizado de aulas locais e atualizar relógio a cada 60s
   useEffect(() => {
-    if (!user?.id) {
+    try {
+      localStorage.removeItem('tutti_student_lessons');
+    } catch {
+      // ignore storage errors
+    }
+    const timer = setInterval(() => {
+      setNowTick(Date.now());
+    }, 60_000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const fetchBookings = useCallback(async () => {
+    if (!user?.email) {
       setLessons([]);
       setLoadingLessons(false);
-      setLessonsError(null);
       return;
     }
-    let active = true;
-    const fetchBookings = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('marcacoes_aulas')
-          .select('*')
-          .eq('aluno_id', user.id)
-          .eq('status', 'agendada')
-          .gte('data_aula', new Intl.DateTimeFormat('en-CA', {timeZone:'America/Sao_Paulo',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date()))
-          .order('data_aula', { ascending: true });
-        if (error) throw error;
-        if (!active) return;
-        const mapped: StudentLesson[] = (data || []).map((b: any) => ({
+    setLoadingLessons(true);
+    try {
+      const { data } = await supabase
+        .from('marcacoes_aulas')
+        .select('*')
+        .eq('aluno_email', user.email)
+        .order('data_aula', { ascending: true })
+        .order('hora_inicio', { ascending: true });
+
+      if (data && data.length > 0) {
+        const mapped: StudentLesson[] = data.map((b: any) => ({
           id: b.id,
           studentName: b.aluno_nome,
           instrument: b.instrumento || 'Instrumento Principal',
           topic: b.observacoes || 'Aula Prática Individual',
           date: b.data_aula,
           time: b.hora_inicio,
-          googleMeetUrl: b.link_meet || '',
+          durationMinutes: Number(b.duracao_minutos ?? 60),
+          status: b.status || 'agendada',
+          googleMeetUrl: b.link_meet || 'https://meet.google.com/new',
           instructor: b.professor_nome || 'Professor Tutti'
         }));
         setLessons(mapped);
-        setLessonsError(null);
-      } catch (err: any) {
-        if (active) setLessonsError('Não foi possível atualizar as aulas. Tente abrir a agenda novamente.');
-      } finally {
-        if (active) setLoadingLessons(false);
+      } else {
+        setLessons([]);
       }
-    };
-    setLoadingLessons(true);
-    void fetchBookings();
-    const channel = supabase.channel(`student-schedule-${user.id}`)
-      .on('postgres_changes', {
-        event: '*', schema: 'public', table: 'marcacoes_aulas',
-        filter: `aluno_id=eq.${user.id}`
-      }, () => { void fetchBookings(); })
-      .subscribe();
-    const refreshOnFocus = () => { void fetchBookings(); };
-    window.addEventListener('focus', refreshOnFocus);
-    return () => {
-      active = false;
-      window.removeEventListener('focus', refreshOnFocus);
-      void supabase.removeChannel(channel);
-    };
-  }, [user?.id]);
+    } catch (err) {
+      console.debug('Erro ao sincronizar agenda do aluno:', err);
+      setLessons([]);
+    } finally {
+      setLoadingLessons(false);
+    }
+  }, [user?.email]);
+
+  useEffect(() => {
+    fetchBookings();
+  }, [fetchBookings]);
+
+  const activeLessons = useMemo(
+    () => filterActiveLessons(lessons, new Date(nowTick)),
+    [lessons, nowTick]
+  );
 
   return (
     <div className="animate-in fade-in duration-500 space-y-8 max-w-5xl mx-auto">
       {/* Header */}
       <div className="text-center space-y-3">
         <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
-          Aulas Individuais & Google Meet
+          Aulas Individuais & Google Meet • Horário de Brasília
         </span>
         <h1 className="text-4xl sm:text-5xl font-syne font-black text-white">
           Agenda de <span className="text-transparent bg-clip-text bg-gradient-to-r from-emerald-400 via-cyan-400 to-violet-500">Aula</span>
         </h1>
         <p className="text-slate-400 max-w-2xl mx-auto text-sm sm:text-base">
-          Esta agenda de aula é própria e individual de <strong>{studentName}</strong>. Suas aulas são organizadas com acesso direto e seguro via Google Meet.
+          Esta agenda de aula é própria e individual de <strong>{studentName}</strong>. Exibindo apenas suas próximas aulas e sessões em andamento.
         </p>
       </div>
 
       {/* Main Student Lessons Section */}
       {loadingLessons ? (
-        <p className="text-sm text-cyan-200 text-center py-8">Carregando sua agenda...</p>
-      ) : lessonsError ? (
-        <p role="alert" className="text-sm text-rose-300 text-center py-8">{lessonsError}</p>
-      ) : upcomingLessons.length === 0 ? (
-        /* Empty State: Requested Message (Item 21) */
+        <div className="bg-[#131722] p-12 rounded-3xl border border-white/10 text-center flex items-center justify-center gap-3 text-slate-400">
+          <Loader2 size={20} className="animate-spin text-cyan-400" />
+          <span className="text-sm font-semibold">Sincronizando suas próximas aulas...</span>
+        </div>
+      ) : activeLessons.length === 0 ? (
         <div className="bg-[#131722] p-10 sm:p-14 rounded-3xl border border-white/10 shadow-2xl text-center space-y-5 animate-in fade-in">
           <div className="w-20 h-20 rounded-3xl bg-cyan-500/10 text-cyan-400 flex items-center justify-center mx-auto text-4xl shadow-inner border border-cyan-500/20">
             📅
           </div>
           <div className="space-y-2 max-w-md mx-auto">
             <h3 className="font-syne font-black text-2xl text-white">
-              Você ainda não possui aulas
+              Você ainda não possui aulas futuras
             </h3>
             <p className="text-sm text-slate-400 leading-relaxed">
-              No momento você ainda não possui aulas agendadas. Seus horários serão agendados pelo seu professor com um link exclusivo do Google Meet gerado para você entrar ao vivo.
+              No momento não há aulas agendadas ou em andamento para você. Novos horários marcados pelo seu professor aparecerão automaticamente aqui com o link do Google Meet.
             </p>
           </div>
 
@@ -1844,11 +1494,10 @@ const AgendaPage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* List of Scheduled Lessons for This Student */
         <div className="space-y-4">
           <div className="flex items-center justify-between flex-wrap gap-2">
             <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-              Suas Aulas Agendadas ({upcomingLessons.length})
+              Próximas Aulas Ativas ({activeLessons.length})
             </span>
             <button
               onClick={openPlansModal}
@@ -1860,7 +1509,7 @@ const AgendaPage: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {upcomingLessons.map((lesson) => (
+            {activeLessons.map((lesson) => (
               <div
                 key={lesson.id}
                 className="bg-[#131722] border border-cyan-500/30 rounded-3xl p-6 shadow-xl space-y-5 hover:border-cyan-400/60 transition-all"
@@ -1868,7 +1517,7 @@ const AgendaPage: React.FC = () => {
                 <div className="flex items-start justify-between gap-3">
                   <div className="space-y-1">
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[11px] font-bold border border-emerald-500/30">
-                      ✓ Aula Agendada
+                      ✓ Aula Confirmada
                     </span>
                     <h3 className="text-xl font-syne font-bold text-white pt-1">
                       {lesson.topic}
@@ -1877,8 +1526,6 @@ const AgendaPage: React.FC = () => {
                       Instrumento: <strong className="text-cyan-300">{lesson.instrument}</strong> • Professor: {lesson.instructor}
                     </p>
                   </div>
-
-
                 </div>
 
                 <div className="bg-[#0b0d14] p-4 rounded-2xl border border-white/10 space-y-2 text-xs text-slate-300">
@@ -1888,40 +1535,29 @@ const AgendaPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <Clock size={15} className="text-emerald-400" />
-                    <span>Horário: <strong className="text-white">{lesson.time}</strong></span>
+                    <span>Horário: <strong className="text-white">{lesson.time} (Brasília)</strong></span>
                   </div>
                   <div className="flex items-center gap-2">
                     <Video size={15} className="text-rose-400" />
-                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl || "Aguardando link do professor"}</strong></span>
+                    <span className="truncate">Google Meet: <strong className="text-cyan-400 font-mono text-[11px]">{lesson.googleMeetUrl}</strong></span>
                   </div>
                 </div>
 
-                {/^https:\/\/meet\.google\.com\/[a-z]{3}-[a-z]{4}-[a-z]{3}\/?$/.test(lesson.googleMeetUrl) ? (
-                  <a href={lesson.googleMeetUrl} target="_blank" rel="noopener noreferrer"
-                    className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2">
-                    <Video size={16} /> Entrar na Aula pelo Google Meet <ExternalLink size={13} />
-                  </a>
-                ) : (
-                  <div className="w-full py-3 rounded-2xl text-center text-xs text-amber-200 bg-white/5 border border-amber-500/20">
-                    O professor ainda não disponibilizou o link da aula.
-                  </div>
-                )}
+                <a
+                  href={lesson.googleMeetUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full py-3.5 rounded-2xl font-syne font-bold text-xs bg-gradient-to-r from-emerald-400 to-cyan-400 text-black hover:opacity-90 transition-all flex items-center justify-center gap-2 shadow-lg shadow-cyan-500/20 active:scale-95"
+                >
+                  <Video size={16} />
+                  <span>Entrar na Aula pelo Google Meet</span>
+                  <ExternalLink size={13} />
+                </a>
               </div>
             ))}
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-// 6. COMUNIDADE PAGE (Rede social completa tipo Facebook com fotos, vídeos e amigos)
-const ComunidadePage: React.FC = () => {
-  useSEO("Comunidade Tutti", "Conecte-se com alunos e músicos apaixonados: poste fotos, vídeos, faça amigos e compartilhe sua jornada.");
-
-  return (
-    <div className="space-y-6">
-      <CommunityFeed />
     </div>
   );
 };
@@ -2820,39 +2456,95 @@ const PerfilPage: React.FC = () => {
   );
 };
 
-const SubscriptionSync: React.FC<{ setUserPlan: (p: 'free' | 'pro' | 'ultra') => void }> = ({ setUserPlan }) => {
-  const { backendPlan, refreshSubscription } = useAuth();
+const SubscriptionSync: React.FC<{
+  setUserPlan: (p: 'free' | 'pro' | 'ultra') => void;
+  onStatusResult: (result: VerifyCheckoutSessionResult | null) => void;
+}> = ({ setUserPlan, onStatusResult }) => {
+  const { user, backendPlan, refreshProfile } = useAuth();
+  const { currentPath, queryParams, openPlansModal, showToast } = useAppRouter();
+  const handledOpenPlansRef = useRef(false);
+  const handledReturnRef = useRef<string | null>(null);
+
   useEffect(() => {
-    setUserPlan(backendPlan || 'free');
+    if (backendPlan) {
+      setUserPlan(backendPlan);
+    }
   }, [backendPlan, setUserPlan]);
+
   useEffect(() => {
-    const update=()=>{void refreshSubscription().catch(()=>undefined);};
-    window.addEventListener('focus',update);
-    // After Checkout redirect, Stripe's verified webhook may arrive slightly later.
-    // Re-read the server-side entitlement; never trust ?checkout=success itself.
-    const params=new URLSearchParams(window.location.search);
-    const delays=params.get('checkout')==='success'?[1500,5000,12000]:[];
-    const timers=delays.map(ms=>window.setTimeout(update,ms));
-    return ()=>{
-      window.removeEventListener('focus',update);
-      timers.forEach(id=>window.clearTimeout(id));
-    };
-  }, [refreshSubscription]);
+    if (queryParams.openPlans === '1' && user && !handledOpenPlansRef.current) {
+      handledOpenPlansRef.current = true;
+      openPlansModal();
+      try {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('openPlans');
+        url.searchParams.delete('checkout');
+        window.history.replaceState({}, '', url.pathname + (url.search || ''));
+      } catch {
+        // ignore
+      }
+    }
+  }, [queryParams.openPlans, user, openPlansModal]);
+
+  useEffect(() => {
+    // StudentSubscriptionArea já lida com /aluno?tab=assinatura
+    if (currentPath === '/aluno' && queryParams.tab === 'assinatura') return;
+
+    const statusParam = queryParams.status;
+    const sessionId = queryParams.session_id;
+    const key = `${statusParam || ''}|${sessionId || ''}`;
+    if (!statusParam && !sessionId) return;
+    if (handledReturnRef.current === key) return;
+    handledReturnRef.current = key;
+
+    if (statusParam === 'cancelled') {
+      onStatusResult({
+        status: 'cancelado',
+        message: 'Pagamento cancelado antes da conclusão. Nenhuma cobrança foi realizada.',
+      });
+      return;
+    }
+
+    if (statusParam === 'failed') {
+      onStatusResult({
+        status: 'falhou',
+        message: 'O pagamento não foi aprovado. Você pode tentar novamente nos planos ou falar com a Secretaria.',
+      });
+      return;
+    }
+
+    if (sessionId && user) {
+      verifyCheckoutSession(sessionId)
+        .then(async (result) => {
+          onStatusResult(result);
+          if (result.status === 'aprovado') {
+            await refreshProfile();
+            showToast('Assinatura ou acesso confirmado com sucesso!');
+          }
+        })
+        .catch((err: any) => {
+          onStatusResult({
+            status: 'pendente',
+            message: err?.message || 'Pagamento recebido e em validação automática.',
+          });
+        });
+    } else if (statusParam === 'success' || statusParam === 'paid') {
+      onStatusResult({
+        status: 'pendente',
+        message: 'Retorno do checkout recebido. Aguardando confirmação final da Stripe.',
+      });
+    }
+  }, [currentPath, queryParams.tab, queryParams.status, queryParams.session_id, user, onStatusResult, refreshProfile, showToast]);
+
   return null;
 };
 
 // --- APP SHELL AND PROVIDER ---
 export default function App() {
-  // Sync initial path with window.location.pathname so F5 refresh preserves the current page
+  // Sync initial path with window.location.pathname (with safe redirect for legacy /comunidade)
   const [currentPath, setCurrentPath] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      const p = window.location.pathname;
-      const validPaths = [
-        '/', '/aulas', '/partituras', '/estudio', '/agenda', 
-        '/comunidade', '/loja', '/perfil', '/auth', '/login', 
-        '/admin', '/professor', '/aluno'
-      ];
-      if (validPaths.includes(p)) return p;
+      return normalizeRoutePath(window.location.pathname);
     }
     return '/';
   });
@@ -2878,16 +2570,28 @@ export default function App() {
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [globalCheckoutBanner, setGlobalCheckoutBanner] = useState<VerifyCheckoutSessionResult | null>(null);
 
   // Tab State & Scroll Persistence across tabs
   const [visitedTabs, setVisitedTabs] = useState<Set<string>>(() => {
     const initial = new Set<string>(['/']);
     if (typeof window !== 'undefined') {
-      initial.add(window.location.pathname || '/');
+      initial.add(normalizeRoutePath(window.location.pathname));
     }
     return initial;
   });
   const tabScrollPositions = useRef<Record<string, number>>({});
+
+  // Redirecionar imediatamente qualquer acesso direto a /comunidade para /
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const raw = window.location.pathname || '/';
+      if (raw === '/comunidade' || raw.startsWith('/comunidade/')) {
+        window.history.replaceState({}, '', '/');
+        setCurrentPath('/');
+      }
+    }
+  }, []);
 
   // Screen theme state (Preto / Branco)
   const [theme, setTheme] = useState<'dark' | 'light'>(() => {
@@ -2912,7 +2616,11 @@ export default function App() {
   // Listen to browser Back / Forward buttons (popstate)
   useEffect(() => {
     const handlePopState = () => {
-      const p = window.location.pathname || '/';
+      const raw = window.location.pathname || '/';
+      const p = normalizeRoutePath(raw);
+      if (raw !== p && (raw === '/comunidade' || raw.startsWith('/comunidade/'))) {
+        window.history.replaceState({}, '', '/');
+      }
       const params: Record<string, string> = {};
       new URLSearchParams(window.location.search).forEach((val, key) => {
         params[key] = val;
@@ -2959,7 +2667,8 @@ export default function App() {
   });
 
   // Persistent navigation: saves scroll, retains page instances in DOM, syncs browser URL
-  const navigate = useCallback((path: string, params: Record<string, string> = {}) => {
+  const navigate = useCallback((rawPath: string, params: Record<string, string> = {}) => {
+    const path = normalizeRoutePath(rawPath);
     // 1. Save scroll position of current tab
     setCurrentPath(prevPath => {
       tabScrollPositions.current[prevPath] = window.scrollY;
@@ -3080,13 +2789,47 @@ export default function App() {
 
   return (
     <AuthProvider>
-      <SubscriptionSync setUserPlan={setUserPlan} />
       <RouterContext.Provider value={contextValue}>
+        <SubscriptionSync setUserPlan={setUserPlan} onStatusResult={setGlobalCheckoutBanner} />
 
-        <div className={`min-h-screen ${theme === 'light' ? 'bg-[#f8fafc] text-slate-900' : 'bg-[#0b0d14] text-slate-100'} flex flex-col pt-20 pb-20 xl:pb-8 selection:bg-cyan-500 selection:text-black transition-colors duration-300`}>
+        <div className={`min-h-screen ${theme === 'light' ? 'bg-[#f8fafc] text-slate-900' : 'bg-[#0b0d14] text-slate-100'} flex flex-col pt-20 pb-20 xl:pb-8 selection:bg-cyan-500 selection:text-black transition-colors duration-300 overflow-x-hidden`}>
           <Header />
           
           <main className="flex-1 w-full max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {globalCheckoutBanner && (
+              <div
+                className={`mb-6 p-4 rounded-2xl border flex items-start justify-between gap-3 ${
+                  globalCheckoutBanner.status === 'aprovado'
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-200'
+                    : globalCheckoutBanner.status === 'pendente'
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-200'
+                    : globalCheckoutBanner.status === 'cancelado'
+                    ? 'bg-slate-800/80 border-white/15 text-slate-200'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-200'
+                }`}
+              >
+                <div className="space-y-0.5 text-xs">
+                  <div className="font-syne font-black uppercase tracking-wider">
+                    {globalCheckoutBanner.status === 'aprovado'
+                      ? 'Pagamento Aprovado'
+                      : globalCheckoutBanner.status === 'pendente'
+                      ? 'Pagamento em Confirmação'
+                      : globalCheckoutBanner.status === 'cancelado'
+                      ? 'Checkout Cancelado'
+                      : 'Pagamento Não Concluído'}
+                  </div>
+                  <p>{globalCheckoutBanner.message}</p>
+                </div>
+                <button
+                  onClick={() => setGlobalCheckoutBanner(null)}
+                  className="p-1 rounded-lg hover:bg-white/10 text-current cursor-pointer"
+                  aria-label="Fechar aviso"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
+
             {/* Preserved tab instances in DOM: switching tabs does not restart or reload */}
             <div style={{ display: currentPath === '/' ? 'block' : 'none' }}>
               <HomePage />
@@ -3110,13 +2853,6 @@ export default function App() {
               <div style={{ display: currentPath === '/agenda' ? 'block' : 'none' }}>
                 <ProtectedRoute isActive={currentPath === '/agenda'} routeName="a sua Agenda de Aulas e Masterclasses">
                   <AgendaPage />
-                </ProtectedRoute>
-              </div>
-            )}
-            {visitedTabs.has('/comunidade') && (
-              <div style={{ display: currentPath === '/comunidade' ? 'block' : 'none' }}>
-                <ProtectedRoute isActive={currentPath === '/comunidade'} routeName="o Mural da Comunidade Musical Tutti">
-                  <ComunidadePage />
                 </ProtectedRoute>
               </div>
             )}
