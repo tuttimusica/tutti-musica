@@ -1000,7 +1000,7 @@ const AulasPage: React.FC = () => {
             {/* Lesson Title & Module Info */}
             <div>
               <div className="flex items-center gap-2 text-xs font-bold text-cyan-400 mb-1">
-                <span>{instrument.name}</span> • <span>Nível: {activeLesson.level}</span> • <span>Instrutor: {activeLesson.teacher}</span>
+                <span>{instrument.name}</span> • <span>Nível: {activeLesson.level}</span> • <span>Material de estudos Tutti</span>
               </div>
               <h1 className="text-3xl font-syne font-black text-white mb-2">{activeLesson.title}</h1>
               <p className="text-sm text-slate-300 leading-relaxed">{activeLesson.summary}</p>
