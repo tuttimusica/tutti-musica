@@ -100,9 +100,7 @@ export const useAuth = () => {
 
 // Authorized developer emails verified against backend rules
 export const AUTHORIZED_DEVELOPER_EMAILS = [
-  'eliandrolucas.el@gmail.com',
-  'eliandrolucas.EL@gmail.com'.toLowerCase(),
-  'desenvolvedor@tutti.mus.br'
+  'eliandrolucas.el@gmail.com'
 ];
 
 export function isAuthorizedDeveloperEmail(email?: string | null): boolean {
