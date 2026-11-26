@@ -67,7 +67,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
   const [viewerData, setViewerData] = useState<{ sheet: SheetMusic; pdfUrl: string | null; isPaidProtected: boolean } | null>(null);
 
   const teacherDisplayName = profile?.displayName || user?.user_metadata?.full_name || 'Professor(a) Tutti';
-  const teacherEmail = profile?.email || user?.email || 'professor@tutti.mus.br';
+  const teacherEmail = profile?.email || user?.email || '';
 
   const loadSheets = useCallback(async () => {
     try {
@@ -655,7 +655,7 @@ export const TeacherPanel: React.FC<TeacherPanelProps> = ({ onLogoutToAuth, onNa
                     required
                     value={formData.alunoNome}
                     onChange={e => setFormData({ ...formData, alunoNome: e.target.value })}
-                    placeholder="Ex: Rafael Drumond"
+                    placeholder="Nome completo do aluno"
                     className="w-full bg-[#131722] text-white border border-white/10 rounded-xl px-3.5 py-3 outline-none focus:border-emerald-400 text-xs"
                   />
                 </div>
