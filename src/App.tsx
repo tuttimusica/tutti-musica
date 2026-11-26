@@ -2344,66 +2344,44 @@ const PerfilPage: React.FC = () => {
   };
 
   const [isEditingProfile, setIsEditingProfile] = useState<boolean>(false);
-  const [profileName, setProfileName] = useState<string>(() => {
-    return localStorage.getItem('tutti_custom_display_name') || profile?.displayName || user?.user_metadata?.full_name || 'Rafael Drumond';
-  });
+  // Never reuse account A's local profile in account B's session.
+  // The database/user metadata is the source of truth for identity.
+  const profileCacheKey = (name: string) => user?.id ? `tutti_profile_${user.id}_${name}` : null;
+  const readOwnPreference = (name: string): string | null => {
+    const key = profileCacheKey(name);
+    if (!key || typeof window === 'undefined') return null;
+    return window.localStorage.getItem(key);
+  };
+  const [profileName, setProfileName] = useState<string>('');
   const maxBioLength = 350;
-  const [profileBio, setProfileBio] = useState<string>(() => {
-    return localStorage.getItem('tutti_custom_bio') || profile?.bio || 'Músico e estudante apaixonado por Saxofone Alto e Harmonia Brasileira. Praticando diariamente no Tutti ♪';
-  });
-  const [profileInstrument, setProfileInstrument] = useState<string>(() => {
-    return localStorage.getItem('tutti_custom_instrument') || profile?.currentInstrument || 'Saxofone Alto';
-  });
-
-  // Sync profile data when loaded from Supabase
+  const [profileBio, setProfileBio] = useState<string>('');
+  const [profileInstrument, setProfileInstrument] = useState<string>('');
   useEffect(() => {
-    if (profile?.displayName) setProfileName(profile.displayName);
-    if (profile?.bio) setProfileBio(profile.bio);
-    if (profile?.currentInstrument) setProfileInstrument(profile.currentInstrument);
-  }, [profile]);
+    // Reset the form whenever the authenticated identity changes.
+    // An unrelated user's preferences must never survive an account switch.
+    const ownProfile = profile?.id === user?.id ? profile : null;
+    setProfileName(ownProfile?.displayName || user?.user_metadata?.full_name ||
+      user?.user_metadata?.display_name || user?.email?.split('@')[0] || '');
+    setProfileBio(ownProfile?.bio || readOwnPreference('bio') || '');
+    setProfileInstrument(ownProfile?.currentInstrument || readOwnPreference('instrument') || '');
+  }, [user?.id, user?.email, profile]);
 
   const [archivedTab, setArchivedTab] = useState<'all' | 'photos' | 'videos'>('all');
-
-  // Load user posts from community feed
-  const [userArchivedPosts, setUserArchivedPosts] = useState<any[]>(() => {
-    try {
-      const saved = localStorage.getItem('tutti_community_posts');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        const filtered = parsed.filter((p: any) => p.isCurrentUser || p.author?.includes('Rafael') || p.author?.includes(profileName));
-        if (filtered.length > 0) return filtered;
-      }
-    } catch {
-      // fallback
-    }
-    // Default sample user archived publications
-    return [
-      {
-        id: 'u_post_1',
-        content: 'Treinando escalas pentatônicas e arpejos em Si Menor no Sax Alto. Timbre ficando muito mais encorpado e o ataque staccato bem limpo!',
-        imageUrl: '/assets/instruments/alto_sax.jpg',
-        timeAgo: 'Ontem às 18:40',
-        likes: 38,
-        comments: 5
-      },
-      {
-        id: 'u_post_2',
-        content: 'Execução do solo de Autumn Leaves com o play-along sincronizado do Tutti. Transição entre o ii-V-I maior e menor dominada!',
-        videoUrl: 'https://www.youtube.com/watch?v=PPHtQn3LjbQ',
-        timeAgo: 'Há 3 dias',
-        likes: 54,
-        comments: 11
-      }
-    ];
-  });
+  // No fabricated sample posts; archive stays empty until a real user source exists.
+  const [userArchivedPosts] = useState<any[]>([]);
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanName = profileName.trim();
     const cleanBio = profileBio.trim();
-    localStorage.setItem('tutti_custom_display_name', cleanName);
-    localStorage.setItem('tutti_custom_bio', cleanBio);
-    localStorage.setItem('tutti_custom_instrument', profileInstrument);
+    if (!user?.id) {
+      showToast('Faça login antes de atualizar seu perfil.');
+      return;
+    }
+    const bioKey = profileCacheKey('bio');
+    const instrumentKey = profileCacheKey('instrument');
+    if (bioKey) localStorage.setItem(bioKey, cleanBio);
+    if (instrumentKey) localStorage.setItem(instrumentKey, profileInstrument);
 
     try {
       await updateProfileData({
