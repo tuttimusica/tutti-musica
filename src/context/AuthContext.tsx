@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, SUPABASE_PROJECT_ID } from '../lib/supabase';
 
@@ -126,6 +126,7 @@ export function normalizeRole(roleString?: string | null, email?: string | null)
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const activeAuthUserId = useRef<string | null>(null);
   const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [backendPlan, setBackendPlan] = useState<'free' | 'pro' | 'ultra'>('free');
@@ -139,11 +140,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const syncSubscription = async (authUser: User | null) => {
     if (!authUser) {
-      setBackendPlan('free');
-      setHasActiveSubscription(false);
+      if (activeAuthUserId.current === null) {
+        setBackendPlan('free');
+        setHasActiveSubscription(false);
+      }
       return;
     }
 
+    if (activeAuthUserId.current !== authUser.id) return;
     if (isAuthorizedDeveloperEmail(authUser.email)) {
       setBackendPlan('ultra');
       setHasActiveSubscription(true);
@@ -171,12 +175,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         ['ultra', 'mensal', 'trimestral', 'semestral'].includes(s.plano_id?.toLowerCase())
       );
       const hasPro = valid.some((s) => s.plano_id?.toLowerCase() === 'pro');
+      if (activeAuthUserId.current !== authUser.id) return;
       setBackendPlan(hasUltra ? 'ultra' : hasPro ? 'pro' : 'free');
       setHasActiveSubscription(hasUltra || hasPro);
     } catch (e) {
       console.warn('Subscription sync notice:', e);
-      setBackendPlan('free');
-      setHasActiveSubscription(false);
+      if (activeAuthUserId.current === authUser.id) {
+        setBackendPlan('free');
+        setHasActiveSubscription(false);
+      }
     }
   };
 
@@ -328,11 +335,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           'Estudando no Tutti Escola de Música 🎶'
       };
 
-      setProfile(resolved);
+      if (activeAuthUserId.current === authUser.id) setProfile(resolved);
       return resolved;
     } catch (err) {
       console.warn('Profile sync note (Supabase):', err);
-      setProfile(fallbackProfile);
+      if (activeAuthUserId.current === authUser.id) setProfile(fallbackProfile);
       return fallbackProfile;
     }
   };
@@ -345,7 +352,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setProfile(null);
         return null;
       }
+      activeAuthUserId.current = targetUser.id;
       setUser(targetUser);
+      setProfile(null);
       const updated = await loadProfile(targetUser);
       await syncSubscription(targetUser);
       return updated;
@@ -419,6 +428,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.warn('Supabase session load error:', error);
         }
         const currentUser = session?.user ?? null;
+        activeAuthUserId.current = currentUser?.id ?? null;
+        setProfile(null);
+        setBackendPlan('free');
+        setHasActiveSubscription(false);
         setUser(currentUser);
 
         if (currentUser) {
@@ -445,6 +458,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (!isMounted) return;
       const currentUser = session?.user ?? null;
+      if (activeAuthUserId.current !== (currentUser?.id ?? null)) {
+        setProfile(null);
+        setBackendPlan('free');
+        setHasActiveSubscription(false);
+      }
+      activeAuthUserId.current = currentUser?.id ?? null;
       setUser(currentUser);
 
       if (currentUser) {
@@ -594,6 +613,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const res = await supabase.auth.signInWithPassword({ email: email.trim(), password: pass });
       if (!res.error && res.data.user) {
+        activeAuthUserId.current = res.data.user.id;
+        setProfile(null);
+        setBackendPlan('free');
+        setHasActiveSubscription(false);
         setUser(res.data.user);
         const loadedProfile = await loadProfile(res.data.user);
         await syncSubscription(res.data.user);
@@ -654,6 +677,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         // O backend cria o perfil básico em public.usuarios. A solicitação de professor
         // exige um fluxo separado após autenticação; não presumir criação automática.
         if (res.data.session) {
+          activeAuthUserId.current = res.data.user.id;
+          setProfile(null);
           setUser(res.data.user);
           await loadProfile(res.data.user);
         }
@@ -697,8 +722,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) {
       console.error('Supabase signOut error:', error);
     } finally {
+      activeAuthUserId.current = null;
       setUser(null);
       setProfile(null);
+      setBackendPlan('free');
+      setHasActiveSubscription(false);
     }
   };
 
