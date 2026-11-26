@@ -622,7 +622,7 @@ const HomePage: React.FC = () => {
                     {inst.name}
                   </h3>
                   <div className="text-xs text-slate-400 font-semibold mb-2">
-                    {inst.teacher} • <span className="text-emerald-400">{inst.tuning}</span>
+                    Programa de estudos Tutti • <span className="text-emerald-400">{inst.tuning}</span>
                   </div>
                   <p className="text-sm text-slate-300 line-clamp-2 leading-relaxed">
                     {inst.description}
