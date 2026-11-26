@@ -48,7 +48,7 @@ export interface StudentPanelProps {
 }
 
 export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNavigateHome }) => {
-  const { user, profile, logout, cancelarMarcacaoAula } = useAuth();
+  const { user, profile, logout, cancelarMarcacaoAula, backendPlan, hasActiveSubscription } = useAuth();
   const { navigate, showToast } = useAppRouter();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'assinatura' | 'aulas' | 'marcacoes' | 'partituras' | 'professores' | 'perfil'>(() => {
     try {
@@ -61,7 +61,11 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
   });
   const [isPlansModalOpen, setIsPlansModalOpen] = useState(false);
   const [searchPartituras, setSearchPartituras] = useState('');
-  const [studentBookings, setStudentBookings] = useState<LessonBooking[]>([]);
+  // The agenda snapshot is tied to the authenticated Supabase user UUID.
+  // It cannot be carried over to a different login.
+  const [bookingSnapshot, setBookingSnapshot] = useState<{
+    ownerId: string; rows: LessonBooking[]; verified: boolean
+  } | null>(null);
   const [studyMaterials, setStudyMaterials] = useState<DbPartitura[]>([]);
   const [sheetBundles, setSheetBundles] = useState<DbConjuntoPartituras[]>([]);
   const [unlockedSheetIds, setUnlockedSheetIds] = useState<Set<string>>(new Set());
@@ -84,22 +88,38 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
     }
   }, [user?.id]);
 
-  // Load real student bookings, study materials, and approved teachers from Supabase
+  // Load real student bookings, study materials, and approved teachers from Supabase.
   useEffect(() => {
+    let canceled = false;
+    const expectedUserId = user?.id ?? null;
+    setBookingSnapshot(null);
     async function loadData() {
       setLoading(true);
       try {
-        // 1. Real bookings for this student
-        if (user?.email) {
-          const { data: bookingsData } = await supabase
+        // 1. Verify the current authentication token before asking for lessons.
+        // Do not use any saved aggregate count or another user's cached session.
+        if (expectedUserId) {
+          const { data: authData, error: authError } = await supabase.auth.getUser();
+          if (canceled) return;
+          if (authError || authData.user?.id !== expectedUserId) {
+            console.warn('Agenda: sessão não corresponde à conta atual.');
+            return;
+          }
+          const { data: bookingsData, error: bookingsError } = await supabase
             .from('marcacoes_aulas')
             .select('*')
-            .eq('aluno_id', user.id)
+            .eq('aluno_id', expectedUserId)
+            .eq('status', 'agendada')
             .order('data_aula', { ascending: true });
-
-          if (bookingsData) {
-            setStudentBookings(bookingsData as LessonBooking[]);
+          if (canceled) return;
+          if (bookingsError) {
+            console.warn('Agenda do aluno indisponível:', bookingsError.code);
+            return;
           }
+          const ownRows = (bookingsData || []).filter(
+            (booking: LessonBooking) => booking.aluno_id === expectedUserId
+          ) as LessonBooking[];
+          setBookingSnapshot({ ownerId: expectedUserId, rows: ownRows, verified: true });
         }
 
         // 2. Real study materials & unlocked paid sheets
@@ -123,7 +143,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       } catch (e) {
         console.debug('Erro ao carregar dados do aluno no Supabase:', e);
       } finally {
-        setLoading(false);
+        if (!canceled) setLoading(false);
       }
     }
     loadData();
@@ -139,9 +159,10 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
       .subscribe();
 
     return () => {
+      canceled = true;
       supabase.removeChannel(channel);
     };
-  }, [user?.email, user?.id, loadPartiturasAndAccess]);
+  }, [user?.id, loadPartiturasAndAccess]);
 
   const toSheetMusic = (item: DbPartitura): SheetMusic => ({
     id: item.id,
@@ -220,7 +241,9 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
     const timer = window.setInterval(() => setScheduleNow(Date.now()), 30000);
     return () => window.clearInterval(timer);
   }, []);
-  const visibleStudentBookings = studentBookings.filter(booking => {
+  const visibleStudentBookings = (bookingSnapshot?.verified && bookingSnapshot.ownerId === user?.id
+    ? bookingSnapshot.rows : []).filter(booking => {
+    if (booking.aluno_id !== user?.id) return false;
     if (booking.status !== 'agendada') return false;
     const start = Date.parse(`${booking.data_aula}T${booking.hora_inicio}-03:00`);
     const duration = Math.max(1, Number(booking.duracao_minutos) || 60);
@@ -268,7 +291,7 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                   <h4 className="font-semibold text-sm text-white truncate">{profile?.displayName || 'Aluno Tutti'}</h4>
                   <p className="text-xs text-slate-400 truncate">{user?.email}</p>
                   <span className="inline-flex items-center gap-1 text-[10px] text-cyan-400 font-medium mt-0.5">
-                    <CheckCircle className="w-3 h-3" /> Matrícula Ativa
+                    <CheckCircle className="w-3 h-3" /> {hasActiveSubscription ? 'Plano Ativo' : 'Conta Gratuita'}
                   </span>
                 </div>
               </div>
@@ -361,19 +384,19 @@ export const StudentPanel: React.FC<StudentPanelProps> = ({ onLogoutToAuth, onNa
                     <span>Aulas Agendadas</span>
                     <Calendar className="w-4 h-4 text-amber-400" />
                   </div>
-                  <div className="text-3xl font-serif font-bold text-white mt-3">{visibleStudentBookings.length}</div>
+                  <div className="text-3xl font-serif font-bold text-white mt-3">{bookingSnapshot?.ownerId === user?.id && bookingSnapshot.verified ? visibleStudentBookings.length : '—'}</div>
                   <p className="text-xs text-slate-400 mt-1">Encontros com professores</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-cyan-500/30 transition">
                   <div className="flex items-center justify-between text-slate-400 text-xs uppercase font-mono">
-                    <span>Status da Matrícula</span>
+                    <span>Status do Acesso</span>
                     <Award className="w-4 h-4 text-cyan-400" />
                   </div>
                   <div className="text-xl font-bold text-emerald-400 mt-3 flex items-center gap-2">
-                    <CheckCircle className="w-5 h-5" /> Ativa & Regular
+                    <CheckCircle className="w-5 h-5" /> {hasActiveSubscription ? (backendPlan === 'ultra' ? 'Tutti Ultra Ativo' : 'Tutti Pro Ativo') : 'Plano Gratuito'}
                   </div>
-                  <p className="text-xs text-slate-400 mt-1">Acesso completo à plataforma</p>
+                  <p className="text-xs text-slate-400 mt-1">{hasActiveSubscription ? 'Conteúdos conforme o plano contratado' : 'Acesso aos recursos e partituras gratuitas'}</p>
                 </div>
 
                 <div className="p-5 rounded-2xl bg-[#0e141f] border border-white/10 hover:border-amber-500/30 transition">
